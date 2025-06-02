@@ -33,22 +33,6 @@ def get_n_color_palette(n: int, s=.85, v=.95) -> list:
         palette[0][i]=(h, s, v)
     return (ski.color.hsv2rgb( palette )*255).astype('uint8')[0].tolist()
 
-def display_mask_heatmaps( masks: Tensor ):
-    """ Display heapmap for the combined page masks (sum over boxes).
-    """
-    plt.imshow(torch.sum(masks, axis=0).permute(1,2,0).detach().numpy())
-    plt.show()
- 
-def display_line_masks_raw( preds: list[dict], box_threshold=.8, mask_threshold=.2 ):
-    """
-    For each page, for each box above the threshold, display the line masks in turn.
-    """
-    for msks,sc in [ (p['masks'].detach().numpy(),p['scores'].detach().numpy()) for p in preds ]:
-        print(len(msks))
-        for m in msks[sc>box_threshold]:
-            m = m[0]
-            plt.imshow( m*(m>mask_threshold) )
-            plt.show()
 
 def batch_visuals( inputs:list[Union[Tensor,dict,Path]], raw_maps: list[tuple[np.ndarray,dict]], color_count=-1, alpha=.4):
     """
@@ -110,6 +94,11 @@ def batch_visuals( inputs:list[Union[Tensor,dict,Path]], raw_maps: list[tuple[np
 
 def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path,str]=None, segfile_suffix:str='lines.pred.json', regions=True, alpha=.4 ):
     """ Render segmentation data on an image.
+    The segmentation dictionary is expected to have the following structure:
+    
+    ```
+    { 'regions': [ { 'boundary': [[x1,y1], ...,], 'lines': [ {'boundary': [[x1,y1], ...,] }, ... }]}
+    ```
 
     Args:
         img_path (Path): image file
@@ -127,6 +116,11 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
     bm_hw = np.zeros( img_hwc.shape[:2], dtype='bool' )
     with open( segfile, 'r' ) as segfile_in:
         segdict = json.load( segfile_in )
+        
+        if 'imageFilename' in segdict and 'imageHeight' in segdict and 'imageWidth' in segdict and (img_hwc.shape[0] != segdict['imageHeight'] or img_hwc.shape[1] != segdict['imageWidth']):
+            print("The size of the provided image ({}) does not match the image properties defined in the segmentation file for {}: aborting.".format(Path(img_path).name, segdict['imageFilename']))
+            return
+
         col_msk_hwc = np.zeros( img_hwc.shape, dtype=img_hwc.dtype )
         for reg in segdict['regions']:
             color_count = len(reg['lines'])
@@ -147,9 +141,8 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
         composed_img_array = img_complementary + col_msk_hwc
 
         plt.imshow( composed_img_array )
+        plt.title( Path(img_path).name )
         plt.show()
-
-
 
 
 def display_annotated_img( img: Tensor, target: dict, alpha=.4, color='g'):
@@ -182,7 +175,9 @@ def display_annotated_img( img: Tensor, target: dict, alpha=.4, color='g'):
 
 
 def img_rgb_to_binary( img_path: Path, alg='otsu' ):
-    
+    """
+    Binarize an image, with an algorithm of choice.
+    """
     color_img = ski.io.imread( img_path )
     img_gray = ski.color.rgb2gray( color_img )
     threshold_func = {
@@ -193,3 +188,22 @@ def img_rgb_to_binary( img_path: Path, alg='otsu' ):
     binary_mask = img_gray > threshold_mask
     return ski.util.img_as_ubyte( binary_mask )
 
+def display_mask_heatmaps( masks_chw: Tensor ):
+    """ Display heapmap for the combined page masks (sum over boxes).
+
+    Args:
+        masks_chw (Tensor): soft masks (C,H,W), with C the number of instances.
+    """
+    plt.imshow(torch.sum(masks, axis=0).permute(1,2,0).detach().numpy())
+    plt.show()
+ 
+def display_line_masks_raw( preds: list[dict], box_threshold=.8, mask_threshold=.2 ):
+    """
+    For each page, for each box above the threshold, display the line masks in turn.
+    """
+    for msks,sc in [ (p['masks'].detach().numpy(),p['scores'].detach().numpy()) for p in preds ]:
+        print(len(msks))
+        for m in msks[sc>box_threshold]:
+            m = m[0]
+            plt.imshow( m*(m>mask_threshold) )
+            plt.show()

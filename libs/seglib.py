@@ -147,8 +147,18 @@ def line_binary_mask_from_segmentation_dict( segmentation_dict: dict, polygon_ke
     Returns:
         Tensor: a flat boolean tensor with size (H,W)
     """
-
-    polygon_boundaries = [ line[polygon_key] for line in segmentation_dict['lines'] ]
+    # Two possible structures:
+    # 
+    # 1. Top-level list of lines  (no region or region'id as a line attribute)
+    polygon_boundaries = []
+    if 'lines' in segmentation_dict:
+        polygon_boundaries = [ line[polygon_key] for line in segmentation_dict['lines'] ]
+    # 2. Text lines are nested into regions
+    elif 'regions' in segmentation_dict:
+        for reg in segmentation_dict['regions']:
+            assert 'lines' in reg
+            for line in reg['lines']:
+                polygon_boundaries.append( line[polygon_key] )
 
     # create 2D boolean matrix
     mask_size = segmentation_dict['image_wh'][::-1]
@@ -291,7 +301,7 @@ def line_masks_from_img_json_files( img: str, segmentation_json: str, key='bound
     with Image.open(img, 'r') as img_wh, open( segmentation_json, 'r' ) as json_file:
         return line_masks_from_img_segmentation_dict( img_wh, json.load( json_file ), key=key)
 
-def line_masks_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dict: dict, key='boundary' ) -> List[Tuple[np.ndarray, np.ndarray]]:
+def line_masks_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dict: dict, polygon_key='boundary' ) -> List[Tuple[np.ndarray, np.ndarray]]:
     """From a segmentation dictionary describing polygons, return 
     the bounding box coordinates and the boolean masks.
 
@@ -303,7 +313,19 @@ def line_masks_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dic
         Tuple[np.ndarray,np.ndarray]: a pair of tensors: a tensor (N,4) of BB coordinates tuples,
             and a tensor (N,H,W) of page-wide line masks.
     """
-    polygon_boundaries = [ line[key] for line in segmentation_dict['lines'] ]
+    # Two possible structures:
+    # 
+    # 1. Top-level list of lines  (no region or region'id as a line attribute)
+    polygon_boundaries = []
+    if 'lines' in segmentation_dict:
+        polygon_boundaries = [ line[polygon_key] for line in segmentation_dict['lines'] ]
+    # 2. Text lines are nested into regions
+    elif 'regions' in segmentation_dict:
+        for reg in segmentation_dict['regions']:
+            assert 'lines' in reg
+            for line in reg['lines']:
+                polygon_boundaries.append( line[polygon_key] )
+
     img_hwc = np.asarray( img_whc )
 
     bbs = []

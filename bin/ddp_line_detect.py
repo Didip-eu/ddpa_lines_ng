@@ -176,9 +176,8 @@ if __name__ == "__main__":
 
             # keys from PageXML specs
             img_metadata = {
-                    'imageFilename': str(path.name),
-                    'imageHeight': img.size[1],
-                    'imageWidth': img.size[0],
+                    'imagename': str(path.name),
+                    'image_wh': list(img.size),
             }
 
             output_file_path_wo_suffix = path.parent.joinpath( f'{stem}.{args.appname}.pred' )
