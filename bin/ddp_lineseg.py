@@ -258,12 +258,12 @@ def post_process_two_maps( preds1: dict, preds2: dict, height: int, box_threshol
 
 def post_process( preds: dict, box_threshold=.9, mask_threshold=.25, orig_size=()):
     """
-    Compute lines from predictions.
+    Compute lines from predictions, by merging box masks.
 
     Args:
         preds (dict[str,torch.Tensor]): predicted dictionary for the page:
             - 'scores'(N) : box probs
-            - 'masks' (NHW): line heatmaps
+            - 'masks' (N1HW): line heatmaps
             - 'orig_size': if provided, masks are rescaled to the respective size
     Returns:
         tuple[ np.ndarray, list[tuple[int, list, float, list]]]: a pair with
@@ -281,6 +281,50 @@ def post_process( preds: dict, box_threshold=.9, mask_threshold=.25, orig_size=(
         page_wide_mask_1hw = ski.transform.resize( page_wide_mask_1hw, (1, orig_size[1], orig_size[0]))
 
     return get_morphology( page_wide_mask_1hw )
+
+
+
+def post_process_boxes( preds: dict, box_threshold=.9, mask_threshold=.1, orig_size=()):
+    """
+    Compute lines from predictions, by separate processing of box masks.
+
+    Args:
+        preds (dict[str,torch.Tensor]): predicted dictionary for the page:
+            - 'scores'(N) : box probs
+            - 'masks' (N1HW): line heatmaps
+            - 'orig_size': if provided, masks are rescaled to the respective size
+    Returns:
+        tuple[ np.ndarray, list[tuple[int, list, float, list]]]: a pair with
+            - labeled map(1,H,W)
+            - a list of line attribute dicts (label, centroid pt, area, polygon coords, ...)
+    """
+    # select masks with best box scores
+    print("preds['scores'].shape =", preds['scores'].shape)
+    print("preds['masks'].shape =", preds['masks'].shape)
+    best_masks = [ m.detach().numpy() for m in preds['masks'][preds['scores']>box_threshold]]
+    # threshold masks
+    masks = [ (m * (m > mask_threshold)).astype('bool') for m in best_masks ]
+    # in each mask, keep the largest CC
+    clean_masks = []
+    for m_1hw in masks:
+        print("m_1hw.shape =", m_1hw.shape, "dtype =", m_1hw.dtype)
+        labeled_msk_1hw = ski.measure.label( m_1hw, connectivity=2 )
+        reg_props = ski.measure.regionprops( labeled_msk_1hw )
+        max_label, _ = max([ (reg.label, reg.area) for reg in reg_props ], key=lambda t: t[1])
+        clean_masks.append( m_1hw * (labeled_msk_1hw == max_label))
+
+    # merge masks 
+    page_wide_mask_1hw = np.sum( clean_masks, axis=0 ).astype('bool')
+    plt.imshow( np.squeeze(np.sum( clean_masks, axis=0)) )
+    plt.show()
+    # optional: scale up masks to the original size of the image
+    if orig_size:
+        page_wide_mask_1hw = ski.transform.resize( page_wide_mask_1hw, (1, orig_size[1], orig_size[0]))
+
+    return get_morphology( page_wide_mask_1hw )
+
+
+
 
 def get_morphology( page_wide_mask_1hw: np.ndarray):
     """

@@ -1,4 +1,4 @@
-# Line Segmentation on charters 
+# Line segmentation on charters 
 
 Segmentation scripts, Kraken-free:
 
