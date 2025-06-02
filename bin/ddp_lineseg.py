@@ -508,8 +508,8 @@ if __name__ == '__main__':
 
     augRotate = tormentor.Rotate.override_distributions(radians=tormentor.Uniform((-math.radians(15), math.radians(15))))
     # first augmentation in the list is a pass-through
-    augChoice = tormentor.AugmentationChoice.create( [ tormentor.Identity, tormentor.Wrap, augRotate, tormentor.Perspective ] )
-    augChoice = augChoice.override_distributions(choice=tormentor.Categorical(probs=(.6,.15,.15,.1)))
+    augChoice = tormentor.AugmentationChoice.create( [ tormentor.Identity, tormentor.FlipHorizontal, tormentor.Wrap, augRotate, tormentor.Perspective ] )
+    augChoice = augChoice.override_distributions(choice=tormentor.Categorical(probs=(.6,.1,.1,.1,.1)))
     ds_train = tormentor.AugmentedDs( ds_train, augChoice, computation_device='cuda', augment_sample_function=augment_with_bboxes )
 
     dl_train = DataLoader( ds_train, batch_size=hyper_params['batch_size'], shuffle=True, collate_fn = lambda b: tuple(zip(*b)))
