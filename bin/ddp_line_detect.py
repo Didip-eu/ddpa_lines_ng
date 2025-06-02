@@ -63,7 +63,7 @@ p = {
         "mask_classes": [set(['Wr:OldText']), "Names of the seals-app regions on which lines are to be detected. Eg. '[Wr:OldText']. If empty (default), detection is run on the entire page."],
         "region_segmentation_suffix": [".seals.pred.json", "Regions are given by segmentation file that is <img name stem>.<suffix>."],
         "line_type": [("polygon","legacy_bbox"), "Line segmentation type: polygon = Kraken (CNN-inferred) baselines + polygons; legacy_bbox: legacy Kraken segmentation)"],
-        "output_format": [("json", "npy"), "Segmentation output: json=<JSON file>, npy=label map (HW)"],
+        "output_format": [("json", "npy", "stdout"), "Segmentation output: json=<JSON file>, npy=label map (HW), stdout=standard output."],
         'mask_threshold': [.25, "In the post-processing phase, threshold to use for line soft masks."],
 }
 
@@ -222,7 +222,9 @@ if __name__ == "__main__":
             output_file_path = Path(f'{output_file_path_wo_suffix}.{args.output_format}')
             logger.debug(f"Serializing segmentation for img.shape={img.size}")
 
-            # JSON file (work from dict)
+            if args.output_format == 'stdout':
+                print(json.dumps(segdict))
+                sys.exit()
             with open(output_file_path, 'w') as of:
                 if args.output_format == 'json':
                     segdict['image_wh']=img.size

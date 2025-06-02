@@ -6,7 +6,25 @@
 """
 A simple line segmenter/viewer that predicts lines on images and displays the result.
 
+Examples:
+
+    With image used as-is (no layout analysis), on-the-fly prediction and display:
+
+    ```
+    PYTHONPATH=. bin/ddp_lineseg_viewer.py -random 10 -model_path ./models/best_101_1024_bsz4.mlmodel -rescale 1 -img_paths ./dataset/*.jpg 
+    ```
+
+    Display an existing segmentation:
+
+    ```
+    PYTHONPATH=. bin/ddp_lineseg_viewer.py -random 10 -segfile_suffix lines.pred.json  -img_paths ./dataset/*.jpg
+    ```
+
 For proper segmentation and recording of a region-based segmentation (crops), see `ddp_line_detect.py`.'
+
+TODO:
+    - display an existing segmentation
+
 """
 
 # stdlib
@@ -23,7 +41,8 @@ import matplotlib.pyplot as plt
 import fargv
 
 # local
-sys.path.append( str(Path(__file__).parents[1] ))
+src_root = Path(__file__).parents[1]
+sys.path.append( str( src_root ))
 import ddp_lineseg as lsg
 from libs import segviz
 
@@ -45,6 +64,8 @@ p = {
     'color_count': [0, "Number of colors for polygon overlay: -1 for single color, n > 1 for fixed number of colors, 0 for 1 color/line."],
     'limit': [0, "How many files to display."],
     'random': [0, "If non-null, randomly pick <random> paths out of the <img_paths> list."],
+    'segfile_suffix': ['', "If a line segmentation suffix is provided (ex. 'lines.pred.json'), predicted lines are read from <img_path>.<suffix>."],
+    'segfile': ['', "If a line segmentation file is provided, predicted lines are read from this file."],
 }
 
 
@@ -53,7 +74,7 @@ if __name__ == '__main__':
     args, _ = fargv.fargv(p)
     logger.debug( args )
 
-    live_model = lsg.SegModel.load( args.model_path )
+    live_model = lsg.SegModel.load( args.model_path ) if (not args.segfile_suffix and not args.segfile) else None
 
     files = []
     if args.random:
@@ -63,25 +84,32 @@ if __name__ == '__main__':
 
     for img_path in files:
         logger.info(img_path)
-        start = time.time()
-        imgs_t, preds, sizes = lsg.predict( [img_path], live_model=live_model)
 
-        logger.debug("Inference time: {:.5f}s".format( time.time()-start))
+        if live_model:
+            start = time.time()
+            imgs_t, preds, sizes = lsg.predict( [img_path], live_model=live_model)
 
-        maps = []
-        start = time.time()
-        if args.rescale:
-            maps=[ lsg.post_process( p, orig_size=sz, mask_threshold=args.mask_threshold ) for (p,sz) in zip(preds,sizes) ]
-            mp, atts, path = segviz.batch_visuals( [img_path], maps, color_count=0 )[0]
+            logger.debug("Inference time: {:.5f}s".format( time.time()-start))
+
+            maps = []
+            start = time.time()
+            if args.rescale:
+                maps=[ lsg.post_process( p, orig_size=sz, mask_threshold=args.mask_threshold ) for (p,sz) in zip(preds,sizes) ]
+                mp, atts, path = segviz.batch_visuals( [img_path], maps, color_count=0 )[0]
+            else:
+                maps=[ lsg.post_process( p, mask_threshold=args.mask_threshold ) for p in preds ]
+                mp, atts, path = segviz.batch_visuals( [ {'img':imgs_t[0], 'id':str(img_path)} ], maps, color_count=0 )[0]
+            logger.debug("Rendering time: {:.5f}s".format( time.time()-start))
+
+            plt.imshow( mp )
+            plt.title( path )
+            for att_dict in atts:
+                label, centroid = att_dict['label'], att_dict['centroid']
+                plt.text(*centroid[:0:-1], label, size=15)
+            plt.show()
         else:
-            maps=[ lsg.post_process( p, mask_threshold=args.mask_threshold ) for p in preds ]
-            mp, atts, path = segviz.batch_visuals( [ {'img':imgs_t[0], 'id':str(img_path)} ], maps, color_count=0 )[0]
-        logger.debug("Rendering time: {:.5f}s".format( time.time()-start))
-
-        plt.imshow( mp )
-        plt.title( path )
-        for att_dict in atts:
-            label, centroid = att_dict['label'], att_dict['centroid']
-            plt.text(*centroid[:0:-1], label, size=15)
-        plt.show()
+            if args.segfile:
+                segviz.display_segmentation_and_img( img_path, segfile=args.segfile, regions=True )
+            else:
+                segviz.display_segmentation_and_img( img_path, segfile_suffix=args.segfile_suffix, regions=True )
 

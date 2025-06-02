@@ -1,16 +1,14 @@
-import numpy as np
 import random
+from typing import Union,Callable
+from pathlib import Path
+import json
+
+import numpy as np
 import matplotlib.pyplot as plt
 from torch import Tensor
-from typing import Union,Callable
-import skimage as ski
 from torchvision.tv_tensors import BoundingBoxes, Mask
-from pathlib import Path
+import skimage as ski
 
-
-
-
-random.seed(46)
 
 def get_n_color_palette(n: int, s=.85, v=.95) -> list:
     """
@@ -110,6 +108,49 @@ def batch_visuals( inputs:list[Union[Tensor,dict,Path]], raw_maps: list[tuple[np
     
     return list(zip(maps, attr, ids))
 
+def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path,str]=None, segfile_suffix:str='lines.pred.json', regions=True, alpha=.4 ):
+    """ Render segmentation data on an image.
+
+    Args:
+        img_path (Path): image file
+        segfile (Path): if not provided, look for a segmentation file that shares its prefix with the image.
+        regions (bool): draw a rectangle around the regions.
+    """
+
+    if segfile is None:
+        segfile = str(img_path).replace('.img.jpg', segfile_suffix) 
+    assert Path(segfile).exists()
+
+    #fig, ax = plt.subplots(1,1,figsize=(16,16),dpi=600)
+
+    img_hwc = ski.io.imread( img_path )/255.0
+    bm_hw = np.zeros( img_hwc.shape[:2], dtype='bool' )
+    with open( segfile, 'r' ) as segfile_in:
+        segdict = json.load( segfile_in )
+        col_msk_hwc = np.zeros( img_hwc.shape, dtype=img_hwc.dtype )
+        for reg in segdict['regions']:
+            color_count = len(reg['lines'])
+            colors = get_n_color_palette( color_count )
+            for l,line in enumerate(reg['lines']):
+                col = np.array(colors[l % len(colors) ])
+                rr,cc = (np.array(line['boundary']).T)[::-1]
+                polyg_coords = ski.draw.polygon( rr, cc )
+                col_msk_hwc[ polyg_coords ] = (col/255.0)
+                bm_hw[ polyg_coords ] = True
+            
+            if regions:
+                reg_closed_boundary = np.array( reg['boundary']+[reg['boundary'][0]])
+                plt.plot( reg_closed_boundary[:,0], reg_closed_boundary[:,1], linewidth=2)
+        col_msk_hwc *= alpha
+        bm_hw1 = bm_hw[:,:,None]
+        img_complementary = img_hwc * ( ~bm_hw1 + bm_hw1 * (1-alpha))
+        composed_img_array = img_complementary + col_msk_hwc
+
+        plt.imshow( composed_img_array )
+        plt.show()
+
+
+
 
 def display_annotated_img( img: Tensor, target: dict, alpha=.4, color='g'):
     """ Overlay of instance masks.
@@ -140,13 +181,6 @@ def display_annotated_img( img: Tensor, target: dict, alpha=.4, color='g'):
     plt.show()
 
 
-def gt_masks_to_labeled_map( masks: Mask ) -> np.ndarray:
-    """
-    Combine stacks of GT line masks (as in data annotations) into a single, labeled page-wide map.
-    """
-    return np.sum( np.stack([ m * lbl for (lbl,m) in enumerate(masks, start=1)]), axis=0)
-
-
 def img_rgb_to_binary( img_path: Path, alg='otsu' ):
     
     color_img = ski.io.imread( img_path )
@@ -158,3 +192,4 @@ def img_rgb_to_binary( img_path: Path, alg='otsu' ):
     threshold_mask = threshold_func[alg]( img_gray )
     binary_mask = img_gray > threshold_mask
     return ski.util.img_as_ubyte( binary_mask )
+

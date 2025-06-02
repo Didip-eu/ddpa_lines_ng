@@ -13,6 +13,7 @@ import skimage as ski
 import xml.etree.ElementTree as ET
 import torch
 from torch import Tensor
+from torchvision.tv_tensors import Mask
 import numpy as np
 import numpy.ma as ma
 
@@ -1134,6 +1135,14 @@ def mask_from_polygon_map_functional( polygon_map: Tensor, test: Callable) -> Te
         raise TypeError("Polygon map should have shape (4, m, n)")
 
     return torch.sum( test( polygon_map ), dim=0).type(torch.bool)
+
+
+
+def gt_masks_to_labeled_map( masks: Mask ) -> np.ndarray:
+    """
+    Combine stacks of GT line masks (as in data annotations) into a single, labeled page-wide map.
+    """
+    return np.sum( np.stack([ m * lbl for (lbl,m) in enumerate(masks, start=1)]), axis=0)
 
 
 def dummy():

@@ -53,10 +53,10 @@ import tormentor
 
 # local
 sys.path.append( str(Path(__file__).parents[1] ))
-from libs import segviz, seglib
+from libs import seglib
 
 
-logging.basicConfig( level=logging.DEBUG, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
+logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
 logger = logging.getLogger(__name__)
 #logger.propagate=False
 
@@ -641,7 +641,7 @@ if __name__ == '__main__':
         for i,sample in enumerate(list(ds_val)[:args.validation_set_limit] if args.validation_set_limit else ds_val):
             img, target = sample
             logger.debug(f'{i}: computing gt_map...', end='')
-            gt_map = segviz.gt_masks_to_labeled_map( target['masks'] )
+            gt_map = seglib.gt_masks_to_labeled_map( target['masks'] )
             logger.debug(f'computing pred_map...', end='')
             imgs, preds, _ = predict( [img], live_model=model ) 
             pred_map = np.squeeze(post_process( preds[0], mask_threshold=.2, box_threshold=.75 )[0]) 
