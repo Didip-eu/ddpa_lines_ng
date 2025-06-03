@@ -49,4 +49,4 @@ PYTHONPATH=. python3 ./bin/ddp_lineseg.py -mode validate -img_paths dataset/*.jp
 
 ## More examples
 
-The segmentation pipeline is still in progress: [cases to ponder upon](data/curiosities/view.md).
+The segmentation pipeline is still in progress: [cases to ponder upon](data/curiosities/README.md).
