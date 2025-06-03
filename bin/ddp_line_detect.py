@@ -46,7 +46,7 @@ sys.path.append( str( src_root ))
 from libs import seglib
 
 
-logging.basicConfig( level=logging.DEBUG, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
+logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
 logger = logging.getLogger(__name__)
 
 # tone down unwanted logging
@@ -90,8 +90,6 @@ def build_segdict( img_metadata, segmentation_record, contour_tolerance=4.0 ):
     line_id=0
     for att_dict in atts:
         label, polygon_coords, area, line_height, centerline = [ att_dict[k] for k in ('label','polygon_coords','area', 'line_height', 'centerline')]
-        #if label==1:
-        #    print(polygon_coords[:,1:], "shape=", polygon_coords[:,1:].shape)
         segdict['regions'][0]['lines'].append({ 
                 'id': f'l{line_id}', 
                 'boundary': ski.measure.approximate_polygon( polygon_coords[:,::-1], tolerance=contour_tolerance).tolist(),
@@ -124,7 +122,6 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, contour_
     segdict['regions']=[]
 
     region_id = 0
-    print('build_segdict_composite')
     for box, record in zip(boxes, segmentation_records):
         this_region_lines = []
         line_id = 0
@@ -158,7 +155,6 @@ if __name__ == "__main__":
             all_img_paths += charter_images
 
         args.img_paths = list(all_img_paths)
-        print("AFTER:",args.img_paths)
 
     logger.debug( args )
 
