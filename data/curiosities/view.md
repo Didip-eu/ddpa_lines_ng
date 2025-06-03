@@ -36,8 +36,18 @@ PYTHONPATH=. ./bin/ddp_lineseg_viewer.py -img_paths /home/nicolas/tmp/data/fsdb_
 ![](interrupted_lines_2.png)
 
 
+## First line not in old text
+
+```bash
+PYTHONPATH=. ./bin/ddp_line_detect.py -model_path models/best_101_1024_bsz4.mlmodel -img_paths /home/nicolas/tmp/data/fsdb_work/fsdb_full_text_sample_1000/PL-APL/4c1f48d641c5a90205cd03a912d947d8/cda4a2e73c6a4f51585f287b9976f77c/835aeaaa4050daed7d05ef38935f3f54.img.jpg -output_format stdout > data/curiosities/835aeaaa4050daed7d05ef38935f3f54.json
+
+PYTHONPATH=. python3 ./bin/ddp_lineseg_viewer.py  -img_paths data/curiosities/835aeaaa4050daed7d05ef38935f3f54.img.jpg -segfile_suffix lines.pred.json
+```
+
+![](old_text_limit.png)
+
 Generated with:
 
-```
+```bash
 pandoc view.md --highlight-style pygments --metadata title='Segmentation Study Cases' -s -o view.html
 ```
