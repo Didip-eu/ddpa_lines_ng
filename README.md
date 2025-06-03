@@ -2,7 +2,7 @@
 
 
 
-Segmentation scripts, Kraken-free:
+Line segmentation scripts, Kraken-free:
 
 ## Train and validate
 
@@ -22,8 +22,8 @@ PYTHONPATH=. python3 ./bin/ddp_lineseg.py -mode validate -img_paths dataset/*.jp
 ## Detect and visualize
 
 
-+ `ddp_line_detect.py` - for line detection on entire page, using an existing layout analysis (`*.seals.pred.json`), if it exists:
-  
++ `ddp_line_detect.py` - for line detection on entire page, using an existing [layout analysis](https://github.com/anguelos/ddpa_layout.git) (`*.seals.pred.json`), if it exists:
+
 
   ```sh
   PYTHONPATH=. ./bin/ddp_line_detect.py -model_path best.mlmodel -mask_classes Wr.OldText -img_paths data/*.jpg -img_paths data/examples/0042453de0344b72519e093c7b20d593.img.jpg -output_format json
@@ -33,7 +33,7 @@ PYTHONPATH=. python3 ./bin/ddp_lineseg.py -mode validate -img_paths dataset/*.jp
 
 
   ```sh
-  PYTHONPATH=. python3 ./bin/ddp_lineseg_viewer.py  -img_paths data/examples/0042453de0344b72519e093c7b20d593.img.jpg -segfile_suffix lines.pred.json
+  PYTHONPATH=. python3 ./bin/ddp_lineseg_viewer.py -img_paths data/examples/0042453de0344b72519e093c7b20d593.img.jpg -segfile_suffix lines.pred.json
   ```
 
   ![](data/examples/0042453de0344b72519e093c7b20d593.png)
