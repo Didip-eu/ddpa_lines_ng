@@ -44,6 +44,9 @@ PYTHONPATH=. python3 ./bin/ddp_lineseg.py -mode validate -img_paths dataset/*.jp
   PYTHONPATH=. ./bin/ddp_lineseg_viewer.py -model_path best.mlmodel -rescale 1 -img_paths data/examples/0042453de0344b72519e093c7b20d593.Wr_OldText.1.img.jpg
   ```
 
-
   ![](data/examples/0042453de0344b72519e093c7b20d593.Wr_OldText_1.png)
 
+
+## More examples
+
+The segmentation pipeline is still in progress: [cases to ponder upon](data/curiosities/view.md).
