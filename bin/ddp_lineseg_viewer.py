@@ -110,6 +110,6 @@ if __name__ == '__main__':
         else:
             if args.segfile:
                 segviz.display_segmentation_and_img( img_path, segfile=args.segfile, regions=True )
-            else:
+            elif args.segfile_suffix:
                 segviz.display_segmentation_and_img( img_path, segfile_suffix=args.segfile_suffix, regions=True )
 

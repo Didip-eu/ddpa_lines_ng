@@ -107,7 +107,7 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
     """
 
     if segfile is None:
-        segfile = str(img_path).replace('.img.jpg', segfile_suffix) 
+        segfile = str(img_path).replace('.img.jpg', f'.{segfile_suffix}') 
     assert Path(segfile).exists()
 
     #fig, ax = plt.subplots(1,1,figsize=(16,16),dpi=600)
