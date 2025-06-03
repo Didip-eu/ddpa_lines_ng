@@ -256,7 +256,7 @@ def post_process_two_maps( preds1: dict, preds2: dict, height: int, box_threshol
             'coords': att[3], 
             'axis_major_length': att[4]} for att in attributes ])
 
-def post_process( preds: dict, box_threshold=.9, mask_threshold=.25, orig_size=()):
+def post_process( preds: dict, box_threshold=.9, mask_threshold=.25, orig_size=(), centerlines=False):
     """
     Compute lines from predictions, by merging box masks.
 
@@ -280,11 +280,11 @@ def post_process( preds: dict, box_threshold=.9, mask_threshold=.25, orig_size=(
     if orig_size:
         page_wide_mask_1hw = ski.transform.resize( page_wide_mask_1hw, (1, orig_size[1], orig_size[0]))
 
-    return get_morphology( page_wide_mask_1hw )
+    return get_morphology( page_wide_mask_1hw, centerlines=centerlines )
 
 
 
-def post_process_boxes( preds: dict, box_threshold=.9, mask_threshold=.1, orig_size=()):
+def post_process_boxes( preds: dict, box_threshold=.9, mask_threshold=.1, orig_size=(), centerlines=False):
     """
     Compute lines from predictions, by separate processing of box masks.
 
@@ -321,12 +321,12 @@ def post_process_boxes( preds: dict, box_threshold=.9, mask_threshold=.1, orig_s
     if orig_size:
         page_wide_mask_1hw = ski.transform.resize( page_wide_mask_1hw, (1, orig_size[1], orig_size[0]))
 
-    return get_morphology( page_wide_mask_1hw )
+    return get_morphology( page_wide_mask_1hw, centerlines=centerlines )
 
 
 
 
-def get_morphology( page_wide_mask_1hw: np.ndarray):
+def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False):
     """
     From a page-wide line mask, extract a labeled map and a dictionary of features.
     
@@ -346,20 +346,27 @@ def get_morphology( page_wide_mask_1hw: np.ndarray):
     # list of line attribute tuples 
     attributes = sorted([ (reg.label, reg.centroid, reg.area ) for reg in line_region_properties ], key=lambda attributes: (attributes[1][1], attributes[1][2]))
     
-    # compute line heights and center lines from skeletons
-    page_wide_skeleton_hw = ski.morphology.skeletonize( page_wide_mask_1hw[0] )
-    _, distance = ski.morphology.medial_axis( page_wide_mask_1hw[0], return_distance=True )
-    labeled_skl = ski.measure.label( page_wide_skeleton_hw, connectivity=2)
-    logger.debug("Computed {} skeletons on 1HW binary map.".format( np.max( labeled_skl )))
-    skeleton_coords = [ reg.coords for reg in ski.measure.regionprops( labeled_skl ) ]
-    line_heights, polygon_coords = [], []
-    logger.debug("Computing line heights...")
-    for lbl in range(1, np.max(labeled_skl)+1):
-        line_skeleton_dist = page_wide_skeleton_hw * ( labeled_skl == lbl ) * distance 
-        logger.debug("- labeled skeleton {} of length {}".format(lbl, np.sum(line_skeleton_dist != 0) ))
-        line_heights.append( (np.mean(line_skeleton_dist[ line_skeleton_dist != 0])*2).item() )
+    max_label = np.max(labeled_msk_1hw[0]).item()
+    polygon_coords = []
+    line_heights = [-1] * max_label
+    skeleton_coords = [ [] for i in range(max_label) ]
+
+    for lbl in range( 1, max_label+1 ):
         polygon_coords.append( ski.measure.find_contours( labeled_msk_1hw[0] == lbl )[0].astype('int'))
-    assert len(line_heights) == len( line_region_properties ) 
+
+    if centerlines: 
+        page_wide_skeleton_hw = ski.morphology.skeletonize( page_wide_mask_1hw[0] )
+        _ , distance = ski.morphology.medial_axis( page_wide_mask_1hw[0], return_distance=True )
+        labeled_skl = ski.measure.label( page_wide_skeleton_hw, connectivity=2)
+        logger.debug("Computed {} skeletons on 1HW binary map.".format( np.max( labeled_skl )))
+        skeleton_coords = [ reg.coords for reg in ski.measure.regionprops( labeled_skl ) ]
+        line_heights = []
+        logger.debug("Computing line heights...")
+        for lbl in range(1, np.max(labeled_skl)+1):
+            line_skeleton_dist = page_wide_skeleton_hw * ( labeled_skl == lbl ) * distance 
+            logger.debug("- labeled skeleton {} of length {}".format(lbl, np.sum(line_skeleton_dist != 0) ))
+            line_heights.append( (np.mean(line_skeleton_dist[ line_skeleton_dist != 0])*2).item() )
+        assert len(line_heights) == len( line_region_properties ) 
 
     # CCs top-to-bottom ordering differ from BBs centroid ordering: usually hints
     # at messy, non-standard line layout

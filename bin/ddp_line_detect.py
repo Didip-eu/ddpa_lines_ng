@@ -46,7 +46,7 @@ sys.path.append( str( src_root ))
 from libs import seglib
 
 
-logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
+logging.basicConfig( level=logging.DEBUG, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
 logger = logging.getLogger(__name__)
 
 # tone down unwanted logging
@@ -62,7 +62,7 @@ p = {
         "charter_dirs": set(["./"]),
         "mask_classes": [set(['Wr:OldText']), "Names of the seals-app regions on which lines are to be detected. Eg. '[Wr:OldText']. If empty (default), detection is run on the entire page."],
         "region_segmentation_suffix": [".seals.pred.json", "Regions are given by segmentation file that is <img name stem>.<suffix>."],
-        "line_type": [("polygon","legacy_bbox"), "Line segmentation type: polygon = Kraken (CNN-inferred) baselines + polygons; legacy_bbox: legacy Kraken segmentation)"],
+        "centerlines": [0, "If True, compute centerlines (default is False)."],
         "output_format": [("json", "npy", "stdout"), "Segmentation output: json=<JSON file>, npy=label map (HW), stdout=standard output."],
         'mask_threshold': [.25, "In the post-processing phase, threshold to use for line soft masks."],
 }
@@ -94,7 +94,7 @@ def build_segdict( img_metadata, segmentation_record, contour_tolerance=4.0 ):
                 'id': f'l{line_id}', 
                 'boundary': ski.measure.approximate_polygon( polygon_coords[:,::-1], tolerance=contour_tolerance).tolist(),
                 'stroke_width': int(line_height),
-                'centerline': ski.measure.approximate_polygon( centerline[:,::-1], tolerance=contour_tolerance).tolist(),
+                'centerline': ski.measure.approximate_polygon( centerline[:,::-1], tolerance=contour_tolerance).tolist() if len(centerline) else [],
                 })
         line_id += 1
     return segdict
@@ -131,8 +131,8 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, contour_
             this_region_lines.append({
                 'id': f'r{region_id}l{line_id}',
                 'boundary': ski.measure.approximate_polygon( polygon_coords[:,::-1] + box[:2], tolerance=contour_tolerance).tolist(),
-                'stroke_width': int(line_height),
-                'centerline': ski.measure.approximate_polygon( centerline[:,::-1] + box[:2], tolerance=contour_tolerance).tolist(),
+                'stroke_width': int(line_height), 
+                'centerline': ski.measure.approximate_polygon( centerline[:,::-1] + box[:2], tolerance=contour_tolerance).tolist() if len(centerline) else [],
             })
             line_id += 1
         segdict['regions'].append( { 'id': region_id, 'type': 'text_region', 'boundary': [[box[0],box[1]],[box[2],box[1]],[box[2],box[3]],[box[0],box[3]]], 'lines': this_region_lines } )
@@ -200,7 +200,7 @@ if __name__ == "__main__":
                     # crop-based predictions: sizes are crops' sizes
                     imgs_t, preds, sizes = lsg.predict( list(crops_hwc), live_model=model )
                     # each segpage: label map, attribute, <image path or id>
-                    segmentation_records = [ lsg.post_process( p, orig_size=sz, mask_threshold=args.mask_threshold ) for (p,sz) in zip(preds,sizes) ]
+                    segmentation_records = [ lsg.post_process( p, orig_size=sz, mask_threshold=args.mask_threshold, centerlines=args.centerlines ) for (p,sz) in zip(preds,sizes) ]
                     label_map = np.squeeze( segmentation_records[0][0] )
                     segdict = build_segdict_composite( img_metadata, boxes, segmentation_records ) 
 
@@ -209,7 +209,7 @@ if __name__ == "__main__":
                 logger.info("Starting segmentation")
                 imgs_t, preds, sizes = lsg.predict( [img], live_model=model )
                 logger.info("Successful segmentation.")
-                segmentation_record = lsg.post_process( preds[0], orig_size=sizes[0], mask_threshold=args.mask_threshold )
+                segmentation_record = lsg.post_process( preds[0], orig_size=sizes[0], mask_threshold=args.mask_threshold, centerlines=args.centerlines )
                 label_map = np.squeeze( segmentation_record[0] )
                 segdict = build_segdict( img_metadata, segmentation_record )
 

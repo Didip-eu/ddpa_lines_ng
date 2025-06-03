@@ -62,6 +62,7 @@ p = {
     'rescale': [0, "If True, display segmentation on original image; otherwise (default), get the image size from the model used for inference (ex. 1024 x 1024)."],
     'img_paths': set(Path('dataset').glob('*.jpg')),
     'color_count': [0, "Number of colors for polygon overlay: -1 for single color, n > 1 for fixed number of colors, 0 for 1 color/line."],
+    "centerlines": [0, "If True, compute centerlines (default is False)."],
     'limit': [0, "How many files to display."],
     'random': [0, "If non-null, randomly pick <random> paths out of the <img_paths> list."],
     'segfile_suffix': ['', "If a line segmentation suffix is provided (ex. 'lines.pred.json'), predicted lines are read from <img_path>.<suffix>."],
@@ -94,10 +95,10 @@ if __name__ == '__main__':
             maps = []
             start = time.time()
             if args.rescale:
-                maps=[ lsg.post_process( p, orig_size=sz, mask_threshold=args.mask_threshold ) for (p,sz) in zip(preds,sizes) ]
+                maps=[ lsg.post_process( p, orig_size=sz, mask_threshold=args.mask_threshold, centerlines=args.centerlines ) for (p,sz) in zip(preds,sizes) ]
                 mp, atts, path = segviz.batch_visuals( [img_path], maps, color_count=0 )[0]
             else:
-                maps=[ lsg.post_process( p, mask_threshold=args.mask_threshold ) for p in preds ]
+                maps=[ lsg.post_process( p, mask_threshold=args.mask_threshold, centerlines=args.centerlines ) for p in preds ]
                 mp, atts, path = segviz.batch_visuals( [ {'img':imgs_t[0], 'id':str(img_path)} ], maps, color_count=0 )[0]
             logger.debug("Rendering time: {:.5f}s".format( time.time()-start))
 
