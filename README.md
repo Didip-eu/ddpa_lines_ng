@@ -2,6 +2,6 @@
 
 Segmentation scripts, Kraken-free:
 
-- Training script for Mask-RCNN
-- Segmentation library: metrics
-- Mini-apps: detection, validation, viewers
+- Training and validation script for Mask-RCNN
+- Segmentation library: data processing, metrics, visualization
+- Mini-apps: detection, viewers
