@@ -1,6 +1,8 @@
 
 # Segmentation: study cases
 
+Even with a satisfactory line detection, the following cases needs attention.
+
 ## Nested regions
 
 ```bash
@@ -11,6 +13,8 @@ PYTHONPATH=. ./bin/ddp_lineseg_viewer.py -img_paths data/curiosities/c078791a56c
 
 ![](nested_regions.png)
 
+
+TODO: in this case, inference on the outer box already detects all lines correctly; simply discard the smaller box.
 
 ## Interrupted lines
 
