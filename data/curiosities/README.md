@@ -1,7 +1,7 @@
 
 # Segmentation: study cases
 
-Even with a satisfactory line detection, the following cases needs attention.
+Even with a satisfactory line detection, the following cases need attention.
 
 ## Nested regions
 
