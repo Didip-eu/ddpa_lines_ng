@@ -65,7 +65,7 @@ p = {
     'max_epoch_force': [-1, "If non-negative, this overrides a 'max_epoch' value read from a resumed model"],
     'img_paths': set(list(Path("dataset").glob('*.img.jpg'))),
     'train_set_limit': [0, "If positive, train on a random sampling of the train set."],
-    'validation_set_limit': [0, "If positive, validate on a random sampling of the train set (only for 'validate' mode of the script, not for epoch-validation during training)."],
+    'validation_set_limit': [0, "If positive, validate on a random sampling of the validation set."],
     'line_segmentation_suffix': ".lines.gt.json",
     'polygon_type': 'coreBoundary',
     'backbone': ('resnet101','resnet50'),
@@ -83,6 +83,13 @@ p = {
     'reset_epochs': False,
     'resume_file': 'last.mlmodel',
     'dry_run': False,
+    'augmentations': [ set([]), "Pass one or more tormentor class names, to build a choice of training augmentations; by default, apply the hard-coded transformations."],
+}
+
+tormentor_dists = {
+        'Rotate': tormentor.Uniform((math.radians(-18.0), math.radians(18.0))),
+        'Perspective': (tormentor.Uniform((0.85, 1.25)), tormentor.Uniform((.85,1.25))),
+        'Wrap': (tormentor.Uniform((0.25, 0.65)), tormentor.Uniform((-0.36,1.06))),
 }
 
 random.seed(46)
@@ -325,7 +332,6 @@ def post_process_boxes( preds: dict, box_threshold=.9, mask_threshold=.1, orig_s
 
 
 
-
 def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False):
     """
     From a page-wide line mask, extract a labeled map and a dictionary of features.
@@ -383,14 +389,17 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False):
             } for att, lh, skc, plgc in zip(attributes, line_heights, skeleton_coords, polygon_coords) ])
 
 
-def split_set( *arrays, test_size=.2, random_state=46):
+def split_set( *arrays, limit=0, reserved_ratio=.2, random_state=46):
     random.seed( random_state)
     seq = range(len(arrays[0]))
-    train_set = set(random.sample( seq, int(len(arrays[0])*(1-test_size))))
-    test_set = set(seq) - train_set
+    train_set = set(random.sample( seq, int(len(arrays[0])*(1-reserved_ratio))))
+    reserved_set = set(seq) - train_set
+    if limit:
+        assert limit <= len(arrays[0])
+        train_set=set(random.sample( seq, limit))
     sets = []
     for a in arrays:
-        sets.extend( [[ a[i] for i in train_set ], [ a[j] for j in test_set ]] )
+        sets.extend( [[ a[i] for i in train_set ], [ a[j] for j in reserved_set ]] )
     return sets
 
 
@@ -522,6 +531,7 @@ if __name__ == '__main__':
         'polygon_type', 
         'backbone',
         'train_set_limit', 
+        'validation_set_limit',
         'lr','scheduler','scheduler_patience','scheduler_factor',
         'max_epoch','patience',)}
     
@@ -545,22 +555,48 @@ if __name__ == '__main__':
     model.hyper_parameters = hyper_params
 
     random.seed(46)
-    imgs = random.sample( list(args.img_paths), hyper_params['train_set_limit']) if hyper_params['train_set_limit'] else list(args.img_paths)
+    imgs = list(args.img_paths)
     lbls = [ str(img_path).replace('.img.jpg', args.line_segmentation_suffix) for img_path in imgs ]
 
     # split sets
     imgs_train, imgs_test, lbls_train, lbls_test = split_set( imgs, lbls )
     imgs_train, imgs_val, lbls_train, lbls_val = split_set( imgs_train, lbls_train )
 
+    if hyper_params['train_set_limit']:
+        imgs_train, _, lbls_train, _ = split_set( imgs_train, lbls_train, limit=hyper_params['train_set_limit'])
+    if hyper_params['validation_set_limit']:
+        imgs_val, _, lbls_val, _ = split_set( imgs_val, lbls_val, limit=hyper_params['validation_set_limit'])
+
     ds_train = LineDetectionDataset( imgs_train, lbls_train, img_size=hyper_params['img_size'] )
     ds_val = LineDetectionDataset( imgs_val, lbls_val, img_size=hyper_params['img_size'] )
     ds_test = LineDetectionDataset( imgs_test, lbls_test, img_size=hyper_params['img_size'] )
 
+    augChoice = None
+    if not args.augmentations:
+        augRotate = tormentor.Rotate.override_distributions(radians=tormentor.Uniform((-math.radians(15), math.radians(15))))
+        # first augmentation in the list is a pass-through
+        augChoice = tormentor.AugmentationChoice.create( [ tormentor.Identity, tormentor.FlipHorizontal, tormentor.Wrap, augRotate, tormentor.Perspective ] )
+        augChoice = augChoice.override_distributions(choice=tormentor.Categorical(probs=(.6,.1,.1,.1,.1)))
+    else:
+        def instantiate_aug( augname ):
+            aug_class = getattr( tormentor, augname )
+            if aug_class is tormentor.Rotate:
+                return aug_class.override_distributions(radians=tormentor_dists['Rotate'])
+            elif aug_class is tormentor.Perspective:
+                return aug_class.override_distributions(x_offset=tormentor_dists['Perspective'][0], y_offset=tormentor_dists['Perspective'][1])
+            elif aug_class is tormentor.Wrap:
+                return aug_class.override_distributions(roughness=tormentor_dists['Wrap'][0], intensity=tormentor_dists['Wrap'][1])
+            return aug_class
 
-    augRotate = tormentor.Rotate.override_distributions(radians=tormentor.Uniform((-math.radians(15), math.radians(15))))
-    # first augmentation in the list is a pass-through
-    augChoice = tormentor.AugmentationChoice.create( [ tormentor.Identity, tormentor.FlipHorizontal, tormentor.Wrap, augRotate, tormentor.Perspective ] )
-    augChoice = augChoice.override_distributions(choice=tormentor.Categorical(probs=(.6,.1,.1,.1,.1)))
+        augmentations = [ instantiate_aug(aug_name) for aug_name in args.augmentations ]
+        aug_count = len(augmentations)
+        dist = [.6]+([.4/aug_count] * aug_count)
+        augmentations.insert( 0, tormentor.Identity )
+        augChoice = tormentor.AugmentationChoice.create( augmentations ).override_distributions( choice=tormentor.Categorical(probs=dist))
+
+    logger.info(augChoice)
+    logger.info(augChoice.get_distributions())
+
     ds_train = tormentor.AugmentedDs( ds_train, augChoice, computation_device='cuda', augment_sample_function=augment_with_bboxes )
 
     dl_train = DataLoader( ds_train, batch_size=hyper_params['batch_size'], shuffle=True, collate_fn = lambda b: tuple(zip(*b)))
