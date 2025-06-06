@@ -65,6 +65,8 @@ p = {
         "centerlines": [0, "If True, compute centerlines (default is False)."],
         "output_format": [("json", "npy", "stdout"), "Segmentation output: json=<JSON file>, npy=label map (HW), stdout=standard output."],
         'mask_threshold': [.25, "In the post-processing phase, threshold to use for line soft masks."],
+        'patch_row_count': [ 0, "Process the image in <patch_row_count> rows."],
+        'patch_col_count': [ 0, "Process the image in <patch_col_count> cols."],
 }
 
 
@@ -98,48 +100,6 @@ def build_segdict( img_metadata, segmentation_record, contour_tolerance=4.0 ):
                 })
         line_id += 1
     return segdict
-
-
-def build_segdict_composite( img_metadata, boxes, segmentation_records, contour_tolerance=4.0):
-    """
-    Construct the region + line segmentation dictionary.
-
-    Args:
-        img_metadata (dict): original image's metadata.
-        boxes (list[tuple]): list of LTRB coordinate vectors, one for each region.
-        segmentation_records (list[tuple[np.ndarray, list[tuple]]]): a list of N tuples (one
-        per region) with
-            - label map (np.ndarray)
-            - a list of line attribute dicts (label, centroid pt, ..., area, polygon_coords)
-        contour_tolerance (float): value for contour approximation (default: 4)
-
-    Return:
-        dict: a segmentation dictionary
-    """
-    
-    segdict = { 'created': str(datetime.datetime.now()), 'creator': __file__, }
-    segdict.update( img_metadata )
-    segdict['regions']=[]
-
-    region_id = 0
-    for box, record in zip(boxes, segmentation_records):
-        this_region_lines = []
-        line_id = 0
-        _, atts = record
-        for att_dict in atts:
-            label, polygon_coords, area, line_height, centerline = [ att_dict[k] for k in ('label','polygon_coords','area','line_height', 'centerline')]
-            this_region_lines.append({
-                'id': f'r{region_id}l{line_id}',
-                'boundary': ski.measure.approximate_polygon( polygon_coords[:,::-1] + box[:2], tolerance=contour_tolerance).tolist(),
-                'stroke_width': int(line_height), 
-                'centerline': ski.measure.approximate_polygon( centerline[:,::-1] + box[:2], tolerance=contour_tolerance).tolist() if len(centerline) else [],
-            })
-            line_id += 1
-        segdict['regions'].append( { 'id': region_id, 'type': 'text_region', 'boundary': [[box[0],box[1]],[box[2],box[1]],[box[2],box[3]],[box[0],box[3]]], 'lines': this_region_lines } )
-        region_id += 1
-        
-    return segdict
-        
 
 
 if __name__ == "__main__":
@@ -187,6 +147,7 @@ if __name__ == "__main__":
                 raise FileNotFoundError("Could not find model file", args.model_path)
             model = lsg.SegModel.load( args.model_path )
             label_map = None
+            segdict = {}
 
             # Option 1: segment the region crops (from seals), and construct a page-wide file
             if len(args.mask_classes):
@@ -207,11 +168,32 @@ if __name__ == "__main__":
             # Option 2: single-file segmentation (an Wr:OldText crop, supposedly)
             else:
                 logger.info("Starting segmentation")
-                imgs_t, preds, sizes = lsg.predict( [img], live_model=model )
-                logger.info("Successful segmentation.")
-                segmentation_record = lsg.post_process( preds[0], orig_size=sizes[0], mask_threshold=args.mask_threshold, centerlines=args.centerlines )
-                label_map = np.squeeze( segmentation_record[0] )
-                segdict = build_segdict( img_metadata, segmentation_record )
+                # case 1: process entire image (no patches)
+                if args.patch_row_count and args.patch_col_count:
+                    # on each patch, predict and construct label map
+                    img_height, img_width = img.size[::-1]
+                    row_cuts_exact  = list(int(f) for f in np.linspace(0,img_height, args.patch_row_count))
+                    col_cuts_exact  = list(int(f) for f in np.linspace(0,img_width, args.patch_col_count))
+                    row_cuts_overlap = [ [r+30,r-30] if r and r<row_cuts_exact[-1] else r for r in row_cuts_exact ]
+                    col_cuts_overlap = [ [c+30,c-30] if c and c<col_cuts_exact[-1] else c for c in col_cuts_exact ]
+                    rows, cols = [ lu.group( lu.flatten( cut_overlap ), gs=2) for cut_overlap in (row_cuts_overlap, col_cuts_overlap) ]
+                    crops=[ lu.flatten(lst) for lst in itertools.product( rows, cols )]
+                    img_hwc = np.array( img )
+                    img_crops = [ img_hwc[ crop[0]:crop[1], crop[2]:crop[3] ] for crop in crops ]
+                    crops_t, crop_preds, crop_sizes = lsg.predict( img_crops, live_model=model )
+                    segmentation_records = [ lsg.post_process( p, orig_size=sz, mask_threshold=args.mask_threshold, centerlines=args.centerlines )     for (p,sz) in zip(crop_preds,crop_sizes) ]
+
+
+
+                    # stitch the maps and label again
+                    # build the dictionary from image-wide map
+                    
+                else:
+                    imgs_t, preds, sizes = lsg.predict( [img], live_model=model )
+                    logger.info("Successful segmentation.")
+                    segmentation_record = lsg.post_process( preds[0], orig_size=sizes[0], mask_threshold=args.mask_threshold, centerlines=args.centerlines )
+                    label_map = np.squeeze( segmentation_record[0] )
+                    segdict = build_segdict( img_metadata, segmentation_record )
 
             ############ 3. Handing the output #################
             output_file_path = Path(f'{output_file_path_wo_suffix}.{args.output_format}')

@@ -463,9 +463,9 @@ def predict( imgs: list[Union[str,Path,Image.Image,Tensor,np.ndarray]], live_mod
             imgs_live = [ Image.open(img).convert('RGB') for img in imgs ]
         elif isinstance(imgs[0], Image.Image) or type(imgs[0]) is np.ndarray:
             imgs_live = imgs
-        imgs, orig_sizes = zip(*[ (tsf(img), img.size) for img in imgs_live ])
+        imgs, orig_sizes = zip(*[ (tsf(img), (img.size)) for img in imgs_live ])
     else:
-        orig_sizes = [ img.shape[:0:-1] for img in imgs ]
+        imgs, orig_sizes = [ tsf(img) for img in imgs ], [ img.shape[:0:-1] for img in imgs ]
         
     return (imgs, model.net( imgs ), orig_sizes)
     
