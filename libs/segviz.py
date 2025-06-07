@@ -110,7 +110,8 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
         segfile = str(img_path).replace('.img.jpg', f'.{segfile_suffix}') 
     assert Path(segfile).exists()
 
-    #fig, ax = plt.subplots(1,1,figsize=(16,16),dpi=600)
+    plt.close()
+    fig, ax = plt.subplots()
 
     img_hwc = ski.io.imread( img_path )/255.0
     bm_hw = np.zeros( img_hwc.shape[:2], dtype='bool' )
@@ -132,7 +133,7 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
                 col_msk_hwc[ polyg_coords ] = (col/255.0)
                 bm_hw[ polyg_coords ] = True
             
-            if regions and 'bounday' in reg:
+            if regions and 'boundary' in reg:
                 reg_closed_boundary = np.array( reg['boundary']+[reg['boundary'][0]])
                 plt.plot( reg_closed_boundary[:,0], reg_closed_boundary[:,1], linewidth=2)
         col_msk_hwc *= alpha
