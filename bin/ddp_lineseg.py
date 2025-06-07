@@ -205,65 +205,7 @@ def augment_with_bboxes( sample, aug, device ):
     return (img, target)
 
 
-def post_process_two_maps( preds1: dict, preds2: dict, height: int, box_threshold=.9, mask_threshold=.25, orig_size=()):
-    """
-    NOT FUNCTIONAL Compute lines out of two prediction sets.
-
-    Args:
-        preds1 (dict[str,torch.Tensor]): predicted dictionary for the top of the page:
-            - 'scores'(N) : box probs
-            - 'masks' (NHW): line heatmaps
-            - 'orig_size': if provided, masks are rescaled to the respective size
-        preds2 (dict[str,torch.Tensor]): predicted dictionary for the bottom of the page:
-        offset (int): height ratio of patch wr/ original image
-    Returns:
-        tuple[ np.ndarray, list[tuple[int, list, float, list]]]: a pair with
-            - labeled map(1,H,W)
-            - a list of line attribute dicts (label, centroid pt, area, polygon coords.)
-    """
-    # select masks with best box scores
-    best_masks_1 = [ m.detach().numpy() for m in preds1['masks'][preds1['scores']>box_threshold]]
-    best_masks_2 = [ m.detach().numpy() for m in preds2['masks'][preds2['scores']>box_threshold]]
-    # threshold masks
-    masks_1 = [ m * (m > mask_threshold) for m in best_masks_1 ]
-    masks_2 = [ m * (m > mask_threshold) for m in best_masks_2 ]
-    print("masks_1.shape=",masks_1[0].shape)
-    print("masks_2.shape=",masks_1[0].shape)
-
-    # merge line masks in each patch
-    page_wide_mask_1 = np.sum( masks_1, axis=0 ).astype('bool')
-    page_wide_mask_2 = np.sum( masks_1, axis=0 ).astype('bool')
-    print("page_wide_mask_1.shape=",page_wide_mask_1.shape)
-    print("page_wide mask_2.shape=",page_wide_mask_2.shape)
-
-    # combine 2 overlapping masks
-    patch_height, patch_width = page_wide_mask_1.shape[1:]
-    page_wide_mask = np.zeros( (1, height, patch_width ))
-    page_wide_mask[:,:patch_height]=page_wide_mask_1
-    page_wide_mask[:,patch_height:]=page_wide_mask_2
-
-    # optional: scale up masks to the original size of the image
-    if orig_size:
-        page_wide_mask = ski.transform.resize( page_wide_mask, (1, orig_size[1], orig_size[0]))
-
-    # label components
-    labeled_msk = ski.measure.label( page_wide_mask, connectivity=1 )
-    
-    # sort label from top to bottom (using centroids of labeled regions)
-    # note: labels are [1,H,W]. Accordingly, centroids are 3-tuples.
-    region_properties = ski.measure.regionprops( labeled_msk )
-    # last attribute is an estimate of the line height (Area/<major-axis length>)
-    attributes = sorted([ (reg.label, reg.centroid, reg.area, reg.coords, reg.axis_major_length) for reg in region_properties ], key=lambda attributes: (attributes[1][1], attributes[1][2]))
-    if [ att[0] for att in attributes ] != list(range(1, np.max(labeled_msk)+1)):
-        print("Labels do not follow reading order")
-    return (labeled_msk, 
-            [ {'label': att[0], 
-            'centroid': att[1], 
-            'area': att[2], 
-            'coords': att[3], 
-            'axis_major_length': att[4]} for att in attributes ])
-
-def post_process( preds: dict, box_threshold=.9, mask_threshold=.25, orig_size=(), centerlines=False):
+def post_process( preds: dict, box_threshold=.9, mask_threshold=.25, orig_size=()):
     """
     Compute lines from predictions, by merging box masks.
 
@@ -273,9 +215,7 @@ def post_process( preds: dict, box_threshold=.9, mask_threshold=.25, orig_size=(
             - 'masks' (N1HW): line heatmaps
             - 'orig_size': if provided, masks are rescaled to the respective size
     Returns:
-        tuple[ np.ndarray, list[tuple[int, list, float, list]]]: a pair with
-            - labeled map(1,H,W)
-            - a list of line attribute dicts (label, centroid pt, area, polygon coords, ...)
+         np.ndarray: labeled map (1,H,W)
     """
     # select masks with best box scores
     best_masks = [ m.detach().numpy() for m in preds['masks'][preds['scores']>box_threshold]]
@@ -286,12 +226,10 @@ def post_process( preds: dict, box_threshold=.9, mask_threshold=.25, orig_size=(
     # optional: scale up masks to the original size of the image
     if orig_size:
         page_wide_mask_1hw = ski.transform.resize( page_wide_mask_1hw, (1, orig_size[1], orig_size[0]))
-
-    return get_morphology( page_wide_mask_1hw, centerlines=centerlines )
-
+    return page_wide_mask_1hw
 
 
-def post_process_boxes( preds: dict, box_threshold=.9, mask_threshold=.1, orig_size=(), centerlines=False):
+def post_process_boxes( preds: dict, box_threshold=.9, mask_threshold=.1, orig_size=()):
     """
     Compute lines from predictions, by separate processing of box masks.
 
@@ -328,8 +266,7 @@ def post_process_boxes( preds: dict, box_threshold=.9, mask_threshold=.1, orig_s
     if orig_size:
         page_wide_mask_1hw = ski.transform.resize( page_wide_mask_1hw, (1, orig_size[1], orig_size[0]))
 
-    return get_morphology( page_wide_mask_1hw, centerlines=centerlines )
-
+    return page_wide_mask_1w
 
 
 def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False):

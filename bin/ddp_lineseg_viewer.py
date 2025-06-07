@@ -33,9 +33,13 @@ import time
 import sys
 import random
 import logging
+import itertools
 
 # 3rd party
 import matplotlib.pyplot as plt
+from PIL import Image
+import numpy as np
+import torch
 
 # DiDip
 import fargv
@@ -44,7 +48,7 @@ import fargv
 src_root = Path(__file__).parents[1]
 sys.path.append( str( src_root ))
 import ddp_lineseg as lsg
-from libs import segviz
+from libs import segviz, list_utils as lu
 
 
 
@@ -62,12 +66,45 @@ p = {
     'rescale': [0, "If True, display segmentation on original image; otherwise (default), get the image size from the model used for inference (ex. 1024 x 1024)."],
     'img_paths': set(Path('dataset').glob('*.jpg')),
     'color_count': [0, "Number of colors for polygon overlay: -1 for single color, n > 1 for fixed number of colors, 0 for 1 color/line."],
-    "centerlines": [0, "If True, compute centerlines (default is False)."],
     'limit': [0, "How many files to display."],
     'random': [0, "If non-null, randomly pick <random> paths out of the <img_paths> list."],
     'segfile_suffix': ['', "If a line segmentation suffix is provided (ex. 'lines.pred.json'), predicted lines are read from <img_path>.<suffix>."],
     'segfile': ['', "If a line segmentation file is provided, predicted lines are read from this file."],
+    'patch_row_count': [ 0, "Process the image in <patch_row_count> rows."],
+    'patch_col_count': [ 0, "Process the image in <patch_col_count> cols."],
 }
+
+
+
+def label_map_from_patches( img: Image.Image, row_count=2, col_count=1, overlap=50, model=None):
+    """
+    Construct a single label map from predictions on <row_count>x<col_count> patches.
+
+    Args:
+        img (Image.Image): a PIL image.
+        row_count (int): number of rows.
+        col_count (int): number of cols.
+        overlap (int): overlap between patches (in pixels)
+
+    Returns:
+        np.ndarray: a (1,H,W) label map.
+    """
+    assert model is not None
+    logger.info("row_count={}, col_count={}".format(row_count, col_count))
+    row_cuts_exact, col_cuts_exact  = [ list(int(f) for f in np.linspace(0, dim, d)) for dim, d in ((img.height, row_count+1), (img.width, col_count+1)) ]
+    row_cuts, col_cuts = [[[ c+overlap, c-overlap] if c and c<cuts[-1] else c for c in cuts ] for cuts in ( row_cuts_exact, col_cuts_exact ) ]
+    rows, cols = [ lu.group( lu.flatten( cut ), gs=2) for cut in (row_cuts, col_cuts) ]
+    crops_yyxx=[ lu.flatten(lst) for lst in itertools.product( rows, cols ) ]
+    logger.info(crops_yyxx)
+    img_hwc = np.array( img )
+    img_crops = [ torch.from_numpy(img_hwc[ crop[0]:crop[1], crop[2]:crop[3] ]).permute(2,0,1) for crop in crops_yyxx ]
+    crops_t, crop_preds, crop_sizes = lsg.predict( img_crops, live_model=model )
+    page_mask = np.zeros((crops_yyxx[-1][1],crops_yyxx[-1][3]), dtype='bool')
+    for i in range(len(crops_yyxx)):
+        t,b,l,r = crops_yyxx[i]
+        page_mask[t:b, l:r] += lsg.post_process( crop_preds[i], orig_size=crop_sizes[i], mask_threshold=.2 )[0]
+    return page_mask[None,:]
+
 
 
 if __name__ == '__main__':
@@ -94,12 +131,25 @@ if __name__ == '__main__':
 
             maps = []
             start = time.time()
-            if args.rescale:
-                maps=[ lsg.post_process( p, orig_size=sz, mask_threshold=args.mask_threshold, centerlines=args.centerlines ) for (p,sz) in zip(preds,sizes) ]
-                mp, atts, path = segviz.batch_visuals( [img_path], maps, color_count=0 )[0]
+            if args.patch_row_count:
+                path_col_count = args.patch_col_count if args.patch_col_count else 1
+                logger.debug("Patches; imgs_t[0].shape = {}".format( imgs_t[0].shape ))
+                
+                label_mask = label_map_from_patches( Image.open(img_path), args.patch_row_count, args.patch_col_count, model=live_model )
+                logger.debug("label_mask.shape={}".format(label_mask.shape))
+                segmentation_record = lsg.get_morphology( label_mask, centerlines=False)
+                logger.debug("segmentation_record[0].shape={}".format(segmentation_record[0].shape))
+                mp, atts, path = segviz.batch_visuals( [img_path], [segmentation_record], color_count=0 )[0]
+            elif args.rescale:
+                logger.debug("Rescale")
+                label_mask = lsg.post_process( preds[0], orig_size=sizes[0], mask_threshold=args.mask_threshold )
+                logger.debug("label_mask.shape={}".format(label_mask.shape))
+                segmentation_record = lsg.get_morphology( label_mask, centerlines=False)
+                mp, atts, path = segviz.batch_visuals( [img_path], [segmentation_record], color_count=0 )[0]
             else:
-                maps=[ lsg.post_process( p, mask_threshold=args.mask_threshold, centerlines=args.centerlines ) for p in preds ]
-                mp, atts, path = segviz.batch_visuals( [ {'img':imgs_t[0], 'id':str(img_path)} ], maps, color_count=0 )[0]
+                logger.debug("Square")
+                segmentation_records= lsg.get_morphology( lsg.post_process( preds[0], mask_threshold=args.mask_threshold )) 
+                mp, atts, path = segviz.batch_visuals( [ {'img':imgs_t[0], 'id':str(img_path)} ], [segmentation_records], color_count=0 )[0]
             logger.debug("Rendering time: {:.5f}s".format( time.time()-start))
 
             plt.imshow( mp )

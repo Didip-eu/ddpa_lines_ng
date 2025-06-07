@@ -132,7 +132,7 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
                 col_msk_hwc[ polyg_coords ] = (col/255.0)
                 bm_hw[ polyg_coords ] = True
             
-            if regions:
+            if regions and 'bounday' in reg:
                 reg_closed_boundary = np.array( reg['boundary']+[reg['boundary'][0]])
                 plt.plot( reg_closed_boundary[:,0], reg_closed_boundary[:,1], linewidth=2)
         col_msk_hwc *= alpha
