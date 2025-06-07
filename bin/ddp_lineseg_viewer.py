@@ -6,6 +6,10 @@
 """
 A simple line segmenter/viewer that predicts lines on images and displays the result.
 
+A segmenter just for the eyes, or a viewer that can segment if needed: it stands by itself, with no regard for export functionalities.
+For proper segmentation and recording of a region-based segmentation (crops), see `ddp_line_detect.py`, that is meant
+to included into an HTR pipeline.
+
 Examples:
 
     With image used as-is (no layout analysis), on-the-fly prediction and display:
@@ -20,10 +24,14 @@ Examples:
     PYTHONPATH=. bin/ddp_lineseg_viewer.py -random 10 -segfile_suffix lines.pred.json  -img_paths ./dataset/*.jpg
     ```
 
+    High-quality segmentation of a COUS (Charter of Unusual Size), running inference separately on 3x1 patches:
+
+    ```
+    PYTHONPATH=. bin/ddp_lineseg_viewer.py -img_paths data/hard_cases/591e0762397178ee89e4c8b356be0da3.Wr_OldText.3.img.jpg -model_path ./models/best_101_1024_bsz4.mlmodel -patch_row_count 3
+    ```
+
 For proper segmentation and recording of a region-based segmentation (crops), see `ddp_line_detect.py`.'
 
-TODO:
-    - display an existing segmentation
 
 """
 
@@ -125,31 +133,30 @@ if __name__ == '__main__':
 
         if live_model:
             start = time.time()
-            imgs_t, preds, sizes = lsg.predict( [img_path], live_model=live_model)
-
-            logger.debug("Inference time: {:.5f}s".format( time.time()-start))
-
-            maps = []
+            mp, atts, path = None, None, None
             start = time.time()
             if args.patch_row_count:
                 path_col_count = args.patch_col_count if args.patch_col_count else 1
-                logger.debug("Patches; imgs_t[0].shape = {}".format( imgs_t[0].shape ))
-                
+                logger.debug("Patches")
                 label_mask = label_map_from_patches( Image.open(img_path), args.patch_row_count, args.patch_col_count, model=live_model )
+                logger.debug("Inference time: {:.5f}s".format( time.time()-start))
                 logger.debug("label_mask.shape={}".format(label_mask.shape))
                 segmentation_record = lsg.get_morphology( label_mask, centerlines=False)
                 logger.debug("segmentation_record[0].shape={}".format(segmentation_record[0].shape))
                 mp, atts, path = segviz.batch_visuals( [img_path], [segmentation_record], color_count=0 )[0]
-            elif args.rescale:
-                logger.debug("Rescale")
-                label_mask = lsg.post_process( preds[0], orig_size=sizes[0], mask_threshold=args.mask_threshold )
-                logger.debug("label_mask.shape={}".format(label_mask.shape))
-                segmentation_record = lsg.get_morphology( label_mask, centerlines=False)
-                mp, atts, path = segviz.batch_visuals( [img_path], [segmentation_record], color_count=0 )[0]
             else:
-                logger.debug("Square")
-                segmentation_records= lsg.get_morphology( lsg.post_process( preds[0], mask_threshold=args.mask_threshold )) 
-                mp, atts, path = segviz.batch_visuals( [ {'img':imgs_t[0], 'id':str(img_path)} ], [segmentation_records], color_count=0 )[0]
+                imgs_t, preds, sizes = lsg.predict( [img_path], live_model=live_model)
+                logger.debug("Inference time: {:.5f}s".format( time.time()-start))
+                if args.rescale:
+                    logger.debug("Rescale")
+                    label_mask = lsg.post_process( preds[0], orig_size=sizes[0], mask_threshold=args.mask_threshold )
+                    logger.debug("label_mask.shape={}".format(label_mask.shape))
+                    segmentation_record = lsg.get_morphology( label_mask, centerlines=False)
+                    mp, atts, path = segviz.batch_visuals( [img_path], [segmentation_record], color_count=0 )[0]
+                else:
+                    logger.debug("Square")
+                    segmentation_records= lsg.get_morphology( lsg.post_process( preds[0], mask_threshold=args.mask_threshold )) 
+                    mp, atts, path = segviz.batch_visuals( [ {'img':imgs_t[0], 'id':str(img_path)} ], [segmentation_records], color_count=0 )[0]
             logger.debug("Rendering time: {:.5f}s".format( time.time()-start))
 
             plt.imshow( mp )
