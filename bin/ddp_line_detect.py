@@ -119,12 +119,11 @@ def label_map_from_patches( img: Image.Image, row_count=2, col_count=1, overlap=
         np.ndarray: a (1,H,W) label map.
     """
     assert model is not None
-    logger.info("row_count={}, col_count={}".format(row_count, col_count))
     row_cuts_exact, col_cuts_exact  = [ list(int(f) for f in np.linspace(0, dim, d)) for dim, d in ((img.height, row_count+1), (img.width, col_count+1)) ]
     row_cuts, col_cuts = [[[ c+overlap, c-overlap] if c and c<cuts[-1] else c for c in cuts ] for cuts in ( row_cuts_exact, col_cuts_exact ) ]
     rows, cols = [ lu.group( lu.flatten( cut ), gs=2) for cut in (row_cuts, col_cuts) ]
     crops_yyxx=[ lu.flatten(lst) for lst in itertools.product( rows, cols ) ]
-    logger.info(crops_yyxx)
+    logger.debug(crops_yyxx)
     img_hwc = np.array( img )
     img_crops = [ torch.from_numpy(img_hwc[ crop[0]:crop[1], crop[2]:crop[3] ]).permute(2,0,1) for crop in crops_yyxx ]
     crops_t, crop_preds, crop_sizes = lsg.predict( img_crops, live_model=model )
@@ -234,18 +233,16 @@ if __name__ == "__main__":
 
                     label_masks = []
                     for crop_whc in crops_pil:
-                        logger.info("Crop size={})".format(crop_whc.size))
+                        logger.debug("Crop size={})".format(crop_whc.size))
                         ratio_height_to_width = int(math.ceil(crop_whc.size[1]/crop_whc.size[0]))
-                        logger.info("ratio h2w={}".format( ratio_height_to_width ))
+                        logger.debug("ratio h2w={}".format( ratio_height_to_width ))
+                        
                         if ratio_height_to_width >= 2:
+                            logger.debug("Unusual size detected: process {}x1 patches.".format(ratio_height_to_width))
                             label_masks.append( label_map_from_patches( crop_whc, row_count=ratio_height_to_width, model=model) )
                         else:
                             imgs_t, preds, sizes = lsg.predict( [crop_whc], live_model=model )
                             label_masks.append( lsg.post_process( preds[0], orig_size=sizes[0], mask_threshold=args.mask_threshold ) )
-                    plt.imshow( label_masks[0][0] )
-                    plt.show()
-                    plt.imshow( label_masks[1][0] )
-                    plt.show()
 
                         # each segpage: label map, attribute, <image path or id>
                     segmentation_records = [ lsg.get_morphology( msk, centerlines=args.centerlines) for msk in label_masks ]
@@ -258,6 +255,7 @@ if __name__ == "__main__":
                 label_map = None
                 # case 1: process image in patches
                 if args.patch_row_count and args.patch_col_count:
+                    logger.debug("Process {}x{} patches.".format(args.patch_row_count, args.patch_col_count))
                     label_mask = label_map_from_patches( img, args.patch_row_count, args.patch_col_count, model=model )
                 # case 2: process image as-is
                 else:
