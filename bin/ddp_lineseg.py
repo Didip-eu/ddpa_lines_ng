@@ -527,7 +527,7 @@ if __name__ == '__main__':
 
         augmentations = [ instantiate_aug(aug_name) for aug_name in args.augmentations ]
         aug_count = len(augmentations)
-        dist = [.6]+([.4/aug_count] * aug_count)
+        dist = [.7]+([.3/aug_count] * aug_count)
         augmentations.insert( 0, tormentor.Identity )
         augChoice = tormentor.AugmentationChoice.create( augmentations ).override_distributions( choice=tormentor.Categorical(probs=dist))
 
@@ -573,6 +573,8 @@ if __name__ == '__main__':
     def update_tensorboard(writer, epoch, training_loss, validation_loss):
         writer.add_scalar("Loss/train", training_loss, epoch)
         writer.add_scalar("Loss/val", validation_loss, epoch)
+        return
+
         model.net.eval()
         net=model.net.cpu()
         inputs = [ ds_val[i][0].cpu() for i in random.sample( range( len(ds_val)), args.tensorboard_sample_size) ]

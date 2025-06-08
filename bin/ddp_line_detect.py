@@ -46,6 +46,7 @@ import fargv
 # local
 src_root = Path(__file__).parents[1]
 sys.path.append( str( src_root ))
+import ddp_lineseg as lsg
 from libs import seglib, list_utils as lu
 
 
@@ -71,6 +72,54 @@ p = {
         'patch_row_count': [ 0, "Process the image in <patch_row_count> rows."],
         'patch_col_count': [ 0, "Process the image in <patch_col_count> cols."],
 }
+
+
+
+def is_unusual_size( height, width ):
+    """
+    Compute number of row or col patch for images with outlier height-to-width ratio.
+
+    Args:
+        height (int): img height.
+        width (int): img width.
+    Returns:
+        tuple(int,int): either (<rows>,1) if unusually high, (1,<cols>) if unusually wide, or (0,0)
+    """
+    ratio_height_to_width = height/width
+    if ratio_height_to_width >= 2.0:
+        return (int(math.ceil(ratio_height_to_width )), 1)
+    elif ratio_height_to_width <= 0.2:
+        return (1, int(math.ceil(1/ratio_height_to_width)))
+    return (0,0)
+
+
+def label_map_from_patches( img: Image.Image, row_count=1, col_count=1, overlap=50, model=None):
+    """
+    Construct a single label map from predictions on <row_count>x<col_count> patches.
+
+    Args:
+        img (Image.Image): a PIL image.
+        row_count (int): number of rows.
+        col_count (int): number of cols.
+        overlap (int): overlap between patches (in pixels)
+
+    Returns:
+        np.ndarray: a (1,H,W) label map.
+    """
+    assert model is not None
+    row_cuts_exact, col_cuts_exact  = [ list(int(f) for f in np.linspace(0, dim, d)) for dim, d in ((img.height, row_count+1), (img.width, col_count+1)) ]
+    row_cuts, col_cuts = [[[ c+overlap, c-overlap] if c and c<cuts[-1] else c for c in cuts ] for cuts in ( row_cuts_exact, col_cuts_exact ) ]
+    rows, cols = [ lu.group( lu.flatten( cut ), gs=2) for cut in (row_cuts, col_cuts) ]
+    crops_yyxx=[ lu.flatten(lst) for lst in itertools.product( rows, cols ) ]
+    logger.debug(crops_yyxx)
+    img_hwc = np.array( img )
+    img_crops = [ torch.from_numpy(img_hwc[ crop[0]:crop[1], crop[2]:crop[3] ]).permute(2,0,1) for crop in crops_yyxx ]
+    crops_t, crop_preds, crop_sizes = lsg.predict( img_crops, live_model=model )
+    page_mask = np.zeros((crops_yyxx[-1][1],crops_yyxx[-1][3]), dtype='bool')
+    for i in range(len(crops_yyxx)):
+        t,b,l,r = crops_yyxx[i]
+        page_mask[t:b, l:r] += lsg.post_process( crop_preds[i], orig_size=crop_sizes[i], mask_threshold=.2 )[0]
+    return page_mask[None,:]
 
 
 def build_segdict( img_metadata, segmentation_record, contour_tolerance=4.0 ):
@@ -103,35 +152,6 @@ def build_segdict( img_metadata, segmentation_record, contour_tolerance=4.0 ):
                 })
         line_id += 1
     return segdict
-
-
-def label_map_from_patches( img: Image.Image, row_count=2, col_count=1, overlap=50, model=None):
-    """
-    Construct a single label map from predictions on <row_count>x<col_count> patches.
-
-    Args:
-        img (Image.Image): a PIL image.
-        row_count (int): number of rows.
-        col_count (int): number of cols.
-        overlap (int): overlap between patches (in pixels)
-
-    Returns:
-        np.ndarray: a (1,H,W) label map.
-    """
-    assert model is not None
-    row_cuts_exact, col_cuts_exact  = [ list(int(f) for f in np.linspace(0, dim, d)) for dim, d in ((img.height, row_count+1), (img.width, col_count+1)) ]
-    row_cuts, col_cuts = [[[ c+overlap, c-overlap] if c and c<cuts[-1] else c for c in cuts ] for cuts in ( row_cuts_exact, col_cuts_exact ) ]
-    rows, cols = [ lu.group( lu.flatten( cut ), gs=2) for cut in (row_cuts, col_cuts) ]
-    crops_yyxx=[ lu.flatten(lst) for lst in itertools.product( rows, cols ) ]
-    logger.debug(crops_yyxx)
-    img_hwc = np.array( img )
-    img_crops = [ torch.from_numpy(img_hwc[ crop[0]:crop[1], crop[2]:crop[3] ]).permute(2,0,1) for crop in crops_yyxx ]
-    crops_t, crop_preds, crop_sizes = lsg.predict( img_crops, live_model=model )
-    page_mask = np.zeros((crops_yyxx[-1][1],crops_yyxx[-1][3]), dtype='bool')
-    for i in range(len(crops_yyxx)):
-        t,b,l,r = crops_yyxx[i]
-        page_mask[t:b, l:r] += lsg.post_process( crop_preds[i], orig_size=crop_sizes[i], mask_threshold=.2 )[0]
-    return page_mask[None,:]
 
 
 def build_segdict_composite( img_metadata, boxes, segmentation_records, contour_tolerance=4.0):
@@ -174,6 +194,7 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, contour_
 
     return segdict
 
+
 if __name__ == "__main__":
 
     args, _ = fargv.fargv( p )
@@ -213,7 +234,6 @@ if __name__ == "__main__":
             json_file_path = Path(f'{output_file_path_wo_suffix}.json')
             npy_file_path = Path(f'{output_file_path_wo_suffix}.npy')
 
-            import ddp_lineseg as lsg
 
             if not Path( args.model_path ).exists():
                 raise FileNotFoundError("Could not find model file", args.model_path)
@@ -234,12 +254,15 @@ if __name__ == "__main__":
                     label_masks = []
                     for crop_whc in crops_pil:
                         logger.debug("Crop size={})".format(crop_whc.size))
-                        ratio_height_to_width = int(math.ceil(crop_whc.size[1]/crop_whc.size[0]))
-                        logger.debug("ratio h2w={}".format( ratio_height_to_width ))
-                        
-                        if ratio_height_to_width >= 2:
-                            logger.debug("Unusual size detected: process {}x1 patches.".format(ratio_height_to_width))
-                            label_masks.append( label_map_from_patches( crop_whc, row_count=ratio_height_to_width, model=model) )
+
+                        rows, cols = is_unusual_size( crop_whc.size[1], crop_whc.size[0] ) 
+                        if rows or cols:
+                            logger.debug("Unusual size detected: process {}x{} patches.".format(rows, cols))
+
+                        if rows > 1:
+                            label_masks.append( label_map_from_patches( crop_whc, row_count=rows, model=model) )
+                        elif cols > 1:
+                            label_masks.append( label_map_from_patches( crop_whc, col_count=cols, model=model) )
                         else:
                             imgs_t, preds, sizes = lsg.predict( [crop_whc], live_model=model )
                             label_masks.append( lsg.post_process( preds[0], orig_size=sizes[0], mask_threshold=args.mask_threshold ) )
