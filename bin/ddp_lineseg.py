@@ -6,10 +6,6 @@ Line segmentation app: model training, prediction, evaluation.
 
 TODO:
 
-+ proper logging
-+ time estimate
-+ code clean-up
-
 """
 
 # stdlib
@@ -20,6 +16,7 @@ from typing import Union, Any
 import random
 import math
 import logging
+import time
 
 # 3rd party
 from PIL import Image
@@ -56,7 +53,7 @@ sys.path.append( str(Path(__file__).parents[1] ))
 from libs import seglib
 
 
-logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
+logging.basicConfig( level=logging.DEBUG, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
 logger = logging.getLogger(__name__)
 #logger.propagate=False
 
@@ -80,9 +77,10 @@ p = {
     'scheduler': 0,
     'scheduler_patience': 15,
     'scheduler_factor': 0.9,
-    'reset_epochs': False,
+    'reset_epochs': 0,
     'resume_file': 'last.mlmodel',
-    'dry_run': False,
+    'dry_run': 0,
+    'tensorboard': 1,
     'augmentations': [ set([]), "Pass one or more tormentor class names, to build a choice of training augmentations; by default, apply the hard-coded transformations."],
 }
 
@@ -121,6 +119,7 @@ class LineDetectionDataset(Dataset):
         self._transforms = transforms if transforms is not None else v2.Compose([
             v2.ToImage(),
             v2.Resize( img_size ),
+            v2.SanitizeBoundingBoxes(),
             v2.ToDtype(torch.float32, scale=True),])
 
         
@@ -339,6 +338,12 @@ def split_set( *arrays, limit=0, reserved_ratio=.2, random_state=46):
         sets.extend( [[ a[i] for i in train_set ], [ a[j] for j in reserved_set ]] )
     return sets
 
+def duration_estimate( iterations_past, iterations_total, current_duration ):
+    time_left = time.gmtime((iterations_total - iterations_past) * current_duration)
+    return ''.join([
+     '{} d '.format( time_left.tm_mday-1 ) if time_left.tm_mday > 0 else '',
+     '{} h '.format( time_left.tm_hour ) if time_left.tm_hour > 0 else '',
+     '{} mn'.format( time_left.tm_min ) ])
 
 
 def build_nn( backbone='resnet101'):
@@ -470,7 +475,9 @@ if __name__ == '__main__':
         'train_set_limit', 
         'validation_set_limit',
         'lr','scheduler','scheduler_patience','scheduler_factor',
-        'max_epoch','patience',)}
+        'max_epoch','patience',
+        'augmentations',
+        )}
     
     hyper_params['img_size']=[ int(args.img_size), int(args.img_size) ] if not args.img_height else [ int(args.img_size), int(args.img_height) ]
 
@@ -570,9 +577,16 @@ if __name__ == '__main__':
         logger.info( "Loss masks: {}".format( torch.stack(loss_mask).mean().item()))
         return torch.stack( validation_losses ).mean().item()    
         
-    def update_tensorboard(writer, epoch, training_loss, validation_loss):
-        writer.add_scalar("Loss/train", training_loss, epoch)
-        writer.add_scalar("Loss/val", validation_loss, epoch)
+    def update_tensorboard(writer, epoch, scalar_dict):
+
+        if writer is None:
+            return
+
+        writer.add_scalars('Loss', { k:scalar_dict[k] for k in ('Loss/train', 'Loss/val') }, epoch)
+        for k,v in scalar_dict.items():
+            if k == 'Loss/train' or k == 'Loss/val':
+                continue
+            writer.add_scalar(k, v, epoch)
         return
 
         model.net.eval()
@@ -613,7 +627,9 @@ if __name__ == '__main__':
         model.net.cuda()
         model.net.train()
             
-        writer=SummaryWriter()
+        writer=SummaryWriter() if args.tensorboard else None
+        start_time = time.time()
+        logger.debug("args.tensorboard={}, writer={}".format(args.tensorboard, writer ))
 
         epoch_start = len( model.epochs )
         if epoch_start > 0:
@@ -621,17 +637,19 @@ if __name__ == '__main__':
 
         for epoch in range( epoch_start, 0 if args.dry_run else hyper_params['max_epoch'] ):
 
+            epoch_start_time = time.time()
             mean_training_loss = train_epoch( epoch )
             mean_validation_loss = validate()
 
-            update_tensorboard(writer, epoch, mean_training_loss, mean_validation_loss)
+            update_tensorboard(writer, epoch, {'Loss/train': mean_training_loss, 'Loss/val': mean_validation_loss, 'Time': int(time.time()-start_time)})
 
             if hyper_params['scheduler']:
                 scheduler.step( mean_validation_loss )
             model.epochs.append( {
                 'training_loss': mean_training_loss, 
                 'validation_loss': mean_validation_loss,
-                'lr': scheduler.get_last_lr()[0]
+                'lr': scheduler.get_last_lr()[0],
+                'duration': time.time()-epoch_start_time,
             } )
             torch.save(model.net.state_dict() , 'last.pt')
             model.save('last.mlmodel')
@@ -642,12 +660,14 @@ if __name__ == '__main__':
                 best_epoch = epoch
                 torch.save( model.net.state_dict(), 'best.pt')
                 model.save( 'best.mlmodel' )
-            logger.info('Training loss: {:.4f} (lr={}) - Validation loss: {:.4f} - Best epoch: {} (loss={:.4f})'.format(
+            logger.info('Training loss: {:.4f} (lr={}) - Validation loss: {:.4f} - Best epoch: {} (loss={:.4f}) - Time left: {}'.format(
                 mean_training_loss, 
                 scheduler.get_last_lr()[0],
                 mean_validation_loss, 
                 best_epoch,
-                best_loss,))
+                best_loss,
+                duration_estimate(epoch+1, args.max_epoch, model.epochs[-1]['duration']),
+                ))
             if epoch - best_epoch > hyper_params['patience']:
                 logger.info("No improvement since epoch {}: early exit.".format(best_epoch))
                 break
@@ -682,8 +702,3 @@ if __name__ == '__main__':
 
             
 
-
-
-
-
-    
