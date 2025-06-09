@@ -77,6 +77,7 @@ p = {
     'weight_file': None,
     'scheduler': 0,
     'scheduler_patience': 15,
+    'scheduler_cooldown': 5,
     'scheduler_factor': 0.9,
     'reset_epochs': 0,
     'resume_file': 'last.mlmodel',
@@ -475,7 +476,7 @@ if __name__ == '__main__':
         'backbone',
         'train_set_limit', 
         'validation_set_limit',
-        'lr','scheduler','scheduler_patience','scheduler_factor',
+        'lr','scheduler','scheduler_patience','scheduler_cooldown','scheduler_factor',
         'max_epoch','patience',
         'augmentations',
         )}
@@ -557,7 +558,7 @@ if __name__ == '__main__':
     logger.info(f"Best validation loss ({best_loss}) at epoch {best_epoch}")
 
     optimizer = torch.optim.AdamW( model.net.parameters(), lr=lr )
-    scheduler = ReduceLROnPlateau( optimizer, patience=hyper_params['scheduler_patience'], factor=hyper_params['scheduler_factor'] )
+    scheduler = ReduceLROnPlateau( optimizer, patience=hyper_params['scheduler_patience'], factor=hyper_params['scheduler_factor'], cooldown=hyper_params['scheduler_cooldown'])
 
 
     def update_parameters( pfile: str, existing_params: dict):
