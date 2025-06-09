@@ -71,6 +71,7 @@ p = {
     'img_height': [0, "If non-null, input images are resize to <img_size> * <img_height>"],
     'batch_size': 4,
     'patience': 50,
+    'param_file': [ 'parameters.json', 'If this file is created _after_ the training has started, it is read at the start of the next epoch (and then deleted), thus allowing to update hyperparameters on-the-fly.'],
     'tensorboard_sample_size': 2,
     'mode': ('train','validate'),
     'weight_file': None,
@@ -558,10 +559,41 @@ if __name__ == '__main__':
     optimizer = torch.optim.AdamW( model.net.parameters(), lr=lr )
     scheduler = ReduceLROnPlateau( optimizer, patience=hyper_params['scheduler_patience'], factor=hyper_params['scheduler_factor'] )
 
+
+    def update_parameters( pfile: str, existing_params: dict):
+        """ For updating hyperparameters on the fly."""
+        pfile = Path( pfile )
+        if not pfile.exists():
+            return
+        with open(pfile,'r') as pfin:
+            pdict = json.load( pfin )
+            logger.debug("Updating existing params: {} with {}".format(existing_params, pdict))
+            existing_params.update( pdict )
+        pfile.unlink( missing_ok=True )
+        logger.debug("Updated params: {}".format(existing_params))
+
+        
+    def update_tensorboard(writer, epoch, scalar_dict):
+        if writer is None:
+            return
+        writer.add_scalars('Loss', { k:scalar_dict[k] for k in ('Loss/train', 'Loss/val') }, epoch)
+        for k,v in scalar_dict.items():
+            if k == 'Loss/train' or k == 'Loss/val':
+                continue
+            writer.add_scalar(k, v, epoch)
+        return
+#        model.net.eval()
+#        net=model.net.cpu()
+#        inputs = [ ds_val[i][0].cpu() for i in random.sample( range( len(ds_val)), args.tensorboard_sample_size) ]
+#        predictions = net( inputs )
+#        # (H,W,C) -> (C,H,W)
+#        #writer.add_images('batch[10]', np.transpose( batch_visuals( inputs, net( inputs ), color_count=5), (0,3,1,2)))
+#        model.net.cuda()
+#        model.net.train()
+   
+
     def validate():
-        validation_losses = []
-        loss_box_reg = []
-        loss_mask = []
+        validation_losses, loss_box_reg, loss_mask = [], [], []
         batches = iter(dl_val)
         for batch_index in (pbar := tqdm( range(len( batches )))):
             pbar.set_description('Validate')
@@ -576,28 +608,7 @@ if __name__ == '__main__':
         logger.info( "Loss boxes: {}".format( torch.stack(loss_box_reg).mean().item()))
         logger.info( "Loss masks: {}".format( torch.stack(loss_mask).mean().item()))
         return torch.stack( validation_losses ).mean().item()    
-        
-    def update_tensorboard(writer, epoch, scalar_dict):
 
-        if writer is None:
-            return
-
-        writer.add_scalars('Loss', { k:scalar_dict[k] for k in ('Loss/train', 'Loss/val') }, epoch)
-        for k,v in scalar_dict.items():
-            if k == 'Loss/train' or k == 'Loss/val':
-                continue
-            writer.add_scalar(k, v, epoch)
-        return
-
-        model.net.eval()
-        net=model.net.cpu()
-        inputs = [ ds_val[i][0].cpu() for i in random.sample( range( len(ds_val)), args.tensorboard_sample_size) ]
-        predictions = net( inputs )
-        # (H,W,C) -> (C,H,W)
-        #writer.add_images('batch[10]', np.transpose( batch_visuals( inputs, net( inputs ), color_count=5), (0,3,1,2)))
-        model.net.cuda()
-        model.net.train()
-   
     def train_epoch( epoch: int ):
         
         epoch_losses = []
@@ -630,12 +641,16 @@ if __name__ == '__main__':
         writer=SummaryWriter() if args.tensorboard else None
         start_time = time.time()
         logger.debug("args.tensorboard={}, writer={}".format(args.tensorboard, writer ))
+        
+        Path(args.param_file).unlink(missing_ok=True)
 
         epoch_start = len( model.epochs )
         if epoch_start > 0:
             logger.info(f"Resuming training at epoch {epoch_start}.")
 
         for epoch in range( epoch_start, 0 if args.dry_run else hyper_params['max_epoch'] ):
+
+            update_parameters( args.param_file, hyper_params )
 
             epoch_start_time = time.time()
             mean_training_loss = train_epoch( epoch )
