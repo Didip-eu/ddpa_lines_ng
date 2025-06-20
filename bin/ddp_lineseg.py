@@ -220,6 +220,8 @@ def post_process( preds: dict, box_threshold=.9, mask_threshold=.25, orig_size=(
     """
     # select masks with best box scores
     best_masks = [ m.detach().numpy() for m in preds['masks'][preds['scores']>box_threshold]]
+    if not best_masks:
+        return None
     # threshold masks
     masks = [ m * (m > mask_threshold) for m in best_masks ]
     # merge masks 
@@ -281,6 +283,7 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False):
             - labeled map(1,H,W)
             - a list of line attribute dicts (label, centroid pt, area, polygon coords, ...)
     """
+    
     # label components
     labeled_msk_1hw = ski.measure.label( page_wide_mask_1hw, connectivity=2 )
     logger.debug("Found {} connected components on 1HW binary map.".format( np.max( labeled_msk_1hw )))
