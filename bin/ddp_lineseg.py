@@ -6,10 +6,6 @@ Line segmentation app: model training, prediction, evaluation.
 
 TODO:
 
-+ proper logging
-+ time estimate
-+ code clean-up
-
 """
 
 # stdlib
@@ -20,6 +16,7 @@ from typing import Union, Any
 import random
 import math
 import logging
+import time
 
 # 3rd party
 from PIL import Image
@@ -56,7 +53,7 @@ sys.path.append( str(Path(__file__).parents[1] ))
 from libs import seglib
 
 
-logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
+logging.basicConfig( level=logging.DEBUG, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
 logger = logging.getLogger(__name__)
 #logger.propagate=False
 
@@ -74,15 +71,18 @@ p = {
     'img_height': [0, "If non-null, input images are resize to <img_size> * <img_height>"],
     'batch_size': 4,
     'patience': 50,
+    'param_file': [ 'parameters.json', 'If this file is created _after_ the training has started, it is read at the start of the next epoch (and then deleted), thus allowing to update hyperparameters on-the-fly.'],
     'tensorboard_sample_size': 2,
     'mode': ('train','validate'),
     'weight_file': None,
     'scheduler': 0,
     'scheduler_patience': 15,
+    'scheduler_cooldown': 5,
     'scheduler_factor': 0.9,
-    'reset_epochs': False,
+    'reset_epochs': 0,
     'resume_file': 'last.mlmodel',
-    'dry_run': False,
+    'dry_run': 0,
+    'tensorboard': 1,
     'augmentations': [ set([]), "Pass one or more tormentor class names, to build a choice of training augmentations; by default, apply the hard-coded transformations."],
 }
 
@@ -122,6 +122,7 @@ class LineDetectionDataset(Dataset):
         self._transforms = transforms if transforms is not None else v2.Compose([
             v2.ToImage(),
             v2.Resize( img_size ),
+            v2.SanitizeBoundingBoxes(),
             v2.ToDtype(torch.float32, scale=True),])
 
         
@@ -220,6 +221,8 @@ def post_process( preds: dict, box_threshold=.9, mask_threshold=.25, orig_size=(
     """
     # select masks with best box scores
     best_masks = [ m.detach().numpy() for m in preds['masks'][preds['scores']>box_threshold]]
+    if not best_masks:
+        return None
     # threshold masks
     masks = [ m * (m > mask_threshold) for m in best_masks ]
     # merge masks 
@@ -281,6 +284,7 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False):
             - labeled map(1,H,W)
             - a list of line attribute dicts (label, centroid pt, area, polygon coords, ...)
     """
+    
     # label components
     labeled_msk_1hw = ski.measure.label( page_wide_mask_1hw, connectivity=2 )
     logger.debug("Found {} connected components on 1HW binary map.".format( np.max( labeled_msk_1hw )))
@@ -340,6 +344,12 @@ def split_set( *arrays, limit=0, reserved_ratio=.2, random_state=46):
         sets.extend( [[ a[i] for i in train_set ], [ a[j] for j in reserved_set ]] )
     return sets
 
+def duration_estimate( iterations_past, iterations_total, current_duration ):
+    time_left = time.gmtime((iterations_total - iterations_past) * current_duration)
+    return ''.join([
+     '{} d '.format( time_left.tm_mday-1 ) if time_left.tm_mday > 0 else '',
+     '{} h '.format( time_left.tm_hour ) if time_left.tm_hour > 0 else '',
+     '{} mn'.format( time_left.tm_min ) ])
 
 
 def build_nn( backbone='resnet101'):
@@ -470,8 +480,10 @@ if __name__ == '__main__':
         'backbone',
         'train_set_limit', 
         'validation_set_limit',
-        'lr','scheduler','scheduler_patience','scheduler_factor',
-        'max_epoch','patience',)}
+        'lr','scheduler','scheduler_patience','scheduler_cooldown','scheduler_factor',
+        'max_epoch','patience',
+        'augmentations',
+        )}
     
     hyper_params['img_size']=[ int(args.img_size), int(args.img_size) ] if not args.img_height else [ int(args.img_size), int(args.img_height) ]
 
@@ -554,12 +566,43 @@ if __name__ == '__main__':
     logger.info(f"Best validation loss ({best_loss}) at epoch {best_epoch}")
 
     optimizer = torch.optim.AdamW( model.net.parameters(), lr=lr )
-    scheduler = ReduceLROnPlateau( optimizer, patience=hyper_params['scheduler_patience'], factor=hyper_params['scheduler_factor'] )
+    scheduler = ReduceLROnPlateau( optimizer, patience=hyper_params['scheduler_patience'], factor=hyper_params['scheduler_factor'], cooldown=hyper_params['scheduler_cooldown'])
+
+
+    def update_parameters( pfile: str, existing_params: dict):
+        """ For updating hyperparameters on the fly."""
+        pfile = Path( pfile )
+        if not pfile.exists():
+            return
+        with open(pfile,'r') as pfin:
+            pdict = json.load( pfin )
+            logger.debug("Updating existing params: {} with {}".format(existing_params, pdict))
+            existing_params.update( pdict )
+        pfile.unlink( missing_ok=True )
+        logger.debug("Updated params: {}".format(existing_params))
+
+        
+    def update_tensorboard(writer, epoch, scalar_dict):
+        if writer is None:
+            return
+        writer.add_scalars('Loss', { k:scalar_dict[k] for k in ('Loss/train', 'Loss/val') }, epoch)
+        for k,v in scalar_dict.items():
+            if k == 'Loss/train' or k == 'Loss/val':
+                continue
+            writer.add_scalar(k, v, epoch)
+        return
+#        model.net.eval()
+#        net=model.net.cpu()
+#        inputs = [ ds_val[i][0].cpu() for i in random.sample( range( len(ds_val)), args.tensorboard_sample_size) ]
+#        predictions = net( inputs )
+#        # (H,W,C) -> (C,H,W)
+#        #writer.add_images('batch[10]', np.transpose( batch_visuals( inputs, net( inputs ), color_count=5), (0,3,1,2)))
+#        model.net.cuda()
+#        model.net.train()
+   
 
     def validate():
-        validation_losses = []
-        loss_box_reg = []
-        loss_mask = []
+        validation_losses, loss_box_reg, loss_mask = [], [], []
         batches = iter(dl_val)
         for batch_index in (pbar := tqdm( range(len( batches )))):
             pbar.set_description('Validate')
@@ -574,21 +617,7 @@ if __name__ == '__main__':
         logger.info( "Loss boxes: {}".format( torch.stack(loss_box_reg).mean().item()))
         logger.info( "Loss masks: {}".format( torch.stack(loss_mask).mean().item()))
         return torch.stack( validation_losses ).mean().item()    
-        
-    def update_tensorboard(writer, epoch, training_loss, validation_loss):
-        writer.add_scalar("Loss/train", training_loss, epoch)
-        writer.add_scalar("Loss/val", validation_loss, epoch)
-        return
 
-        model.net.eval()
-        net=model.net.cpu()
-        inputs = [ ds_val[i][0].cpu() for i in random.sample( range( len(ds_val)), args.tensorboard_sample_size) ]
-        predictions = net( inputs )
-        # (H,W,C) -> (C,H,W)
-        #writer.add_images('batch[10]', np.transpose( batch_visuals( inputs, net( inputs ), color_count=5), (0,3,1,2)))
-        model.net.cuda()
-        model.net.train()
-   
     def train_epoch( epoch: int ):
         
         epoch_losses = []
@@ -618,7 +647,11 @@ if __name__ == '__main__':
         model.net.cuda()
         model.net.train()
             
-        writer=SummaryWriter()
+        writer=SummaryWriter() if args.tensorboard else None
+        start_time = time.time()
+        logger.debug("args.tensorboard={}, writer={}".format(args.tensorboard, writer ))
+        
+        Path(args.param_file).unlink(missing_ok=True)
 
         epoch_start = len( model.epochs )
         if epoch_start > 0:
@@ -626,17 +659,21 @@ if __name__ == '__main__':
 
         for epoch in range( epoch_start, 0 if args.dry_run else hyper_params['max_epoch'] ):
 
+            update_parameters( args.param_file, hyper_params )
+
+            epoch_start_time = time.time()
             mean_training_loss = train_epoch( epoch )
             mean_validation_loss = validate()
 
-            update_tensorboard(writer, epoch, mean_training_loss, mean_validation_loss)
+            update_tensorboard(writer, epoch, {'Loss/train': mean_training_loss, 'Loss/val': mean_validation_loss, 'Time': int(time.time()-start_time)})
 
             if hyper_params['scheduler']:
                 scheduler.step( mean_validation_loss )
             model.epochs.append( {
                 'training_loss': mean_training_loss, 
                 'validation_loss': mean_validation_loss,
-                'lr': scheduler.get_last_lr()[0]
+                'lr': scheduler.get_last_lr()[0],
+                'duration': time.time()-epoch_start_time,
             } )
             torch.save(model.net.state_dict() , 'last.pt')
             model.save('last.mlmodel')
@@ -647,12 +684,14 @@ if __name__ == '__main__':
                 best_epoch = epoch
                 torch.save( model.net.state_dict(), 'best.pt')
                 model.save( 'best.mlmodel' )
-            logger.info('Training loss: {:.4f} (lr={}) - Validation loss: {:.4f} - Best epoch: {} (loss={:.4f})'.format(
+            logger.info('Training loss: {:.4f} (lr={}) - Validation loss: {:.4f} - Best epoch: {} (loss={:.4f}) - Time left: {}'.format(
                 mean_training_loss, 
                 scheduler.get_last_lr()[0],
                 mean_validation_loss, 
                 best_epoch,
-                best_loss,))
+                best_loss,
+                duration_estimate(epoch+1, args.max_epoch, model.epochs[-1]['duration']),
+                ))
             if epoch - best_epoch > hyper_params['patience']:
                 logger.info("No improvement since epoch {}: early exit.".format(best_epoch))
                 break
@@ -687,8 +726,3 @@ if __name__ == '__main__':
 
             
 
-
-
-
-
-    

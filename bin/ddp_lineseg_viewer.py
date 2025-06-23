@@ -110,7 +110,10 @@ def label_map_from_patches( img: Image.Image, row_count=2, col_count=1, overlap=
     page_mask = np.zeros((crops_yyxx[-1][1],crops_yyxx[-1][3]), dtype='bool')
     for i in range(len(crops_yyxx)):
         t,b,l,r = crops_yyxx[i]
-        page_mask[t:b, l:r] += lsg.post_process( crop_preds[i], orig_size=crop_sizes[i], mask_threshold=.2 )[0]
+        patch_mask = lsg.post_process( crop_preds[i], orig_size=crop_sizes[i], mask_threshold=.2 )
+        if patch_mask is None:
+            continue
+        page_mask[t:b, l:r] += patch_mask[0]
     return page_mask[None,:]
 
 
@@ -135,10 +138,11 @@ if __name__ == '__main__':
             start = time.time()
             mp, atts, path = None, None, None
             start = time.time()
-            if args.patch_row_count:
-                path_col_count = args.patch_col_count if args.patch_col_count else 1
-                logger.debug("Patches")
-                label_mask = label_map_from_patches( Image.open(img_path), args.patch_row_count, args.patch_col_count, model=live_model )
+            if args.patch_row_count or args.patch_col_count:
+                patch_row_count = args.patch_row_count if args.patch_row_count else 1
+                patch_col_count = args.patch_col_count if args.patch_col_count else 1
+                logger.debug("Patches: {}x{}".format(patch_row_count, patch_col_count))
+                label_mask = label_map_from_patches( Image.open(img_path), patch_row_count, patch_col_count, model=live_model )
                 logger.debug("Inference time: {:.5f}s".format( time.time()-start))
                 logger.debug("label_mask.shape={}".format(label_mask.shape))
                 segmentation_record = lsg.get_morphology( label_mask, centerlines=False)
@@ -150,11 +154,18 @@ if __name__ == '__main__':
                 if args.rescale:
                     logger.debug("Rescale")
                     label_mask = lsg.post_process( preds[0], orig_size=sizes[0], mask_threshold=args.mask_threshold )
+                    if label_mask is None:
+                        logger.warning("No line mask found for {}: skipping.".format( img_path ))
+                        continue
                     logger.debug("label_mask.shape={}".format(label_mask.shape))
                     segmentation_record = lsg.get_morphology( label_mask, centerlines=False)
                     mp, atts, path = segviz.batch_visuals( [img_path], [segmentation_record], color_count=0 )[0]
                 else:
                     logger.debug("Square")
+                    label_mask = lsg.post_process( preds[0], mask_threshold=args.mask_threshold )
+                    if label_mask is None:
+                        logger.warning("No line mask found for {}: skipping.".format( img_path ))
+                        continue
                     segmentation_records= lsg.get_morphology( lsg.post_process( preds[0], mask_threshold=args.mask_threshold )) 
                     mp, atts, path = segviz.batch_visuals( [ {'img':imgs_t[0], 'id':str(img_path)} ], [segmentation_records], color_count=0 )[0]
             logger.debug("Rendering time: {:.5f}s".format( time.time()-start))
