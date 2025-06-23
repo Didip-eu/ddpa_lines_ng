@@ -89,7 +89,8 @@ p = {
 tormentor_dists = {
         'Rotate': tormentor.Uniform((math.radians(-18.0), math.radians(18.0))),
         'Perspective': (tormentor.Uniform((0.85, 1.25)), tormentor.Uniform((.85,1.25))),
-        'Wrap': (tormentor.Uniform((0.25, 0.65)), tormentor.Uniform((-0.36,1.06))),
+        'Wrap': (tormentor.Uniform((0.1, 0.12)), tormentor.Uniform((0.64,0.66))), # no too rough, but intense (large-scale distortion)
+        'CropTo': 
 }
 
 random.seed(46)
@@ -504,12 +505,15 @@ if __name__ == '__main__':
     if hyper_params['validation_set_limit']:
         imgs_val, _, lbls_val, _ = split_set( imgs_val, lbls_val, limit=hyper_params['validation_set_limit'])
 
+    # Basic dataset: all images are resized at this stage
     ds_train = LineDetectionDataset( imgs_train, lbls_train, img_size=hyper_params['img_size'] )
     ds_val = LineDetectionDataset( imgs_val, lbls_val, img_size=hyper_params['img_size'] )
     ds_test = LineDetectionDataset( imgs_test, lbls_test, img_size=hyper_params['img_size'] )
 
     augChoice = None
+    # Tormentor treatment
     if not args.augmentations:
+        augCropConstantSize = tormentor.AugmentationCascade.create([ tormentor.Crop, tormentor.Zoom ])
         augRotate = tormentor.Rotate.override_distributions(radians=tormentor.Uniform((-math.radians(15), math.radians(15))))
         # first augmentation in the list is a pass-through
         augChoice = tormentor.AugmentationChoice.create( [ tormentor.Identity, tormentor.FlipHorizontal, tormentor.Wrap, augRotate, tormentor.Perspective ] )
@@ -534,6 +538,7 @@ if __name__ == '__main__':
     logger.info(augChoice)
     logger.info(augChoice.get_distributions())
 
+    # Tormentor-flavored augmented dataset: be careful - assume to preserve image size!
     ds_train = tormentor.AugmentedDs( ds_train, augChoice, computation_device='cuda', augment_sample_function=augment_with_bboxes )
 
     dl_train = DataLoader( ds_train, batch_size=hyper_params['batch_size'], shuffle=True, collate_fn = lambda b: tuple(zip(*b)))
