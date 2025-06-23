@@ -31,7 +31,7 @@ from torch.utils.data import Dataset, DataLoader
 from torch import nn 
 from torch.utils.tensorboard import SummaryWriter
 import torchvision
-import torchvision.transforms.v2 as v2
+from torchvision.transforms import v2
 import torchvision.tv_tensors as tvt
 from torchvision.tv_tensors import BoundingBoxes, Mask
 from torchvision.models.detection import mask_rcnn
@@ -90,7 +90,7 @@ tormentor_dists = {
         'Rotate': tormentor.Uniform((math.radians(-18.0), math.radians(18.0))),
         'Perspective': (tormentor.Uniform((0.85, 1.25)), tormentor.Uniform((.85,1.25))),
         'Wrap': (tormentor.Uniform((0.1, 0.12)), tormentor.Uniform((0.64,0.66))), # no too rough, but intense (large-scale distortion)
-        'CropTo': 
+        'Zoom': tormentor.Uniform((1.1,1.6)),
 }
 
 random.seed(46)
@@ -525,11 +525,20 @@ if __name__ == '__main__':
     augChoice = None
     # Tormentor treatment
     if not args.augmentations:
-        augCropConstantSize = tormentor.AugmentationCascade.create([ tormentor.Crop, tormentor.Zoom ])
+        # Hard coded augmentations
+        
         augRotate = tormentor.Rotate.override_distributions(radians=tormentor.Uniform((-math.radians(15), math.radians(15))))
         # first augmentation in the list is a pass-through
         augChoice = tormentor.AugmentationChoice.create( [ tormentor.Identity, tormentor.FlipHorizontal, tormentor.Wrap, augRotate, tormentor.Perspective ] )
         augChoice = augChoice.override_distributions(choice=tormentor.Categorical(probs=(.6,.1,.1,.1,.1)))
+
+        # experiment with wrap and crop
+        augWrap = tormentor.Wrap.override_distributions(roughness=tormentor_dists['Wrap'][0], intensity=tormentor_dists['Wrap'][1])
+        augZoom = tormentor.Zoom.override_distributions( scales=tormentor_dists['Zoom'])
+        augCrop = tormentor.CropTo.new_size( *hyper_params['img_size'] )
+        augChoice = tormentor.AugmentationChoice.create([ tormentor.Identity, tormentor.FlipHorizontal, tormentor.AugmentationCascade.create( [ augWrap, augZoom, augCrop ] ) ] )
+        augChoice = augChoice.override_distributions( choice=tormentor.Categorical(probs=(.7,.1,.2)))
+
     else:
         def instantiate_aug( augname ):
             aug_class = getattr( tormentor, augname )
@@ -539,6 +548,10 @@ if __name__ == '__main__':
                 return aug_class.override_distributions(x_offset=tormentor_dists['Perspective'][0], y_offset=tormentor_dists['Perspective'][1])
             elif aug_class is tormentor.Wrap:
                 return aug_class.override_distributions(roughness=tormentor_dists['Wrap'][0], intensity=tormentor_dists['Wrap'][1])
+            elif aug_class is tormentor.CropTo:
+                return tormentor.CropTo.new_size( tormentor_dists['CropTo'][0], tormentor_dists['CropTo'][1] )
+            elif aug_class is tormentor.Zoom:
+                return tormentor.Zoom.override_distributions( scales=tormentor_dists['Zoom'])
             return aug_class
 
         augmentations = [ instantiate_aug(aug_name) for aug_name in args.augmentations ]
@@ -622,7 +635,7 @@ if __name__ == '__main__':
         
         epoch_losses = []
         batches = iter(dl_train)
-        
+
         for batch_index, batch in enumerate(pbar := tqdm(dl_train)):
             pbar.set_description(f'Epoch {epoch}')
             imgs, targets = batch

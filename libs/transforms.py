@@ -1,6 +1,9 @@
 # nprenet@gmail.com
 # 05.2025
 
+from typing import Union,Any
+import numpy as np
+
 """
 Unused transforms, for reference. (This project uses Tormentor instead.)
 """
@@ -117,12 +120,4 @@ class RandomElasticGrid(v2.Transform):
 
 
 
-def get_tormentor_constant_sz_crop( crop_size: int, img_size: int):
-    """
-    Construct a Tormentor Cascade that crops into an image and scales it up, so that
-    the size remains unchanged. For the sake of simplicity, image is assumed to be square.
 
-    """
-    scaling_factor = img_size / crop_size
-    cropAug = tormentor.CropTo.new_size( crop_size )
-    zoomAug = tormentor.Zoom.override_distribution()
