@@ -53,7 +53,7 @@ sys.path.append( str(Path(__file__).parents[1] ))
 from libs import seglib
 
 
-logging.basicConfig( level=logging.DEBUG, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
+logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
 logger = logging.getLogger(__name__)
 #logger.propagate=False
 
@@ -196,6 +196,7 @@ def augment_with_bboxes( sample, aug, device ):
     # causing the transform to be called with different parameters for each line mask. Solution:
     # augment each mask separately 
     masks = torch.stack( [ aug(m, is_mask=True) for m in target['masks'] ], axis=0).to(device)
+
     # first, filter empty masks
     keep = torch.sum( masks, dim=(1,2)) > 10
     masks, labels = masks[keep], labels[keep]
@@ -533,10 +534,9 @@ if __name__ == '__main__':
         augChoice = augChoice.override_distributions(choice=tormentor.Categorical(probs=(.6,.1,.1,.1,.1)))
 
         # experiment with wrap and crop
-        augWrap = tormentor.Wrap.override_distributions(roughness=tormentor_dists['Wrap'][0], intensity=tormentor_dists['Wrap'][1])
-        augZoom = tormentor.Zoom.override_distributions( scales=tormentor_dists['Zoom'])
-        augCrop = tormentor.CropTo.new_size( *hyper_params['img_size'] )
-        augChoice = tormentor.AugmentationChoice.create([ tormentor.Identity, tormentor.FlipHorizontal, tormentor.AugmentationCascade.create( [ augWrap, augZoom, augCrop ] ) ] )
+        augWrap = tormentor.RandomWrap.override_distributions(roughness=tormentor_dists['Wrap'][0], intensity=tormentor_dists['Wrap'][1])
+        augZoom = tormentor.RandomZoom.override_distributions( scales=tormentor_dists['Zoom'])
+        augChoice = tormentor.RandomIdentity ^ tormentor.RandomFlipHorizontal ^ ( tormentorWrap | augZoom ) 
         augChoice = augChoice.override_distributions( choice=tormentor.Categorical(probs=(.7,.1,.2)))
 
     else:
@@ -564,7 +564,8 @@ if __name__ == '__main__':
     logger.info(augChoice.get_distributions())
 
     # Tormentor-flavored augmented dataset: be careful - assume to preserve image size!
-    ds_train = tormentor.AugmentedDs( ds_train, augChoice, computation_device='cuda', augment_sample_function=augment_with_bboxes )
+    #ds_train = tormentor.AugmentedDs( ds_train, augChoice, computation_device='cuda', augment_sample_function=augment_with_bboxes )
+    ds_train = tormentor.AugmentedDs( ds_train, tormentorIdentity, computation_device='cuda', augment_sample_function=augment_with_bboxes )
 
     dl_train = DataLoader( ds_train, batch_size=hyper_params['batch_size'], shuffle=True, collate_fn = lambda b: tuple(zip(*b)))
     dl_val = DataLoader( ds_val, batch_size=1, collate_fn = lambda b: tuple(zip(*b)))
@@ -631,7 +632,7 @@ if __name__ == '__main__':
         logger.info( "Loss masks: {}".format( torch.stack(loss_mask).mean().item()))
         return torch.stack( validation_losses ).mean().item()    
 
-    def train_epoch( epoch: int ):
+    def train_epoch( epoch: int, dry_run=False ):
         
         epoch_losses = []
         batches = iter(dl_train)
@@ -675,7 +676,7 @@ if __name__ == '__main__':
             update_parameters( args.param_file, hyper_params )
 
             epoch_start_time = time.time()
-            mean_training_loss = train_epoch( epoch )
+            mean_training_loss = train_epoch( epoch ) # this is where the action happens
             mean_validation_loss = validate()
 
             update_tensorboard(writer, epoch, {'Loss/train': mean_training_loss, 'Loss/val': mean_validation_loss, 'Time': int(time.time()-start_time)})
