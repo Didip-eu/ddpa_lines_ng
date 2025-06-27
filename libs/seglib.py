@@ -63,7 +63,7 @@ def polygon_map_from_xml_file( page_xml: str ) -> Tensor:
     segmentation_dict = segmentation_dict_from_xml( page_xml )
     return polygon_map_from_segmentation_dict( segmentation_dict)
 
-def polygon_map_from_segmentation_dict( segmentation_dict: dict ) -> Tensor:
+def polygon_map_from_segmentation_dict( segmentation_dict: dict, polygon_key='boundary' ) -> Tensor:
     """Store line polygons into a tensor, as pixel maps.
 
     Args:
@@ -82,7 +82,8 @@ def polygon_map_from_segmentation_dict( segmentation_dict: dict ) -> Tensor:
     Returns:
         Tensor: the polygons rendered as a 4-channel image.
     """
-    polygon_boundaries = [ line['boundary'] for line in segmentation_dict['lines'] ]
+    #polygon_boundaries = [ line[polygon_key] for line in segmentation_dict['lines'] ]
+    polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict, polygon_key=polygon_key)
 
     # create 2D matrix of 32-bit integers
     # (fillPoly() only accepts signed integers - risk of overflow is non-existent)
@@ -136,41 +137,53 @@ def line_binary_mask_from_xml_file( page_xml: str ) -> Tensor:
 def line_binary_mask_from_segmentation_dict( segmentation_dict: dict, polygon_key='boundary' ) -> Tensor:
     """From a segmentation dictionary describing polygons, return a boolean mask where any pixel belonging
     to a polygon is 1 and the other pixels 0.
-    Note: masks can be built from a polygon map and an arbitrary selection function, with
-    the mask_from_polygon_map_functional() function below.
 
     Args:
         segmentation_dict (dict): a dictionary, typically constructed from a JSON file.
         polygon_key (str): polygon dictionary entry.
 
-
     Returns:
         Tensor: a flat boolean tensor with size (H,W)
+    """
+    polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict, polygon_key=polygon_key)
+    # create 2D boolean matrix
+    mask_size = segmentation_dict['image_wh']
+    return torch.tensor( np.sum( [ ski.draw.polygon2mask( mask_size, polyg ).transpose(1,0) for polyg in polygon_boundaries ], axis=0))
+
+def line_binary_mask_stack_from_segmentation_dict( segmentation_dict: dict, polygon_key='boundary' ) -> Tensor:
+    """From a segmentation dictionary describing polygons, return a stack of boolean masks where any pixel belonging
+    to a polygon is 1 and the other pixels 0.
+
+    Args:
+        segmentation_dict (dict): a dictionary, typically constructed from a JSON file.
+        polygon_key (str): polygon dictionary entry.
+
+    Returns:
+        Tensor: a boolean tensor with size (N,H,W)
+    """
+    polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict, polygon_key=polygon_key)
+    # create 2D boolean matrix
+    mask_size = segmentation_dict['image_wh']
+    return torch.tensor( np.stack( [ ski.draw.polygon2mask( mask_size, polyg ).transpose(1,0) for polyg in polygon_boundaries ]))
+
+def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='boundary' ) -> list[list[int]]:
+    """From a segmentation dictionary describing polygons, return a list of polygon boundaries, i.e. lists of points.
+
+    Args:
+        segmentation_dict (dict): a dictionary, typically constructed from a JSON file. The 'lines' entry is either
+        top-level key, or nested as in 'regions > region > lists'.
+    Returns:
+        list[list[int]]: a list of lists of coordinates.
     """
     # Two possible structures:
     # 
     # 1. Top-level list of lines  (no region or region'id as a line attribute)
-    polygon_boundaries = []
     if 'lines' in segmentation_dict:
-        polygon_boundaries = [ line[polygon_key] for line in segmentation_dict['lines'] ]
+        return [ line[polygon_key] for line in segmentation_dict['lines'] ]
     # 2. Text lines are nested into regions
     elif 'regions' in segmentation_dict:
-        for reg in segmentation_dict['regions']:
-            assert 'lines' in reg
-            for line in reg['lines']:
-                polygon_boundaries.append( line[polygon_key] )
-
-    # create 2D boolean matrix
-    mask_size = segmentation_dict['image_wh'][::-1]
-    page_mask_hw = np.zeros( mask_size, dtype='bool')
-
-    # rendering polygons
-    for lbl, polyg in enumerate( polygon_boundaries ):
-        points = np.array( polyg )[:,::-1]
-        polyg_mask = ski.draw.polygon2mask( mask_size, points )
-        page_mask_hw += polyg_mask
-
-    return torch.tensor( page_mask_hw )
+        return [ line[polygon_key] for reg in segmentation_dict['regions'] for line in reg['lines']] 
+    return []
 
 
 def line_images_from_img_xml_files(img: str, page_xml: str ) -> List[Tuple[np.ndarray, np.ndarray]]:
@@ -205,7 +218,7 @@ def line_images_from_img_json_files( img: str, segmentation_json: str ) -> List[
     with Image.open(img, 'r') as img_wh, open( segmentation_json, 'r' ) as json_file:
         return line_images_from_img_segmentation_dict( img_wh, json.load( json_file ))
 
-def line_images_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dict: dict ) -> List[Tuple[np.ndarray, np.ndarray]]:
+def line_images_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dict: dict, polygon_key='boundary' ) -> List[Tuple[np.ndarray, np.ndarray]]:
     """From a segmentation dictionary describing polygons, return 
     a list of pairs (<line cropped BB>, <polygon mask>).
 
@@ -217,7 +230,7 @@ def line_images_from_img_segmentation_dict(img_whc: Image.Image, segmentation_di
         List[Tuple[np.ndarray, np.ndarray]]: a list of pairs (<line
         image BB>: np.ndarray (HWC), mask: np.ndarray (HWC))
     """
-    polygon_boundaries = [ line['boundary'] for line in segmentation_dict['lines'] ]
+    polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict, polygon_key=polygon_key)
     img_hwc = np.asarray( img_whc )
 
     pairs_line_bb_and_mask = []# [None] * len(polygon_boundaries)
@@ -313,18 +326,7 @@ def line_masks_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dic
         Tuple[np.ndarray,np.ndarray]: a pair of tensors: a tensor (N,4) of BB coordinates tuples,
             and a tensor (N,H,W) of page-wide line masks.
     """
-    # Two possible structures:
-    # 
-    # 1. Top-level list of lines  (no region or region'id as a line attribute)
-    polygon_boundaries = []
-    if 'lines' in segmentation_dict:
-        polygon_boundaries = [ line[polygon_key] for line in segmentation_dict['lines'] ]
-    # 2. Text lines are nested into regions
-    elif 'regions' in segmentation_dict:
-        for reg in segmentation_dict['regions']:
-            assert 'lines' in reg
-            for line in reg['lines']:
-                polygon_boundaries.append( line[polygon_key] )
+    polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict, polygon_key=polygon_key)
 
     img_hwc = np.asarray( img_whc )
 
@@ -357,6 +359,54 @@ def expand_flat_tensor_to_n_channels( t_hw: Tensor, n: int ) -> np.ndarray:
         raise TypeError("Function expects a 2D map!")
     t_hwc = t_hw.reshape( t_hw.shape+(1,)).expand(-1,-1,n)
     return t_hwc.numpy()
+
+
+def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str):
+    """Serialize a JSON dictionary describing the lines into a PageXML file.
+    Caution: this is a crude function, with no regard for validation.
+
+    Args:
+         seg_dict (Dict[str,Union[str,List[Any]]]): segmentation dictionary of the form
+
+            {"text_direction": ..., "type": "baselines", "lines": [{"tags": ..., "baseline": [ ... ]}]}
+    """
+    from datetime import datetime
+    import sys
+    def boundary_to_point_string( list_of_pts ):
+        return ' '.join([ f"{pair[0]:.0f},{pair[1]:.0f}" for pair in list_of_pts ] )
+
+    rootElt = ET.Element('PcGts', attrib={
+        "xmlns": "http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15", 
+        "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance", 
+        "xsi:schemaLocation": "http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15 http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15/pagecontent.xsd"})
+    metadataElt = ET.SubElement(rootElt, 'MetaData')
+    creatorElt = ET.SubElement( metadataElt, 'Creator')
+    creatorElt.text='prov=Universität Graz/ZIM/nprenet@uni-graz.at' 
+    createdElt = ET.SubElement( metadataElt, 'Created')
+    createdElt.text=datetime.now().isoformat()
+    lastChangeElt = ET.SubElement( metadataElt, 'LastChange')
+    lastChangeElt.text=createdElt.text
+    commentElt = ET.SubElement( metadataElt, 'Comments')
+    if 'comments' in seg_dict:
+        commentElt.text = seg_dict['comments']
+
+
+    pageElt = ET.SubElement(rootElt, 'Page', attrib={'imageFilename': seg_dict['imagename'], 'imageWidth': f"{seg_dict['image_wh'][0]}", 'imageHeight': f"{seg_dict['image_wh'][1]}"})
+    for reg in seg_dict['regions']:
+        regElt = ET.SubElement( pageElt, 'TextRegion')
+        ET.SubElement(regElt, 'Coords', attrib={'points': boundary_to_point_string(reg['boundary']), 'id': f"{reg['id']}"})
+        lines = [ l for l in seg_dict['lines'] if 'region' in l and l['region']==reg['id'] ] if 'lines' in seg_dict else reg['lines']
+        for line in lines:
+            textLineElt = ET.SubElement( regElt, 'TextLine', attrib={'id': f"{reg['id']}l{line['id']}" if type(line['id']) is int else f"{reg['id']}{line['id']}"} )
+            ET.SubElement( textLineElt, 'Coords', attrib={'points': boundary_to_point_string(line['boundary'])} )
+            ET.SubElement( textLineElt, 'TextEquiv')
+            if 'baseline' in line:
+                ET.SubElement( textLineElt, 'Baseline', attrib={'points': boundary_to_point_string(line['baseline'])})
+
+    tree = ET.ElementTree( rootElt )
+    ET.indent(tree, space='\t', level=0)
+    tree.write( pagexml_filename, encoding='utf-8' )
+
 
 def segmentation_dict_from_xml(page: str) -> Dict[str,Union[str,List[Any]]]:
     """Given a pageXML file name, return a JSON dictionary describing the lines.
@@ -545,8 +595,6 @@ def seals_regseg_check_class(regseg: dict, region_labels: List[str] ) -> List[bo
     except KeyError as e:
         print(f"Class label {e} does not exist in the segmentation file.")
     return output
-
-
 
 
 def apply_polygon_mask_to_map(label_map: np.ndarray, polygon_mask: np.ndarray, label: int) -> None:

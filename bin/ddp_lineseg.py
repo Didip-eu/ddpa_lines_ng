@@ -174,9 +174,8 @@ class LineDetectionDataset(Dataset):
 
         with open( annotation_path, 'r') as annotation_if:
             segdict = json.load( annotation_if )
-            labels = torch.tensor( [ 1 ]*len(segdict['lines']), dtype=torch.int64)
-            polygons = [ [ tuple(p) for p in l[self.polygon_type]] for l in segdict['lines'] ]
-            masks = Mask(torch.stack([ Mask( ski.draw.polygon2mask( img.size, polyg )).permute(1,0) for polyg in polygons ]))
+            masks=Mask( seglib.line_binary_mask_stack_from_segmentation_dict(segdict))
+            labels = torch.tensor( [ 1 ]*masks.shape[0], dtype=torch.int64)
             bboxes = BoundingBoxes(data=torchvision.ops.masks_to_boxes(masks), format='xyxy', canvas_size=img.size[::-1])
             return img, {'masks': masks, 'boxes': bboxes, 'labels': labels, 'path': img_path, 'orig_size': img.size }
 
@@ -536,7 +535,7 @@ if __name__ == '__main__':
         # experiment with wrap and crop
         augWrap = tormentor.RandomWrap.override_distributions(roughness=tormentor_dists['Wrap'][0], intensity=tormentor_dists['Wrap'][1])
         augZoom = tormentor.RandomZoom.override_distributions( scales=tormentor_dists['Zoom'])
-        augChoice = tormentor.RandomIdentity ^ tormentor.RandomFlipHorizontal ^ ( tormentorWrap | augZoom ) 
+        augChoice = tormentor.RandomIdentity ^ tormentor.RandomFlipHorizontal ^ ( augWrap | augZoom ) 
         augChoice = augChoice.override_distributions( choice=tormentor.Categorical(probs=(.7,.1,.2)))
 
     else:

@@ -138,17 +138,19 @@ def build_segdict( img_metadata, segmentation_record, contour_tolerance=4.0 ):
     
     segdict = { 'created': str(datetime.datetime.now()), 'creator': __file__, }
     segdict.update( img_metadata )
-    segdict['regions']=[ { 'id': 0, 'type': 'text_region', 'lines': [] } ]
+    segdict['regions']=[ { 'id': 'r0', 'type': 'text_region', 'lines': [] } ]
 
     mp, atts = segmentation_record
     line_id=0
     for att_dict in atts:
         label, polygon_coords, area, line_height, centerline = [ att_dict[k] for k in ('label','polygon_coords','area', 'line_height', 'centerline')]
+        baseline = [ int(p[0]-line_height/2) for p in centerline ]
         segdict['regions'][0]['lines'].append({ 
                 'id': f'l{line_id}', 
                 'boundary': ski.measure.approximate_polygon( polygon_coords[:,::-1], tolerance=contour_tolerance).tolist(),
                 'stroke_width': int(line_height),
                 'centerline': ski.measure.approximate_polygon( centerline[:,::-1], tolerance=contour_tolerance).tolist() if len(centerline) else [],
+                'baseline': baseline,
                 })
         line_id += 1
     return segdict
@@ -229,6 +231,7 @@ if __name__ == "__main__":
                     'image_wh': list(img.size),
             }
 
+            # ex. '1063063ceab07a6b9f146c598810529d.lines.pred'
             output_file_path_wo_suffix = path.parent.joinpath( f'{stem}.{args.appname}.pred' )
 
             json_file_path = Path(f'{output_file_path_wo_suffix}.json')
