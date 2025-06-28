@@ -51,6 +51,8 @@ import tormentor
 # local
 sys.path.append( str(Path(__file__).parents[1] ))
 from libs import seglib
+from libs.transforms import build_tormentor_augmentation
+from libs.train_utils import split_set, duration_estimate
 
 
 logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
@@ -81,8 +83,10 @@ p = {
     'scheduler_factor': 0.9,
     'reset_epochs': 0,
     'resume_file': 'last.mlmodel',
-    'dry_run': 0,
+    'dry_run': [0, "Load dataset and model, but does not actually train. Pass value > 1 to display the sample images"],
     'tensorboard': 1,
+    'tormentor': 1,
+    'device': 'cuda',
     'augmentations': [ set([]), "Pass one or more tormentor class names, to build a choice of training augmentations; by default, apply the hard-coded transformations."],
 }
 
@@ -92,9 +96,6 @@ tormentor_dists = {
         'Wrap': (tormentor.Uniform((0.1, 0.12)), tormentor.Uniform((0.64,0.66))), # no too rough, but intense (large-scale distortion)
         'Zoom': tormentor.Uniform((1.1,1.6)),
 }
-
-random.seed(46)
-
 
 
 class LineDetectionDataset(Dataset):
@@ -180,31 +181,29 @@ class LineDetectionDataset(Dataset):
             return img, {'masks': masks, 'boxes': bboxes, 'labels': labels, 'path': img_path, 'orig_size': img.size }
 
 
-def augment_with_bboxes( sample, aug, device ):
-    """  Augment a sample (img + masks), and add bounding boxes to the target.
-    (For Tormentor only).
+    @staticmethod
+    def augment_with_bboxes( sample, aug, device ):
+        """  Augment a sample (img + masks), and add bounding boxes to the target.
+        (For Tormentor only).
 
-    Args:
-        sample (Tuple[Tensor,dict]): tuple with image (as tensor) and label dictionary.
-    """
-    img, target = sample
-    img = img.to(device)
-    img = aug(img)
-    masks, labels = target['masks'].to(device), target['labels'].to(device)
-    # careful: when passing line masks as (L,H,W), Tormentor assumes that L indexes a batch,
-    # causing the transform to be called with different parameters for each line mask. Solution:
-    # augment each mask separately 
-    masks = torch.stack( [ aug(m, is_mask=True) for m in target['masks'] ], axis=0).to(device)
+        Args:
+            sample (Tuple[Tensor,dict]): tuple with image (as tensor) and label dictionary.
+        """
+        img, target = sample
+        img = img.to(device)
+        img = aug(img)
+        masks, labels = target['masks'].to(device), target['labels'].to(device)
+        masks = torch.stack( [ aug(m, is_mask=True) for m in target['masks'] ], axis=0).to(device)
 
-    # first, filter empty masks
-    keep = torch.sum( masks, dim=(1,2)) > 10
-    masks, labels = masks[keep], labels[keep]
-    # construct boxes, filter out invalid ones
-    boxes=BoundingBoxes(data=torchvision.ops.masks_to_boxes(masks), format='xyxy', canvas_size=img.shape)
-    keep=(boxes[:,0]-boxes[:,2])*(boxes[:,1]-boxes[:,3]) != 0
+        # first, filter empty masks
+        keep = torch.sum( masks, dim=(1,2)) > 10
+        masks, labels = masks[keep], labels[keep]
+        # construct boxes, filter out invalid ones
+        boxes=BoundingBoxes(data=torchvision.ops.masks_to_boxes(masks), format='xyxy', canvas_size=img.shape)
+        keep=(boxes[:,0]-boxes[:,2])*(boxes[:,1]-boxes[:,3]) != 0
 
-    target['boxes'], target['labels'], target['masks'] = boxes[keep], labels[keep], masks[keep]
-    return (img, target)
+        target['boxes'], target['labels'], target['masks'] = boxes[keep], labels[keep], masks[keep]
+        return (img, target)
 
 
 def post_process( preds: dict, box_threshold=.9, mask_threshold=.25, orig_size=()):
@@ -330,28 +329,6 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False):
                 'centerline': skc,
             } for att, lh, skc, plgc in zip(attributes, line_heights, skeleton_coords, polygon_coords) ])
 
-
-def split_set( *arrays, limit=0, reserved_ratio=.2, random_state=46):
-    random.seed( random_state)
-    seq = range(len(arrays[0]))
-    train_set = set(random.sample( seq, int(len(arrays[0])*(1-reserved_ratio))))
-    reserved_set = set(seq) - train_set
-    if limit:
-        assert limit <= len(arrays[0])
-        train_set=set(random.sample( seq, limit))
-    sets = []
-    for a in arrays:
-        sets.extend( [[ a[i] for i in train_set ], [ a[j] for j in reserved_set ]] )
-    return sets
-
-def duration_estimate( iterations_past, iterations_total, current_duration ):
-    time_left = time.gmtime((iterations_total - iterations_past) * current_duration)
-    return ''.join([
-     '{} d '.format( time_left.tm_mday-1 ) if time_left.tm_mday > 0 else '',
-     '{} h '.format( time_left.tm_hour ) if time_left.tm_hour > 0 else '',
-     '{} mn'.format( time_left.tm_min ) ])
-
-
 def build_nn( backbone='resnet101'):
 
     if backbone == 'resnet50':
@@ -447,7 +424,7 @@ class SegModel():
                 model.epochs = epochs if not reset_epochs else []
                 model.hyper_parameters = hyper_parameters
             model.net.train()
-            model.net.cuda()
+            model.net.to( args.device )
             return model
         return SegModel(**kwargs)
 
@@ -522,49 +499,9 @@ if __name__ == '__main__':
     ds_val = LineDetectionDataset( imgs_val, lbls_val, img_size=hyper_params['img_size'] )
     ds_test = LineDetectionDataset( imgs_test, lbls_test, img_size=hyper_params['img_size'] )
 
-    augChoice = None
-    # Tormentor treatment
-    if not args.augmentations:
-        # Hard coded augmentations
-        
-        augRotate = tormentor.Rotate.override_distributions(radians=tormentor.Uniform((-math.radians(15), math.radians(15))))
-        # first augmentation in the list is a pass-through
-        augChoice = tormentor.AugmentationChoice.create( [ tormentor.Identity, tormentor.FlipHorizontal, tormentor.Wrap, augRotate, tormentor.Perspective ] )
-        augChoice = augChoice.override_distributions(choice=tormentor.Categorical(probs=(.6,.1,.1,.1,.1)))
-
-        # experiment with wrap and crop
-        augWrap = tormentor.RandomWrap.override_distributions(roughness=tormentor_dists['Wrap'][0], intensity=tormentor_dists['Wrap'][1])
-        augZoom = tormentor.RandomZoom.override_distributions( scales=tormentor_dists['Zoom'])
-        augChoice = tormentor.RandomIdentity ^ tormentor.RandomFlipHorizontal ^ ( augWrap | augZoom ) 
-        augChoice = augChoice.override_distributions( choice=tormentor.Categorical(probs=(.7,.1,.2)))
-
-    else:
-        def instantiate_aug( augname ):
-            aug_class = getattr( tormentor, augname )
-            if aug_class is tormentor.Rotate:
-                return aug_class.override_distributions(radians=tormentor_dists['Rotate'])
-            elif aug_class is tormentor.Perspective:
-                return aug_class.override_distributions(x_offset=tormentor_dists['Perspective'][0], y_offset=tormentor_dists['Perspective'][1])
-            elif aug_class is tormentor.Wrap:
-                return aug_class.override_distributions(roughness=tormentor_dists['Wrap'][0], intensity=tormentor_dists['Wrap'][1])
-            elif aug_class is tormentor.CropTo:
-                return tormentor.CropTo.new_size( tormentor_dists['CropTo'][0], tormentor_dists['CropTo'][1] )
-            elif aug_class is tormentor.Zoom:
-                return tormentor.Zoom.override_distributions( scales=tormentor_dists['Zoom'])
-            return aug_class
-
-        augmentations = [ instantiate_aug(aug_name) for aug_name in args.augmentations ]
-        aug_count = len(augmentations)
-        dist = [.7]+([.3/aug_count] * aug_count)
-        augmentations.insert( 0, tormentor.Identity )
-        augChoice = tormentor.AugmentationChoice.create( augmentations ).override_distributions( choice=tormentor.Categorical(probs=dist))
-
-    logger.info(augChoice)
-    logger.info(augChoice.get_distributions())
-
-    # Tormentor-flavored augmented dataset: be careful - assume to preserve image size!
-    #ds_train = tormentor.AugmentedDs( ds_train, augChoice, computation_device='cuda', augment_sample_function=augment_with_bboxes )
-    ds_train = tormentor.AugmentedDs( ds_train, tormentorIdentity, computation_device='cuda', augment_sample_function=augment_with_bboxes )
+    if args.tormentor:
+        aug = build_tormentor_augmentation( tormentor_dists, args.augmentations )
+        ds_train = tormentor.AugmentedDs( ds_train, aug, computation_device=args.device, augment_sample_function=LineDetectionDataset.augment_with_bboxes )
 
     dl_train = DataLoader( ds_train, batch_size=hyper_params['batch_size'], shuffle=True, collate_fn = lambda b: tuple(zip(*b)))
     dl_val = DataLoader( ds_val, batch_size=1, collate_fn = lambda b: tuple(zip(*b)))
@@ -620,8 +557,8 @@ if __name__ == '__main__':
         for batch_index in (pbar := tqdm( range(len( batches )))):
             pbar.set_description('Validate')
             imgs, targets = next(batches)
-            imgs = torch.stack(imgs).cuda()
-            targets = [ { k:t[k].cuda() for k in ('labels', 'boxes', 'masks') } for t in targets ]
+            imgs = torch.stack(imgs).to( args.device )
+            targets = [ { k:t[k].to( args.device ) for k in ('labels', 'boxes', 'masks') } for t in targets ]
             loss_dict = model.net(imgs, targets)
             loss = sum( loss_dict.values()) 
             validation_losses.append( loss.detach())
@@ -637,10 +574,16 @@ if __name__ == '__main__':
         batches = iter(dl_train)
 
         for batch_index, batch in enumerate(pbar := tqdm(dl_train)):
-            pbar.set_description(f'Epoch {epoch}')
             imgs, targets = batch
-            imgs = torch.stack(imgs).cuda()
-            targets = [ { k:t[k].cuda() for k in ('labels', 'boxes', 'masks') } for t in targets ]
+            if dry_run > 1 and args.device=='cpu':
+                fig, ax = plt.subplots(1,len(imgs))
+                for i, img, target in zip(range(len(imgs)),imgs,targets):
+                    ax[i].imshow( img.permute(1,2,0) * torch.sum( target['masks'], axis=0).to(torch.bool)[:,:,None] )
+                plt.show()
+                continue
+            pbar.set_description(f'Epoch {epoch}')
+            imgs = torch.stack(imgs).to( args.device )
+            targets = [ { k:t[k].to( args.device ) for k in ('labels', 'boxes', 'masks') } for t in targets ]
             loss_dict = model.net(imgs, targets)
             loss = sum( loss_dict.values())
             
@@ -653,14 +596,14 @@ if __name__ == '__main__':
             optimizer.step()
             optimizer.zero_grad()
 
-        return torch.stack( epoch_losses ).mean().item()
+        return None if dry_run else torch.stack( epoch_losses ).mean().item() 
 
     if args.mode == 'train':
         
-        model.net.cuda()
+        model.net.to( args.device )
         model.net.train()
             
-        writer=SummaryWriter() if args.tensorboard else None
+        writer=SummaryWriter() if (args.tensorboard and not args.dry_run) else None
         start_time = time.time()
         logger.debug("args.tensorboard={}, writer={}".format(args.tensorboard, writer ))
         
@@ -670,12 +613,12 @@ if __name__ == '__main__':
         if epoch_start > 0:
             logger.info(f"Resuming training at epoch {epoch_start}.")
 
-        for epoch in range( epoch_start, 0 if args.dry_run else hyper_params['max_epoch'] ):
+        for epoch in range( epoch_start, hyper_params['max_epoch'] ):
 
             update_parameters( args.param_file, hyper_params )
 
             epoch_start_time = time.time()
-            mean_training_loss = train_epoch( epoch ) # this is where the action happens
+            mean_training_loss = train_epoch( epoch, dry_run=args.dry_run ) # this is where the action happens
             mean_validation_loss = validate()
 
             update_tensorboard(writer, epoch, {'Loss/train': mean_training_loss, 'Loss/val': mean_validation_loss, 'Time': int(time.time()-start_time)})
@@ -709,8 +652,9 @@ if __name__ == '__main__':
                 logger.info("No improvement since epoch {}: early exit.".format(best_epoch))
                 break
 
-        writer.flush()
-        writer.close()
+        if writer is not None:
+            writer.flush()
+            writer.close()
 
     # validation + metrics
     elif args.mode == 'validate':

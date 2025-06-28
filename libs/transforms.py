@@ -3,6 +3,9 @@
 
 from typing import Union,Any
 import numpy as np
+import tormentor
+from torch import Tensor
+from torchvision.transforms import v2
 
 """
 Unused transforms, for reference. (This project uses Tormentor instead.)
@@ -120,4 +123,54 @@ class RandomElasticGrid(v2.Transform):
 
 
 
+
+
+def build_tormentor_augmentation( dists, augmentation_list=[] ):
+    """ Construct a Tormentor composite augmentation.
+
+    Args:
+        dists (dict): a dictionary of distribution parameter, whose keys are the primitive augmentation names.
+        augmentation_list (list): a list of primitive augmentation, to be assembled into a rnadom choice augmentation; if empty,
+            the hard-coded augmentation below used.
+    Returns:
+        tormentor.AugmentationChoice: a random choice augmentation.
+    """
+    augChoice = None
+    # Tormentor treatment
+    if not augmentation_list:
+        # Hard coded augmentations
+        
+        #augRotate = tormentor.Rotate.override_distributions(radians=tormentor.Uniform((-math.radians(15), math.radians(15))))
+        # first augmentation in the list is a pass-through
+        #augChoice = tormentor.AugmentationChoice.create( [ tormentor.Identity, tormentor.FlipHorizontal, tormentor.Wrap, augRotate, tormentor.Perspective ] )
+        #augChoice = augChoice.override_distributions(choice=tormentor.Categorical(probs=(.6,.1,.1,.1,.1)))
+
+        # experiment with wrap and crop
+        augWrap = tormentor.RandomWrap.override_distributions(roughness=dists['Wrap'][0], intensity=dists['Wrap'][1])
+        augZoom = tormentor.RandomZoom.override_distributions( scales=dists['Zoom'])
+        augChoice = tormentor.RandomIdentity ^ tormentor.RandomFlipHorizontal ^ ( augWrap | augZoom ) 
+        augChoice = augChoice.override_distributions( choice=tormentor.Categorical(probs=(.7,.15,.15)))
+
+    else:
+        def instantiate_aug( augname ):
+            aug_class = getattr( tormentor, augname )
+            if aug_class is tormentor.Rotate:
+                return aug_class.override_distributions(radians=dists['Rotate'])
+            elif aug_class is tormentor.Perspective:
+                return aug_class.override_distributions(x_offset=dists['Perspective'][0], y_offset=dists['Perspective'][1])
+            elif aug_class is tormentor.Wrap:
+                return aug_class.override_distributions(roughness=dists['Wrap'][0], intensity=dists['Wrap'][1])
+            elif aug_class is tormentor.CropTo:
+                return tormentor.CropTo.new_size( dists['CropTo'][0], dists['CropTo'][1] )
+            elif aug_class is tormentor.Zoom:
+                return tormentor.Zoom.override_distributions( scales=dists['Zoom'])
+            return aug_class
+
+        augmentations = [ instantiate_aug(aug_name) for aug_name in args.augmentations ]
+        aug_count = len(augmentations)
+        dist = [.7]+([.3/aug_count] * aug_count)
+        augmentations.insert( 0, tormentor.Identity )
+        augChoice = tormentor.AugmentationChoice.create( augmentations ).override_distributions( choice=tormentor.Categorical(probs=dist))
+
+    return augChoice
 
