@@ -6,6 +6,8 @@ from typing import List, Tuple, Callable, Optional, Dict, Union, Mapping, Any
 import itertools
 import re
 import copy
+import sys
+from datetime import datetime
 
 # 3rd-party
 from PIL import Image, ImageDraw
@@ -177,7 +179,7 @@ def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='
     """
     # Two possible structures:
     # 
-    # 1. Top-level list of lines  (no region or region'id as a line attribute)
+    # 1. Top-level list of lines  (no region or only region id as a line attribute)
     if 'lines' in segmentation_dict:
         return [ line[polygon_key] for line in segmentation_dict['lines'] ]
     # 2. Text lines are nested into regions
@@ -361,7 +363,7 @@ def expand_flat_tensor_to_n_channels( t_hw: Tensor, n: int ) -> np.ndarray:
     return t_hwc.numpy()
 
 
-def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str):
+def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str=''):
     """Serialize a JSON dictionary describing the lines into a PageXML file.
     Caution: this is a crude function, with no regard for validation.
 
@@ -369,9 +371,9 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str):
          seg_dict (Dict[str,Union[str,List[Any]]]): segmentation dictionary of the form
 
             {"text_direction": ..., "type": "baselines", "lines": [{"tags": ..., "baseline": [ ... ]}]}
+            or
+            {"text_direction": ..., "type": "baselines", "regions": [ {"id": "r0", "lines": [{"tags": ..., "baseline": [ ... ]}]}, ... ]}
     """
-    from datetime import datetime
-    import sys
     def boundary_to_point_string( list_of_pts ):
         return ' '.join([ f"{pair[0]:.0f},{pair[1]:.0f}" for pair in list_of_pts ] )
 
@@ -390,14 +392,22 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str):
     if 'comments' in seg_dict:
         commentElt.text = seg_dict['comments']
 
-
-    pageElt = ET.SubElement(rootElt, 'Page', attrib={'imageFilename': seg_dict['imagename'], 'imageWidth': f"{seg_dict['image_wh'][0]}", 'imageHeight': f"{seg_dict['image_wh'][1]}"})
+    img_width, img_height = seg_dict['image_wh']    
+    pageElt = ET.SubElement(rootElt, 'Page', attrib={'imageFilename': seg_dict['imagename'], 'imageWidth': f"{img_width}", 'imageHeight': f"{img_height}"})
+    # if no region in segmentation dict, create one (image-wide)
+    if 'regions' not in seg_dict:
+        seg_dict['regions']=[{'id': 'r0', 'boundary': [[0,0],[img_width-1,0],[img_width-1,img_height-1],[0,img_height-1]]}, ]
     for reg in seg_dict['regions']:
-        regElt = ET.SubElement( pageElt, 'TextRegion')
-        ET.SubElement(regElt, 'Coords', attrib={'points': boundary_to_point_string(reg['boundary']), 'id': f"{reg['id']}"})
-        lines = [ l for l in seg_dict['lines'] if 'region' in l and l['region']==reg['id'] ] if 'lines' in seg_dict else reg['lines']
+        reg_xml_id = f"r{reg['id']}" if type(reg['id']) is int else f"{reg['id']}"
+        regElt = ET.SubElement( pageElt, 'TextRegion', attrib={'id': reg_xml_id})
+        ET.SubElement(regElt, 'Coords', attrib={'points': boundary_to_point_string(reg['boundary'])})
+        # 3 cases: 
+        # - top-level list of lines with region ref
+        # - top-level list of lines with no regions
+        # - top-level regions with a list of lines in each
+        lines = [ l for l in seg_dict['lines'] if (('region' in l and l['region']==reg['id']) or 'region' not in l) ] if 'lines' in seg_dict else reg['lines']
         for line in lines:
-            textLineElt = ET.SubElement( regElt, 'TextLine', attrib={'id': f"{reg['id']}l{line['id']}" if type(line['id']) is int else f"{reg['id']}{line['id']}"} )
+            textLineElt = ET.SubElement( regElt, 'TextLine', attrib={'id': f"{reg_xml_id}l{line['id']}" if type(line['id']) is int else f"{reg['id']}{line['id']}"} )
             ET.SubElement( textLineElt, 'Coords', attrib={'points': boundary_to_point_string(line['boundary'])} )
             ET.SubElement( textLineElt, 'TextEquiv')
             if 'baseline' in line:
@@ -405,7 +415,10 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str):
 
     tree = ET.ElementTree( rootElt )
     ET.indent(tree, space='\t', level=0)
-    tree.write( pagexml_filename, encoding='utf-8' )
+    if pagexml_filename:
+        tree.write( pagexml_filename, encoding='utf-8' )
+    else:
+        tree.write( sys.stdout, encoding='unicode' )
 
 
 def segmentation_dict_from_xml(page: str) -> Dict[str,Union[str,List[Any]]]:
