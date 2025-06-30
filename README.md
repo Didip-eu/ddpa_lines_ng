@@ -1,4 +1,4 @@
-# Line Segmentation on charters 
+# Line segmentation (Mask-RCNN)
 
 
 

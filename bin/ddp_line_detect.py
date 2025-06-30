@@ -12,7 +12,8 @@ Line detection app, that can do either:
 The heavy lifting is done by a Mask-RCNN model that computes morphological features for each line map: this script uses them to write a JSON segmentation file.
 
 Output formats: 
-    + JSON
+    + PageXML: core polygon and baseline only.
+    + JSON: custom format, including features that are in the PageXML spec: centerline, line height, extended boundaries.
     + npy (2D-label map only)
 
 Example call::
@@ -20,7 +21,6 @@ Example call::
     PYTHONPATH=${DIDIP_ROOT} python3 ./bin/ddp_line_detect -img_paths "${FSDB_ROOT}"/*/*/d9ae9ea49832ed79a2238c2d87cd0765/*seals.crops/*OldText*.jpg -model_path best.mlmodel -mask_classes Wr:OldText
 
 TODO:
-    - patch-based detection, where image is processed in two parts.
 """
 # stdlib
 import sys
@@ -67,7 +67,7 @@ p = {
         "mask_classes": [set([]), "Names of the seals-app regions on which lines are to be detected. Eg. '[Wr:OldText']. If empty (default), detection is run on the entire page."],
         "region_segmentation_suffix": [".seals.pred.json", "Regions are given by segmentation file that is <img name stem>.<suffix>."],
         "centerlines": [0, "If True, compute centerlines (default is False)."],
-        "output_format": [("json", "npy", "stdout"), "Segmentation output: json=<JSON file>, npy=label map (HW), stdout=standard output."],
+        "output_format": [("json", "xml", "npy", "stdout"), "Segmentation output: json=<JSON file>, xml=<PageXML file>, npy=label map (HW), stdout=JSON on standard output."],
         'mask_threshold': [.25, "In the post-processing phase, threshold to use for line soft masks."],
         'patch_row_count': [ 0, "Process the image in <patch_row_count> rows."],
         'patch_col_count': [ 0, "Process the image in <patch_col_count> cols."],
@@ -135,24 +135,28 @@ def build_segdict( img_metadata, segmentation_record, contour_tolerance=4.0 ):
     Return:
         dict: a segmentation dictionary
     """
-    
     segdict = { 'created': str(datetime.datetime.now()), 'creator': __file__, }
     segdict.update( img_metadata )
-    segdict['regions']=[ { 'id': 'r0', 'type': 'text_region', 'lines': [] } ]
+    segdict['regions']=[ { 'id': 'r0', 'type': 'text_region', 'boundary': [], 'lines': [] } ]
 
     mp, atts = segmentation_record
     line_id=0
     for att_dict in atts:
         label, polygon_coords, area, line_height, centerline = [ att_dict[k] for k in ('label','polygon_coords','area', 'line_height', 'centerline')]
-        baseline = [ int(p[0]-line_height/2) for p in centerline ]
+        centerline = ski.measure.approximate_polygon( centerline[:,::-1], tolerance=contour_tolerance) if len(centerline) else np.array([])
+        baseline = np.stack( [centerline[:,0], centerline[:,1]+int(line_height/2)], axis=1) if len(centerline) else np.array([])
         segdict['regions'][0]['lines'].append({ 
                 'id': f'l{line_id}', 
                 'boundary': ski.measure.approximate_polygon( polygon_coords[:,::-1], tolerance=contour_tolerance).tolist(),
-                'stroke_width': int(line_height),
-                'centerline': ski.measure.approximate_polygon( centerline[:,::-1], tolerance=contour_tolerance).tolist() if len(centerline) else [],
-                'baseline': baseline,
+                'height': int(line_height),
+                'centerline': centerline.tolist(),
+                'baseline': baseline.tolist(),
                 })
         line_id += 1
+    # boundary of the dummy region
+    all_points = np.array(list(itertools.chain.from_iterable([ l['boundary'] for reg in segdict['regions'] for l in reg['lines'] ])))
+    l, t, r, b = [ int(p) for p in ( min( all_points[:,0]), min( all_points[:,1]), max( all_points[:,0]), max( all_points[:,1]))]
+    segdict['regions'][-1]['boundary']=[[l,t],[r,t],[r,b],[l,b]]
     return segdict
 
 
@@ -172,7 +176,6 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, contour_
     Return:
         dict: a segmentation dictionary
     """
-
     segdict = { 'created': str(datetime.datetime.now()), 'creator': __file__, }
     segdict.update( img_metadata )
     segdict['regions']=[]
@@ -184,15 +187,20 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, contour_
         _, atts = record
         for att_dict in atts:
             label, polygon_coords, area, line_height, centerline = [ att_dict[k] for k in ('label','polygon_coords','area','line_height', 'centerline')]
+            centerline = ski.measure.approximate_polygon( centerline[:,::-1], tolerance=contour_tolerance) if len(centerline) else np.array([])
+            baseline = np.stack( [centerline[:,0], centerline[:,1]+int(line_height/2)], axis=1)
             this_region_lines.append({
                 'id': f'r{region_id}l{line_id}',
                 'boundary': ski.measure.approximate_polygon( polygon_coords[:,::-1] + box[:2], tolerance=contour_tolerance).tolist(),
-                'stroke_width': int(line_height),
-                'centerline': ski.measure.approximate_polygon( centerline[:,::-1] + box[:2], tolerance=contour_tolerance).tolist() if len(centerline) else [],
+                'height': int(line_height),
+                'centerline': centerline.tolist(),
+                'baseline': baseline.tolist()
             })
             line_id += 1
-        segdict['regions'].append( { 'id': region_id, 'type': 'text_region', 'boundary': [[box[0],box[1]],[box[2],box[1]],[box[2],box[3]],[box[0],box[3]]], 'lines': this_region_lines } )
+        segdict['regions'].append( { 'id': f'r{region_id}', 'type': 'text_region', 'boundary': [[box[0],box[1]],[box[2],box[1]],[box[2],box[3]],[box[0],box[3]]], 'lines': this_region_lines } )
         region_id += 1
+    
+
 
     return segdict
 
@@ -216,7 +224,6 @@ if __name__ == "__main__":
     for path in list( args.img_paths ):
         logger.debug( path )
         path = Path(path)
-
         #stem = Path( path ).stem
         stem = re.sub(r'\..+', '', path.name )
 
@@ -224,19 +231,14 @@ if __name__ == "__main__":
         region_segfile = re.sub(r'.img.jpg', args.region_segmentation_suffix, str(path) )
 
         with Image.open( path, 'r' ) as img:
-
             # keys from PageXML specs
-            img_metadata = {
-                    'imagename': str(path.name),
-                    'image_wh': list(img.size),
-            }
+            img_metadata = { 'imagename': str(path.name), 'image_wh': list(img.size), }
 
             # ex. '1063063ceab07a6b9f146c598810529d.lines.pred'
             output_file_path_wo_suffix = path.parent.joinpath( f'{stem}.{args.appname}.pred' )
 
             json_file_path = Path(f'{output_file_path_wo_suffix}.json')
             npy_file_path = Path(f'{output_file_path_wo_suffix}.npy')
-
 
             if not Path( args.model_path ).exists():
                 raise FileNotFoundError("Could not find model file", args.model_path)
@@ -261,7 +263,6 @@ if __name__ == "__main__":
                         rows, cols = is_unusual_size( crop_whc.size[1], crop_whc.size[0] ) 
                         if rows or cols:
                             logger.debug("Unusual size detected: process {}x{} patches.".format(rows, cols))
-
                         if rows > 1:
                             label_masks.append( label_map_from_patches( crop_whc, row_count=rows, model=model) )
                         elif cols > 1:
@@ -299,12 +300,15 @@ if __name__ == "__main__":
             if args.output_format == 'stdout':
                 print(json.dumps(segdict))
                 sys.exit()
-            with open(output_file_path, 'w') as of:
-                if args.output_format == 'json':
+            if args.output_format == 'json':
+                with open(output_file_path, 'w') as of:
                     segdict['image_wh']=img.size
                     json.dump( segdict, of )
-                elif args.output_format == 'npy':
-                    np.save( output_file_path, label_map )
-                logger.info("Segmentation output saved in {}".format( output_file_path ))
+            elif args.output_format == 'xml':
+                segdict['image_wh']=img.size
+                seglib.xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
+            elif args.output_format == 'npy':
+                np.save( output_file_path, label_map )
+            logger.info("Segmentation output saved in {}".format( output_file_path ))
 
 
