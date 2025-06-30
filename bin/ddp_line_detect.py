@@ -4,12 +4,12 @@
 # 05.2025
 
 """
-Line detection app, that can do either:
+Line detection app, for:
 
     - page-wide line detection, with no consideration for regions
     - region-based line detection, provided a class name (ex. Wr:Oldtext) and the existence of layout segmentation file for each image
 
-The heavy lifting is done by a Mask-RCNN model that computes morphological features for each line map: this script uses them to write a JSON segmentation file.
+The heavy lifting is done by the associated Mask-RCNN appn that computes morphological features for each line map. This app deals with what comes in, and out.
 
 Output formats: 
     + PageXML: core polygon and baseline only.
@@ -17,8 +17,8 @@ Output formats:
     + npy (2D-label map only)
 
 Example call::
-    export DIDIP_ROOT=. FSDB_ROOT=~/tmp/data/1000CV
-    PYTHONPATH=${DIDIP_ROOT} python3 ./bin/ddp_line_detect -img_paths "${FSDB_ROOT}"/*/*/d9ae9ea49832ed79a2238c2d87cd0765/*seals.crops/*OldText*.jpg -model_path best.mlmodel -mask_classes Wr:OldText
+    export FSDB_ROOT=~/tmp/data/1000CV
+    PYTHONPATH=. python3 ./bin/ddp_line_detect -img_paths "${FSDB_ROOT}"/*/*/d9ae9ea49832ed79a2238c2d87cd0765/*seals.crops/*OldText*.jpg -model_path best.mlmodel -mask_classes Wr:OldText
 
 TODO:
 """
@@ -57,7 +57,6 @@ logger = logging.getLogger(__name__)
 logging.getLogger('PIL').setLevel(logging.INFO)
 
 
-
 p = {
         "appname": "lines",
         "model_path": str(src_root.joinpath("best.mlmodel")),
@@ -72,7 +71,6 @@ p = {
         'patch_row_count': [ 0, "Process the image in <patch_row_count> rows."],
         'patch_col_count': [ 0, "Process the image in <patch_col_count> cols."],
 }
-
 
 
 def is_unusual_size( height, width ):
@@ -199,8 +197,6 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, contour_
             line_id += 1
         segdict['regions'].append( { 'id': f'r{region_id}', 'type': 'text_region', 'boundary': [[box[0],box[1]],[box[2],box[1]],[box[2],box[3]],[box[0],box[3]]], 'lines': this_region_lines } )
         region_id += 1
-    
-
 
     return segdict
 

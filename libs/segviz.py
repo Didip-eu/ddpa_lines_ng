@@ -92,7 +92,7 @@ def batch_visuals( inputs:list[Union[Tensor,dict,Path]], raw_maps: list[tuple[np
     
     return list(zip(maps, attr, ids))
 
-def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path,str]=None, segfile_suffix:str='lines.pred.json', regions=True, alpha=.4 ):
+def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path,str]=None, segfile_suffix:str='lines.pred.json', show:dict={}, alpha=.4 ):
     """ Render segmentation data on an image.
     The segmentation dictionary is expected to have the following structure:
     
@@ -103,8 +103,11 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
     Args:
         img_path (Path): image file
         segfile (Path): if not provided, look for a segmentation file that shares its prefix with the image.
-        regions (bool): draw a rectangle around the regions.
+        show (dict): features to be shown. Default: `{'polygons': True, 'regions': True, 'baselines': False}`
     """
+
+    features = {'polygons': True, 'regions': True, 'baselines': False}
+    features.update( show )
 
     if segfile is None:
         segfile = str(img_path).replace('.img.jpg', f'.{segfile_suffix}') 
@@ -128,12 +131,17 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
             colors = get_n_color_palette( color_count )
             for l,line in enumerate(reg['lines']):
                 col = np.array(colors[l % len(colors) ])
-                rr,cc = (np.array(line['boundary']).T)[::-1]
-                polyg_coords = ski.draw.polygon( rr, cc )
-                col_msk_hwc[ polyg_coords ] = (col/255.0)
-                bm_hw[ polyg_coords ] = True
+                if features['polygons']:
+                    rr,cc = (np.array(line['boundary']).T)[::-1]
+                    coords = ski.draw.polygon( rr, cc )
+                    col_msk_hwc[ coords ] = (col/255.0)
+                    bm_hw[ coords ] = True
+
+                if features['baselines'] and 'baseline' in line:
+                    baseline_arr = np.sort(np.array( line['baseline'] ), axis=0)
+                    plt.plot( baseline_arr[:,0], baseline_arr[:,1], linewidth=2)
             
-            if regions and 'boundary' in reg:
+            if features['regions'] and 'boundary' in reg:
                 reg_closed_boundary = np.array( reg['boundary']+[reg['boundary'][0]])
                 plt.plot( reg_closed_boundary[:,0], reg_closed_boundary[:,1], linewidth=2)
         col_msk_hwc *= alpha
