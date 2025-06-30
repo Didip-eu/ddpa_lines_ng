@@ -136,6 +136,7 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
                     coords = ski.draw.polygon( rr, cc )
                     col_msk_hwc[ coords ] = (col/255.0)
                     bm_hw[ coords ] = True
+                    #plt.plot( cc,rr, linewidth=2 )
 
                 if features['baselines'] and 'baseline' in line:
                     baseline_arr = np.sort(np.array( line['baseline'] ), axis=0)
