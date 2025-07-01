@@ -363,7 +363,7 @@ def expand_flat_tensor_to_n_channels( t_hw: Tensor, n: int ) -> np.ndarray:
     return t_hwc.numpy()
 
 
-def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str=''):
+def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_key='boundary'):
     """Serialize a JSON dictionary describing the lines into a PageXML file.
     Caution: this is a crude function, with no regard for validation.
 
@@ -373,6 +373,9 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str=''):
             {"text_direction": ..., "type": "baselines", "lines": [{"tags": ..., "baseline": [ ... ]}]}
             or
             {"text_direction": ..., "type": "baselines", "regions": [ {"id": "r0", "lines": [{"tags": ..., "baseline": [ ... ]}]}, ... ]}
+        pagexml_filename (str): if provided, output is saved in a PageXML file (standard output is the default).
+        polygon_key (str): if the segmentation dictionary contain alternative polygons (f.i. 'extBoundary'),
+            use them, instead of the usual line 'boundary'.
     """
     def boundary_to_point_string( list_of_pts ):
         return ' '.join([ f"{pair[0]:.0f},{pair[1]:.0f}" for pair in list_of_pts ] )
@@ -392,8 +395,9 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str=''):
     if 'comments' in seg_dict:
         commentElt.text = seg_dict['comments']
 
+    img_name = Path(seg_dict['imagename']).name
     img_width, img_height = seg_dict['image_wh']    
-    pageElt = ET.SubElement(rootElt, 'Page', attrib={'imageFilename': seg_dict['imagename'], 'imageWidth': f"{img_width}", 'imageHeight': f"{img_height}"})
+    pageElt = ET.SubElement(rootElt, 'Page', attrib={'imageFilename': image_name, 'imageWidth': f"{img_width}", 'imageHeight': f"{img_height}"})
     # if no region in segmentation dict, create one (image-wide)
     if 'regions' not in seg_dict:
         seg_dict['regions']=[{'id': 'r0', 'boundary': [[0,0],[img_width-1,0],[img_width-1,img_height-1],[0,img_height-1]]}, ]
@@ -408,7 +412,7 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str=''):
         lines = [ l for l in seg_dict['lines'] if (('region' in l and l['region']==reg['id']) or 'region' not in l) ] if 'lines' in seg_dict else reg['lines']
         for line in lines:
             textLineElt = ET.SubElement( regElt, 'TextLine', attrib={'id': f"{reg_xml_id}l{line['id']}" if type(line['id']) is int else f"{reg['id']}{line['id']}"} )
-            ET.SubElement( textLineElt, 'Coords', attrib={'points': boundary_to_point_string(line['boundary'])} )
+            ET.SubElement( textLineElt, 'Coords', attrib={'points': boundary_to_point_string(line[polygon_key])} )
             ET.SubElement( textLineElt, 'TextEquiv')
             if 'baseline' in line:
                 ET.SubElement( textLineElt, 'Baseline', attrib={'points': boundary_to_point_string(line['baseline'])})
