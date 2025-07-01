@@ -32,7 +32,6 @@ from torch import nn
 from torch.utils.tensorboard import SummaryWriter
 import torchvision
 from torchvision.transforms import v2
-import torchvision.tv_tensors as tvt
 from torchvision.tv_tensors import BoundingBoxes, Mask
 from torchvision.models.detection import mask_rcnn
 from torchvision.models.detection import maskrcnn_resnet50_fpn_v2, MaskRCNN
@@ -51,7 +50,7 @@ import tormentor
 # local
 sys.path.append( str(Path(__file__).parents[1] ))
 from libs import seglib
-from libs.transforms import build_tormentor_augmentation
+from libs.transforms import build_tormentor_augmentation, ResizeMin
 from libs.train_utils import split_set, duration_estimate
 
 
@@ -106,7 +105,7 @@ class LineDetectionDataset(Dataset):
     + image
     + target dictionary: LHW segmentation mask tensor (1 mask for each of the L lines), L4 bounding box tensor, L label tensor.
     """
-    def __init__(self, img_paths, label_paths, polygon_type='coreBoundary', transforms=None, img_size=(1024,1024)):
+    def __init__(self, img_paths, label_paths, polygon_type='coreBoundary', transforms=None, img_size=(1024,1024), min_size=0):
         """
         Constructor for the Dataset class.
 
@@ -114,6 +113,8 @@ class LineDetectionDataset(Dataset):
             img_paths (list): List of unique identifiers for images.
             label_paths (list): List of label paths.
             transforms (callable, optional): Optional transform to be applied on a sample.
+            img_size (tuple[int]): when default (pre-tormentor) transform resizes the input to a fixed size.
+            size_min (int): if non-zero, ensure that image is at least <size_min> on its smaller dimension - used when later augmentations use fixed crops.
         """
         super(Dataset, self).__init__()
         
@@ -122,7 +123,7 @@ class LineDetectionDataset(Dataset):
         self.polygon_type = polygon_type
         self._transforms = transforms if transforms is not None else v2.Compose([
             v2.ToImage(),
-            v2.Resize( img_size ),
+            ResizeMin( min_size ) if min_size else v2.Resize( img_size ), 
             v2.SanitizeBoundingBoxes(),
             v2.ToDtype(torch.float32, scale=True),])
 
@@ -157,6 +158,7 @@ class LineDetectionDataset(Dataset):
         if self._transforms:
             image, target = self._transforms(image, target)
 
+        print("Image+masks after basic transform:", image.shape, target['masks'].shape)
         return image, target
 
     def _load_image_and_target(self, img_path, annotation_path):
@@ -172,10 +174,11 @@ class LineDetectionDataset(Dataset):
         """
         # Open the image file and convert it to RGB
         img = Image.open(img_path)#.convert('RGB')
+        logger.info(img.size)
 
         with open( annotation_path, 'r') as annotation_if:
             segdict = json.load( annotation_if )
-            masks=Mask( seglib.line_binary_mask_stack_from_segmentation_dict(segdict))
+            masks=Mask( seglib.line_binary_mask_stack_from_segmentation_dict(segdict, polygon_key='boundary'))
             labels = torch.tensor( [ 1 ]*masks.shape[0], dtype=torch.int64)
             bboxes = BoundingBoxes(data=torchvision.ops.masks_to_boxes(masks), format='xyxy', canvas_size=img.size[::-1])
             return img, {'masks': masks, 'boxes': bboxes, 'labels': labels, 'path': img_path, 'orig_size': img.size }
@@ -495,12 +498,14 @@ if __name__ == '__main__':
         imgs_val, _, lbls_val, _ = split_set( imgs_val, lbls_val, limit=hyper_params['validation_set_limit'])
 
     # Basic dataset: all images are resized at this stage
-    ds_train = LineDetectionDataset( imgs_train, lbls_train, img_size=hyper_params['img_size'] )
+    #ds_train = LineDetectionDataset( imgs_train, lbls_train, img_size=hyper_params['img_size'])
+    ds_train = LineDetectionDataset( imgs_train, lbls_train, min_size=hyper_params['img_size'][0])
     ds_val = LineDetectionDataset( imgs_val, lbls_val, img_size=hyper_params['img_size'] )
     ds_test = LineDetectionDataset( imgs_test, lbls_test, img_size=hyper_params['img_size'] )
 
+
     if args.tormentor:
-        aug = build_tormentor_augmentation( tormentor_dists, args.augmentations )
+        aug = build_tormentor_augmentation( tormentor_dists, args.augmentations, crop_size=hyper_params['img_size'][0] )
         ds_train = tormentor.AugmentedDs( ds_train, aug, computation_device=args.device, augment_sample_function=LineDetectionDataset.augment_with_bboxes )
 
     dl_train = DataLoader( ds_train, batch_size=hyper_params['batch_size'], shuffle=True, collate_fn = lambda b: tuple(zip(*b)))

@@ -4,8 +4,10 @@
 from typing import Union,Any
 import numpy as np
 import tormentor
+import torch
 from torch import Tensor
 from torchvision.transforms import v2
+from torchvision import tv_tensors
 
 """
 Unused transforms, for reference. (This project uses Tormentor instead.)
@@ -125,7 +127,7 @@ class RandomElasticGrid(v2.Transform):
 
 
 
-def build_tormentor_augmentation( dists, augmentation_list=[] ):
+def build_tormentor_augmentation( dists, augmentation_list=[], crop_size=680 ):
     """ Construct a Tormentor composite augmentation.
 
     Args:
@@ -145,11 +147,21 @@ def build_tormentor_augmentation( dists, augmentation_list=[] ):
         #augChoice = tormentor.AugmentationChoice.create( [ tormentor.Identity, tormentor.FlipHorizontal, tormentor.Wrap, augRotate, tormentor.Perspective ] )
         #augChoice = augChoice.override_distributions(choice=tormentor.Categorical(probs=(.6,.1,.1,.1,.1)))
 
-        # experiment with wrap and crop
+        # experiment with wrap and crop on full images
         augWrap = tormentor.RandomWrap.override_distributions(roughness=dists['Wrap'][0], intensity=dists['Wrap'][1])
         augZoom = tormentor.RandomZoom.override_distributions( scales=dists['Zoom'])
         augChoice = tormentor.RandomIdentity ^ tormentor.RandomFlipHorizontal ^ ( augWrap | augZoom ) 
         augChoice = augChoice.override_distributions( choice=tormentor.Categorical(probs=(.7,.15,.15)))
+
+        # only crops:
+        #             __ Wrap __ Zoom __ Crop   (distort image-wide, zoom to get rid of BG, then crop)
+        #            |__ Crop __ 
+        print(crop_size)
+        augCrop = tormentor.RandomCropTo.new_size( crop_size, crop_size )
+        augChoice = augCrop ^ ( augWrap | augZoom | augCrop )
+        #augChoice.override_distributions(choice=tormentor.Categorical(probs=(0.5,0.5)))
+        augChoice.override_distributions( choice=tormentor.Categorical(probs=(.8,.2)))
+
 
     else:
         def instantiate_aug( augname ):
@@ -174,3 +186,40 @@ def build_tormentor_augmentation( dists, augmentation_list=[] ):
 
     return augChoice
 
+
+class ResizeMinTransform(v2.Transform):
+
+    def transform(self, inpt: Any, params: dict[str, Any]):
+        
+        def get_new_size(orig_height, orig_width ):
+            #print("get_new_size(", orig_height, orig_width )
+            if orig_height < params['min_size'] and orig_width < params['min_size']:
+                return (params['min_size'], params['min_size'])
+            if orig_height < params['min_size']:
+                return (params['min_size'], orig_width)
+            if orig_width < params['min_size']:
+                return (orig_height, params['min_size'])
+            return orig_height, orig_width
+
+        new_size = None
+        if isinstance(inpt, tv_tensors.BoundingBoxes):
+            print("BoundingBox: inpt.canvas_size =", inpt.canvas_size)
+            new_size = get_new_size( inpt.canvas_size[0], inpt.canvas_size[1] )
+        elif isinstance(inpt, Tensor):
+            new_size = get_new_size( inpt.shape[-2], inpt.shape[-1] )
+        print("ResizeMinTransform():", new_size)
+        return v2.Resize( new_size )( inpt )
+            
+
+class ResizeMin( ResizeMinTransform ):
+    "Wrapper for class above."
+
+    def __init__(self, min_size=480):
+        self.min_size=min_size
+        super().__init__()
+
+    def make_params( self, inputs ):
+        return dict(min_size=self.min_size)
+
+    def transform( self, inpt, params ):
+        return super().transform(inpt, params)
