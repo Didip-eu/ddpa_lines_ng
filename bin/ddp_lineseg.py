@@ -50,7 +50,7 @@ import tormentor
 # local
 sys.path.append( str(Path(__file__).parents[1] ))
 from libs import seglib
-from libs.transforms import build_tormentor_augmentation, ResizeMin
+from libs.transforms import build_tormentor_augmentation_for_page_wide_training, build_tormentor_augmentation_for_crop_training, build_tormentor_augmentation_from_list,  ResizeMin
 from libs.train_utils import split_set, duration_estimate
 
 
@@ -505,7 +505,7 @@ if __name__ == '__main__':
 
 
     if args.tormentor:
-        aug = build_tormentor_augmentation( tormentor_dists, args.augmentations, crop_size=hyper_params['img_size'][0] )
+        aug = build_tormentor_augmentation_for_crop_training( tormentor_dists, crop_size=hyper_params['img_size'][0], crop_before=True )
         ds_train = tormentor.AugmentedDs( ds_train, aug, computation_device=args.device, augment_sample_function=LineDetectionDataset.augment_with_bboxes )
 
     dl_train = DataLoader( ds_train, batch_size=hyper_params['batch_size'], shuffle=True, collate_fn = lambda b: tuple(zip(*b)))
@@ -577,14 +577,16 @@ if __name__ == '__main__':
         
         epoch_losses = []
         batches = iter(dl_train)
-
         for batch_index, batch in enumerate(pbar := tqdm(dl_train)):
             imgs, targets = batch
             if dry_run > 1 and args.device=='cpu':
+                print("PLT interactive?", plt.isinteractive())
                 fig, ax = plt.subplots(1,len(imgs))
                 for i, img, target in zip(range(len(imgs)),imgs,targets):
+                    print(img.shape)
                     ax[i].imshow( img.permute(1,2,0) * torch.sum( target['masks'], axis=0).to(torch.bool)[:,:,None] )
-                plt.show()
+                plt.show(block=True)
+                plt.close()
                 continue
             pbar.set_description(f'Epoch {epoch}')
             imgs = torch.stack(imgs).to( args.device )
