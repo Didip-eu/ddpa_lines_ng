@@ -2,7 +2,7 @@
 #stdlib
 from pathlib import Path
 import json
-from typing import List, Tuple, Callable, Optional, Dict, Union, Mapping, Any
+from typing import Callable, Optional, Union, Mapping, Any
 import itertools
 import re
 import copy
@@ -188,7 +188,7 @@ def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='
     return []
 
 
-def line_images_from_img_xml_files(img: str, page_xml: str ) -> List[Tuple[np.ndarray, np.ndarray]]:
+def line_images_from_img_xml_files(img: str, page_xml: str ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From an image file path and a segmentation PageXML file describing polygons, return
     a list of pairs (<line cropped BB>, <polygon mask>).
 
@@ -206,7 +206,7 @@ def line_images_from_img_xml_files(img: str, page_xml: str ) -> List[Tuple[np.nd
         return line_images_from_img_segmentation_dict( img_wh, segmentation_dict )
 
 
-def line_images_from_img_json_files( img: str, segmentation_json: str ) -> List[Tuple[np.ndarray, np.ndarray]]:
+def line_images_from_img_json_files( img: str, segmentation_json: str ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From an image file path and a segmentation JSON file describing polygons, return
     a list of pairs (<line cropped BB>, <polygon mask>).
 
@@ -220,7 +220,7 @@ def line_images_from_img_json_files( img: str, segmentation_json: str ) -> List[
     with Image.open(img, 'r') as img_wh, open( segmentation_json, 'r' ) as json_file:
         return line_images_from_img_segmentation_dict( img_wh, json.load( json_file ))
 
-def line_images_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dict: dict, polygon_key='boundary' ) -> List[Tuple[np.ndarray, np.ndarray]]:
+def line_images_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dict: dict, polygon_key='boundary' ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From a segmentation dictionary describing polygons, return 
     a list of pairs (<line cropped BB>, <polygon mask>).
 
@@ -229,7 +229,7 @@ def line_images_from_img_segmentation_dict(img_whc: Image.Image, segmentation_di
         segmentation_dict: :type segmentation_dict: dict a dictionary, typically constructed from a JSON file.
 
     Returns:
-        List[Tuple[np.ndarray, np.ndarray]]: a list of pairs (<line
+        list[tuple[np.ndarray, np.ndarray]]: a list of pairs (<line
         image BB>: np.ndarray (HWC), mask: np.ndarray (HWC))
     """
     polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict, polygon_key=polygon_key)
@@ -251,7 +251,7 @@ def line_images_from_img_segmentation_dict(img_whc: Image.Image, segmentation_di
 
     return pairs_line_bb_and_mask
 
-def line_images_from_img_polygon_map(img_wh: Image.Image, polygon_map_chw: Tensor) -> List[Tuple[np.ndarray, np.ndarray]]:
+def line_images_from_img_polygon_map(img_wh: Image.Image, polygon_map_chw: Tensor) -> list[tuple[np.ndarray, np.ndarray]]:
     """From a tensor storing polygons, return a list of pairs (<line cropped BB>, <polygon mask>).
 
     Args:
@@ -259,7 +259,7 @@ def line_images_from_img_polygon_map(img_wh: Image.Image, polygon_map_chw: Tenso
         segmentation_dict (dict): a dictionary, typically constructed from a JSON file.
 
     Returns:
-        List[Tuple[np.ndarray, np.ndarray]]: a list of pairs (<line image BB>: np.ndarray (HWC), mask: np.ndarray (HW))
+        list[tuple[np.ndarray, np.ndarray]]: a list of pairs (<line image BB>: np.ndarray (HWC), mask: np.ndarray (HW))
     """
 
     max_label = torch.max( polygon_map_chw )
@@ -284,7 +284,7 @@ def line_images_from_img_polygon_map(img_wh: Image.Image, polygon_map_chw: Tenso
 
 
 
-def line_masks_from_img_xml_files(img: str, page_xml: str ) -> List[Tuple[np.ndarray, np.ndarray]]:
+def line_masks_from_img_xml_files(img: str, page_xml: str ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From an image file path and a segmentation PageXML file describing polygons, return
     the bounding box coordinates and the boolean masks.
 
@@ -293,7 +293,7 @@ def line_masks_from_img_xml_files(img: str, page_xml: str ) -> List[Tuple[np.nda
         page_xml (page_xml): str a Page XML file describing the lines.
 
     Returns:
-        Tuple[np.ndarray,np.ndarray]: a pair of tensors: a tensor (N,4) of BB coordinates tuples,
+        tuple[np.ndarray,np.ndarray]: a pair of tensors: a tensor (N,4) of BB coordinates tuples,
             and a tensor (N,H,W) of page-wide line masks.
     """
     with Image.open(img, 'r') as img_wh:
@@ -301,7 +301,7 @@ def line_masks_from_img_xml_files(img: str, page_xml: str ) -> List[Tuple[np.nda
         return line_masks_from_img_segmentation_dict( img_wh, segmentation_dict )
 
 
-def line_masks_from_img_json_files( img: str, segmentation_json: str, key='boundary' ) -> List[Tuple[np.ndarray, np.ndarray]]:
+def line_masks_from_img_json_files( img: str, segmentation_json: str, key='boundary' ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From an image file path and a segmentation JSON file describing polygons, return
     the bounding box coordinates and the boolean masks.
 
@@ -310,13 +310,13 @@ def line_masks_from_img_json_files( img: str, segmentation_json: str, key='bound
         segmentation_json (str): path of a JSON file
 
     Returns:
-        Tuple[np.ndarray,np.ndarray]: a pair of tensors: a tensor (N,4) of BB coordinates tuples,
+        tuple[np.ndarray,np.ndarray]: a pair of tensors: a tensor (N,4) of BB coordinates tuples,
             and a tensor (N,H,W) of page-wide line masks.
     """
     with Image.open(img, 'r') as img_wh, open( segmentation_json, 'r' ) as json_file:
         return line_masks_from_img_segmentation_dict( img_wh, json.load( json_file ), key=key)
 
-def line_masks_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dict: dict, polygon_key='boundary' ) -> List[Tuple[np.ndarray, np.ndarray]]:
+def line_masks_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dict: dict, polygon_key='boundary' ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From a segmentation dictionary describing polygons, return 
     the bounding box coordinates and the boolean masks.
 
@@ -325,7 +325,7 @@ def line_masks_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dic
         segmentation_dict: :type segmentation_dict: dict a dictionary, typically constructed from a JSON file.
 
     Returns:
-        Tuple[np.ndarray,np.ndarray]: a pair of tensors: a tensor (N,4) of BB coordinates tuples,
+        tuple[np.ndarray,np.ndarray]: a pair of tensors: a tensor (N,4) of BB coordinates tuples,
             and a tensor (N,H,W) of page-wide line masks.
     """
     polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict, polygon_key=polygon_key)
@@ -368,7 +368,7 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
     Caution: this is a crude function, with no regard for validation.
 
     Args:
-         seg_dict (Dict[str,Union[str,List[Any]]]): segmentation dictionary of the form
+         seg_dict (dict[str,Union[str,list[Any]]]): segmentation dictionary of the form
 
             {"text_direction": ..., "type": "baselines", "lines": [{"tags": ..., "baseline": [ ... ]}]}
             or
@@ -425,21 +425,21 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
         tree.write( sys.stdout, encoding='unicode' )
 
 
-def segmentation_dict_from_xml(page: str) -> Dict[str,Union[str,List[Any]]]:
+def segmentation_dict_from_xml(page: str) -> dict[str,Union[str,list[Any]]]:
     """Given a pageXML file name, return a JSON dictionary describing the lines.
 
     Args:
         page (str): path of a PageXML file
 
     Returns:
-        Dict[str,Union[str,List[Any]]]: a dictionary of the form::
+        dict[str,Union[str,list[Any]]]: a dictionary of the form::
 
             {"text_direction": ..., "type": "baselines", "lines": [{"tags": ..., "baseline": [ ... ]}]}
 
     """
     direction = {'0.0': 'horizontal-lr', '0.1': 'horizontal-rl', '1.0': 'vertical-td', '1.1': 'vertical-bu'}
 
-    page_dict: Dict[str, Union['str', List[Any]]] = { 'type': 'baselines', 'text_direction': 'horizontal-lr' }
+    page_dict: dict[str, Union['str', list[Any]]] = { 'type': 'baselines', 'text_direction': 'horizontal-lr' }
 
     def construct_line_entry(line: ET.Element, regions: list = [] ) -> dict:
             #print(regions)
@@ -503,7 +503,7 @@ def segmentation_dict_from_xml(page: str) -> Dict[str,Union[str,List[Any]]]:
 
     return page_dict 
 
-def merge_seals_regseg_lineseg( regseg: dict, region_labels: List[str], *linesegs: List[str]) -> dict:
+def merge_seals_regseg_lineseg( regseg: dict, region_labels: list[str], *linesegs: list[str]) -> dict:
     """Merge 2 segmentation outputs into a single one:
 
     * the page-wide yolo/seals segmentation (with OldText, ... regions)
@@ -513,12 +513,12 @@ def merge_seals_regseg_lineseg( regseg: dict, region_labels: List[str], *lineseg
 
     Args:
         regseg (dict): the regional segmentation json, as given by the 'seals' app
-        *linesegs (List[str]): a number of local line segmentations for the region defined in the
+        *linesegs (list[str]): a number of local line segmentations for the region defined in the
             first file, of the form::
 
                 {"type": "baseline", "imagename": ..., lines: [ {"id": "... }, ... ] }
 
-        region_labels (List[str]): in the region segmentation, labels of those regions
+        region_labels (list[str]): in the region segmentation, labels of those regions
             that have been line-segmented.
 
     Returns:
@@ -569,17 +569,17 @@ def merge_seals_regseg_lineseg( regseg: dict, region_labels: List[str], *lineseg
 
     return merged_seg
         
-def seals_regseg_to_crops( img: Image.Image, regseg: dict, region_labels: List[str] ) -> Tuple[List[Image.Image], List[str]]:
+def seals_regseg_to_crops( img: Image.Image, regseg: dict, region_labels: list[str] ) -> tuple[list[Image.Image], list[str]]:
     """From a seals-app segmentation dictionary, returns the regions with matching
     labels as a list of images.
 
     Args:
         img (Image.Image): Image to crop.
         regseg (dict): the regional segmentation json, as given by the 'seals' app
-        region_labels (List[str]): Labels to be extracted.
+        region_labels (list[str]): Labels to be extracted.
 
     Returns:
-        Tuple[List[Image.Image], List[str]]: a tuple with 
+        tuple[list[Image.Image], list[str]]: a tuple with 
             - a list of images (HWC)
             - a list of box coordinates (LTRB)
             - a list of class names
@@ -592,16 +592,16 @@ def seals_regseg_to_crops( img: Image.Image, regseg: dict, region_labels: List[s
                 clsid_2_clsname[ regseg['rect_classes'][i]]) for i in to_keep ])
 
 
-def seals_regseg_check_class(regseg: dict, region_labels: List[str] ) -> List[bool]:
+def seals_regseg_check_class(regseg: dict, region_labels: list[str] ) -> list[bool]:
     """From a seals-app segmentation dictionary, check if rectangle with given labels
     have been detected.
 
     Args:
         regseg (dict): the regional segmentation json, as given by the 'seals' app
-        region_labels (List[str]): Labels to check.
+        region_labels (list[str]): Labels to check.
 
     Returns:
-        List[bool]: a list of boolean values.
+        list[bool]: a list of boolean values.
     """
 
     clsname_2_clsid = { n:i for (i,n) in enumerate( regseg['class_names'] )}
@@ -932,7 +932,7 @@ def map_to_depth(map_chw: Tensor) -> Tensor:
     return depth_map
 
 
-def polygon_pixel_metrics_to_line_based_scores_icdar_2017( metrics: np.ndarray, threshold: float=.5 ) -> Tuple[float, float, float, float, float]:
+def polygon_pixel_metrics_to_line_based_scores_icdar_2017( metrics: np.ndarray, threshold: float=.5 ) -> tuple[float, float, float, float, float]:
     """Implement ICDAR 2017 evaluation metrics, as described in
     https://github.com/DIVA-DIA/DIVA_Line_Segmentation_Evaluator/releases/tag/v1.0.0
     (a Java implementation)
@@ -1010,7 +1010,7 @@ def polygon_pixel_metrics_to_line_based_scores_icdar_2017( metrics: np.ndarray, 
 
     return (TP, FP, FN, Jaccard, F1)
 
-def polygon_pixel_metrics_to_line_based_scores( metrics_hwc: np.ndarray, threshold: float=.5 ) -> Tuple[float, float, float, float, float]:
+def polygon_pixel_metrics_to_line_based_scores( metrics_hwc: np.ndarray, threshold: float=.5 ) -> tuple[float, float, float, float, float]:
     """Classic evalution metrics, where mask are matched based on the best IoU.
 
     IoU = TP / (TP+FP+FN)
@@ -1104,7 +1104,7 @@ def mAP( pixel_metrics_list: list[np.ndarray] ):
     
 
 
-def polygon_pixel_metrics_to_pixel_based_scores( metrics: np.ndarray) -> Tuple[float, float]:
+def polygon_pixel_metrics_to_pixel_based_scores( metrics: np.ndarray) -> tuple[float, float]:
     """Implement ICDAR 2017 pixel-based evaluation metrics, as described in
     Simistira et al., ICDAR2017, "Competition on Layout Analysis for Challenging Medieval
     Manuscripts", 2017.

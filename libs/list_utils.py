@@ -1,28 +1,43 @@
 #!/usr/bin/env python3
+"""
+List utility functions no provided by itertools.
+"""
 
 import itertools
+from typing import Union, Any
+from collections.abc import Sequence
 
-from typing import Union,Tuple,List,Dict 
-
-
-
-def flatten(l:Union[list,tuple], max_depth:int=-1):
+def flatten(l:Sequence[Any], max_depth:int=-1) -> list[Any]:
     """ Flatten a sequence, Lisp-style. Input sequence may 
-    be made of lists or tuples or both; the output sequence
-    is always a list of lists.
+    be made of lists or tuples or both; elements and subelements of the
+    output sequence are always lists.
+
+    Ex.
+        >>> flatten( [[1, (2, [3]), 4], 5, [6, [7, 8]], 9]) # default: flatten-out
+        [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        >>> flatten( [[1, (2, [3]), 4], 5, [6, [7, 8]], 9], 0) # only top level
+        [1, [2, [3]], 4, 5, 6, [7, 8], 9]
+        >>> flatten( [[1, (2, [3]), 4], 5, [6, [7, 8]], 9], 1) # first 2 levels
+        [1, 2, [3], 4, 5, 6, 7, 8, 9] 
 
     Args:
+        l (Sequence[Any]]): a sequence, possibly nested.
+
         depth (int): depth. Default (-1) flattens sublists at every level; 
             0 flattens only the top-level sublists, etc.
     Returns:
-        list: a list.
+        list: a flat list.
     """
-    def flatten_rec( l:list, dpt:int):
+    def tuple_to_list(l):
+        if type(l) is not list and type(l) is not tuple:
+            return l
+        return [ tuple_to_list(elt) for elt in l ]
+    def flatten_rec( l:Sequence, dpt:int ):
         if l == [] or l==() or (max_depth != -1 and dpt > max_depth):
-            return []
+            return tuple_to_list(l)
         if type(l[0]) is not list and type(l[0]) is not tuple:
-            return [l[0]] + flatten_rec(l[1:], dpt)
-        return flatten_rec(l[0], dpt+1) + flatten_rec(l[1:], dpt)
+            return [l[0]] + flatten_rec(l[1:], dpt )
+        return flatten_rec(l[0], dpt+1 ) + flatten_rec(l[1:], dpt )
 
     return flatten_rec( l, 0 )
 
@@ -43,7 +58,7 @@ def group(l:list, gs=2):
 
 
 
-def deep_sorted(list_of_lists: List[Union[str,list]]) ->List[Union[str,list]]:
+def deep_sorted(list_of_lists: list[Union[str,list]]) ->list[Union[str,list]]:
     """Sort a list that contains either lists of strings, or plain strings.
     Eg.::
 
@@ -51,27 +66,27 @@ def deep_sorted(list_of_lists: List[Union[str,list]]) ->List[Union[str,list]]:
        [['B', 'b'], ['E', 'e'], 'a', 'c', 'd', 'f']
 
     Args:
-        list_of_lists (List[Union[str,list]]): a list where each element can be a characters or a
+        list_of_lists (list[Union[str,list]]): a list where each element can be a characters or a
             list of characters.
 
     Returns:
-        List[Union[str,list]]: a sorted list, where each sublist is sorted and the top sorting
+        list[Union[str,list]]: a sorted list, where each sublist is sorted and the top sorting
             key is the either the character or the first element of the list to be sorted.
     """
     return sorted([sorted(i) if len(i)>1 else i for i in list_of_lists],
                    key=lambda x: x[0])
 
-def merge_sublists( symbol_list: List[Union[str,list]], merge:List[list]=[] ) -> List[Union[str,list]]:
+def merge_sublists( symbol_list: list[Union[str,list]], merge:list[list]=[] ) -> list[Union[str,list]]:
     """Given a nested list and a list of strings, merge the lists contained in <symbol_list>
     such that characters joined in a <merge> string are stored in the same list.
 
     Args:
-        merge (List[list]): for each of the provided subsequences, merge those output sublists
+        merge (list[list]): for each of the provided subsequences, merge those output sublists
             that contain the characters in it. Eg. ``merge=['ij']`` will merge the ``'i'``
             sublist (``['i','I','î',...]``) with the ``'j'`` sublist (``['j','J',...]``)
 
     Returns:
-        List[Union[str,list]]: a list of lists.
+        list[Union[str,list]]: a list of lists.
     """
     if not merge:
         return symbol_list
@@ -98,17 +113,17 @@ def merge_sublists( symbol_list: List[Union[str,list]], merge:List[list]=[] ) ->
     return symbol_list
 
 
-def groups_from_groups(list_of_lists: List[Union[list,str]], atoms: set = None, exclude=[]) -> List[Union[list,str]]:
+def groups_from_groups(list_of_lists: list[Union[list,str]], atoms: set = None, exclude=[]) -> list[Union[list,str]]:
     """Given a list of lists and a list of atoms, return a list of lists that only contains
     those atoms that are in the second list.
     NOT tested with compound symbols (=multichar atoms).
 
     Args:
-        list_of_lists (List[Union[list,str]]): sets of atoms which determine the grouping.
+        list_of_lists (list[Union[list,str]]): sets of atoms which determine the grouping.
         atoms (set): set of individual items.
 
     Returns:
-        List[Union[List,str]]: a list of individual atoms or list of atoms.
+        list[Union[list,str]]: a list of individual atoms or list of atoms.
 
     Example::
 
@@ -131,7 +146,7 @@ def groups_from_groups(list_of_lists: List[Union[list,str]], atoms: set = None, 
 
     return [ l[0] if len(l)==1 else l for l in list_of_lists_new ] + list(unknown_atoms)
 
-def unzip(seq: Union[List[tuple],Tuple[tuple]] )->List[tuple]:
+def unzip(seq: Union[list[tuple],tuple[tuple]] )->list[tuple]:
     """ Unzip a list of sequences. Eg.
 
     ```

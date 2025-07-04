@@ -90,7 +90,7 @@ p = {
 }
 
 tormentor_dists = {
-        'Rotate': tormentor.Uniform((math.radians(-18.0), math.radians(18.0))),
+        'Rotate': tormentor.Uniform((math.radians(-10.0), math.radians(10.0))),
         'Perspective': (tormentor.Uniform((0.85, 1.25)), tormentor.Uniform((.85,1.25))),
         'Wrap': (tormentor.Uniform((0.1, 0.12)), tormentor.Uniform((0.64,0.66))), # no too rough, but intense (large-scale distortion)
         'Zoom': tormentor.Uniform((1.1,1.6)),
@@ -190,7 +190,7 @@ class LineDetectionDataset(Dataset):
         (For Tormentor only).
 
         Args:
-            sample (Tuple[Tensor,dict]): tuple with image (as tensor) and label dictionary.
+            sample (tuple[Tensor,dict]): tuple with image (as tensor) and label dictionary.
         """
         img, target = sample
         img = img.to(device)
@@ -580,10 +580,9 @@ if __name__ == '__main__':
         for batch_index, batch in enumerate(pbar := tqdm(dl_train)):
             imgs, targets = batch
             if dry_run > 1 and args.device=='cpu':
-                print("PLT interactive?", plt.isinteractive())
                 fig, ax = plt.subplots(1,len(imgs))
                 for i, img, target in zip(range(len(imgs)),imgs,targets):
-                    print(img.shape)
+                    print(img.shape, target['path'])
                     ax[i].imshow( img.permute(1,2,0) * torch.sum( target['masks'], axis=0).to(torch.bool)[:,:,None] )
                 plt.show(block=True)
                 plt.close()

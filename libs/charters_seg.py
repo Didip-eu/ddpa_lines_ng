@@ -82,7 +82,7 @@ class ChartersDataset(VisionDataset):
                 root: str='',
                 work_folder: str = '', # here further files are created, for any particular task
                 subset: str = 'train',
-                subset_ratios: Tuple[float,float,float]=(.7, 0.1, 0.2),
+                subset_ratios: tuple[float,float,float]=(.7, 0.1, 0.2),
                 transform: Optional[Callable] = None,
                 extract_pages: bool = False,
                 from_page_tsv_file: str = '',
@@ -105,7 +105,7 @@ class ChartersDataset(VisionDataset):
                 if parameter is a relative path, the work folder is created under
                 <root>; an absolute path overrides this.
             subset (str): 'train' (default), 'validate' or 'test'.
-            subset_ratios (Tuple[float, float, float]): ratios for respective ('train', 
+            subset_ratios (tuple[float, float, float]): ratios for respective ('train', 
                 'validate', ...) subsets
             transform (Callable): Function to apply to the PIL image at loading time.
             extract_pages (bool): if True, extract the archive's content into the base
@@ -279,7 +279,7 @@ class ChartersDataset(VisionDataset):
                    build_items: bool=True, 
                    work_folder: str='', 
                    subset: str='train', 
-                   )->List[dict]:
+                   )->list[dict]:
         """Build the image/GT samples required for an HTR task, either from the raw files (extracted from archive)
         or a work folder that already contains compiled files.
 
@@ -290,7 +290,7 @@ class ChartersDataset(VisionDataset):
             subset (str): sample subset to be returned - 'train' (default), 'validate' or 'test'; 
 
         Returns:
-            List[dict]: a list of dictionaries.
+            list[dict]: a list of dictionaries.
 
         Raises:
             FileNotFoundError: the TSV file passed to the `from_line_tsv_file` option does not exist.
@@ -329,7 +329,7 @@ class ChartersDataset(VisionDataset):
         return data
 
     @staticmethod
-    def load_items_from_dir( work_folder_path: Union[Path,str] ) -> List[dict]:
+    def load_items_from_dir( work_folder_path: Union[Path,str] ) -> list[dict]:
         """ 
         Construct a list of samples from a directory that has been populated with page images
         and tensors of metadata (boxes and masks). 
@@ -339,7 +339,7 @@ class ChartersDataset(VisionDataset):
                 `*.jpg`), tensors of masks (`*.masks.npy.gz`), and tensors of bboxes coordinates
                 (`*.boxes.npy.gz`).
         Returns:
-            List[Tuple[Path,Dict[str,np.ndarray]]]: a list of sample pairs, with the input image
+            list[tuple[Path,dict[str,np.ndarray]]]: a list of sample pairs, with the input image
             path as the first element and a dictionary of metadata tensors as the second element.
         """
         samples = []
@@ -361,7 +361,7 @@ class ChartersDataset(VisionDataset):
 
 
     @staticmethod
-    def load_items_from_tsv( file_path: Union[Path,str] ) -> List[dict]:
+    def load_items_from_tsv( file_path: Union[Path,str] ) -> list[dict]:
         """ Load samples from an existing TSV file. Each input is a tuple::
 
             <page img filename> <name of the tensor of box coordinates> <name of the tensor of masks>
@@ -369,7 +369,7 @@ class ChartersDataset(VisionDataset):
         Args:
             file_path (Path): A file path.
         Returns:
-            List[Tuple[Path,Dict[str,np.ndarray]]]: a list of sample pairs, with the input image
+            list[tuple[Path,dict[str,np.ndarray]]]: a list of sample pairs, with the input image
                 path as the first element and a dictionary of metadata tensors as the second element.
         """
         samples = []
@@ -386,14 +386,14 @@ class ChartersDataset(VisionDataset):
 
 
     @staticmethod
-    def dataset_stats( samples: List[dict] ) -> str:
+    def dataset_stats( samples: list[dict] ) -> str:
         """Compute basic stats about sample sets.
 
         + avg, median, min, max on image heights and widths
         + avg, median, min, max on number of boxes
 
         Args:
-            samples (List[dict]): a list of samples.
+            samples (list[dict]): a list of samples.
 
         Returns:
             str: a string.
@@ -435,7 +435,7 @@ class ChartersDataset(VisionDataset):
 
 
     def _build_line_seg_samples(self, raw_data_folder_path:Path,
-                                work_folder_path: Path, ) -> List[Tuple[Path, Dict[str,Tensor]]]:
+                                work_folder_path: Path, ) -> list[tuple[Path, dict[str,Tensor]]]:
         """Create a new dataset for segmentation that associate each page image with its metadata.
 
         Args:
@@ -445,7 +445,7 @@ class ChartersDataset(VisionDataset):
                 and metadata are written into the work folder.
 
         Returns:
-            Tuple[Path, List[dict]]: a list of pairs `(<absolute img filepath>, <absolute transcription filepath>)`
+            tuple[Path, list[dict]]: a list of pairs `(<absolute img filepath>, <absolute transcription filepath>)`
         """
         Path( work_folder_path ).mkdir(exist_ok=True, parents=True) # always create the subfolder if not already there
         if not self.config['resume_task']:
@@ -499,11 +499,11 @@ class ChartersDataset(VisionDataset):
 
 
     @staticmethod
-    def dump_data_to_tsv(samples: List[dict], file_path: str='', all_path_style=False) -> None:
+    def dump_data_to_tsv(samples: list[dict], file_path: str='', all_path_style=False) -> None:
         """Create a CSV file with all tuples (`<line image absolute path>`, `<boxes_tensor_file>`, `<masks_tensor_file>`)
 
         Args:
-            samples (List[dict]): dataset samples.
+            samples (list[dict]): dataset samples.
             file_path (str): A TSV (absolute) file path (Default value = '')
 
         Returns:
@@ -526,16 +526,16 @@ class ChartersDataset(VisionDataset):
 
 
     @staticmethod
-    def _split_set(samples: object, ratios: Tuple[float, float, float], subset: str) -> List[object]:
+    def _split_set(samples: object, ratios: tuple[float, float, float], subset: str) -> list[object]:
         """Split a dataset into 3 sets: train, validation, test.
 
         Args:
             samples (object): any dataset sample.
-            ratios (Tuple[float, float, float]): respective proportions for possible subsets
+            ratios (tuple[float, float, float]): respective proportions for possible subsets
             subset (str): subset to be build  ('train', 'validate', or 'test')
 
         Returns:
-            List[object]: a list of samples.
+            list[object]: a list of samples.
 
         Raises:
             ValueError: The subset type does not exist.
@@ -570,7 +570,7 @@ class ChartersDataset(VisionDataset):
             return [ samples[i] for i in subset_3_indices ]
 
 
-    def __getitem__(self, index) -> Dict[str, Union[Tensor, int, str]]:
+    def __getitem__(self, index) -> dict[str, Union[Tensor, int, str]]:
         """Callback function for the iterator.
 
         Args:
@@ -604,14 +604,14 @@ class ChartersDataset(VisionDataset):
              })
 
 
-    def __getitems__(self, indexes: list ) -> List[dict]:
+    def __getitems__(self, indexes: list ) -> list[dict]:
         """To help with batching.
 
         Args:
             indexes (list): a list of indexes.
 
         Returns:
-            List[dict]: a list of samples.
+            list[dict]: a list of samples.
         """
         return [ self.__getitem__( idx ) for idx in indexes ]
 

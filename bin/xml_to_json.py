@@ -11,6 +11,7 @@ import fargv
 from pathlib import Path
 import xml.etree.ElementTree as ET
 from datetime import datetime
+from typing import Union, Any
 
 
 
@@ -26,7 +27,7 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
     Caution: this is a crude function, with no regard for validation.
 
     Args:
-         seg_dict (Dict[str,Union[str,List[Any]]]): segmentation dictionary of the form
+         seg_dict (dict[str,Union[str,list[Any]]]): segmentation dictionary of the form
 
             {"text_direction": ..., "type": "baselines", "lines": [{"tags": ..., "baseline": [ ... ]}]}
             or

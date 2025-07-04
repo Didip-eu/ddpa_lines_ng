@@ -1,6 +1,5 @@
 from pathlib import Path
 import random
-from typing import Tuple
 import json
 
 import numpy as np
@@ -262,7 +261,7 @@ def display_boxes_and_masks(imgs, row_title=None, **imshow_kwargs):
     Display masks and boxes, as overlay.
 
     Args:
-        imgs (List[Tuple[Tensor,Dict[str,Tensor]]]): a sequence of pairs with
+        imgs (list[tuple[Tensor,dict[str,Tensor]]]): a sequence of pairs with
             + input image (a tensor)
             + a dictionary with 'boxes' as (N,4)-tensors and 'masks' as (N,H,W)-binary tensors.
     """

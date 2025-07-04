@@ -126,9 +126,6 @@ class RandomElasticGrid(v2.Transform):
 
 
 
-
-
-
 def build_tormentor_augmentation_for_page_wide_training( dists ):
     """ Construct a Tormentor composite augmentation.
 
@@ -154,6 +151,7 @@ def build_tormentor_augmentation_for_crop_training( dists, crop_size=680, crop_b
     Args:
         dists (dict): a dictionary of distribution parameter, whose keys are the primitive augmentation names.
         crop_size (int): size of the square crop to apply on the training samples
+        crop_before (bool): image is cropped before any further augmentation is applied
     Returns:
         tormentor.AugmentationChoice: a random choice augmentation.
     """
