@@ -219,11 +219,11 @@ class ResizeMinTransform(v2.Transform):
 
         new_size = None
         if isinstance(inpt, tv_tensors.BoundingBoxes):
-            print("BoundingBox: inpt.canvas_size =", inpt.canvas_size)
+            #print("BoundingBox: inpt.canvas_size =", inpt.canvas_size)
             new_size = get_new_size( inpt.canvas_size[0], inpt.canvas_size[1] )
         elif isinstance(inpt, Tensor):
             new_size = get_new_size( inpt.shape[-2], inpt.shape[-1] )
-        print("ResizeMinTransform():", new_size)
+        #print("ResizeMinTransform():", new_size)
         return v2.Resize( new_size )( inpt )
             
 

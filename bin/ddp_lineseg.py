@@ -158,7 +158,7 @@ class LineDetectionDataset(Dataset):
         if self._transforms:
             image, target = self._transforms(image, target)
 
-        print("Image+masks after basic transform:", image.shape, target['masks'].shape)
+        #print("Image+masks after basic transform:", image.shape, target['masks'].shape)
         return image, target
 
     def _load_image_and_target(self, img_path, annotation_path):
@@ -174,7 +174,7 @@ class LineDetectionDataset(Dataset):
         """
         # Open the image file and convert it to RGB
         img = Image.open(img_path)#.convert('RGB')
-        logger.info(img.size)
+        #logger.info(img.size)
 
         with open( annotation_path, 'r') as annotation_if:
             segdict = json.load( annotation_if )
