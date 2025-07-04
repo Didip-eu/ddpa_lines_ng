@@ -119,6 +119,16 @@ def label_map_from_patches( img: Image.Image, row_count=1, col_count=1, overlap=
         page_mask[t:b, l:r] += lsg.post_process( crop_preds[i], orig_size=crop_sizes[i], mask_threshold=.2 )[0]
     return page_mask[None,:]
 
+def tile_img( img, size, constraint=20 ):
+    width, height = img.shape[1::-1]
+    col = width / size
+    if (col*size - width)/(col-1) < constraint:
+        col += 1
+    overlap = (col*size - width)/(col-1)
+    w_pos = [ c*(size-overlap) for c in range(col) ]
+    print("Left positions:", w_pos)
+    print("Total length:", wos[-1]+size)
+
 
 def build_segdict( img_metadata, segmentation_record, contour_tolerance=4.0 ):
     """

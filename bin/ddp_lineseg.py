@@ -87,6 +87,7 @@ p = {
     'tormentor': 1,
     'device': 'cuda',
     'augmentations': [ set([]), "Pass one or more tormentor class names, to build a choice of training augmentations; by default, apply the hard-coded transformations."],
+    'train_style': [('page','patch'), ""],
 }
 
 tormentor_dists = {
@@ -498,15 +499,27 @@ if __name__ == '__main__':
         imgs_val, _, lbls_val, _ = split_set( imgs_val, lbls_val, limit=hyper_params['validation_set_limit'])
 
     # Basic dataset: all images are resized at this stage
-    #ds_train = LineDetectionDataset( imgs_train, lbls_train, img_size=hyper_params['img_size'])
-    ds_train = LineDetectionDataset( imgs_train, lbls_train, min_size=hyper_params['img_size'][0])
-    ds_val = LineDetectionDataset( imgs_val, lbls_val, img_size=hyper_params['img_size'] )
-    ds_test = LineDetectionDataset( imgs_test, lbls_test, img_size=hyper_params['img_size'] )
+    ds_train, ds_val = None, None
+    if args.train_style=='page':
+        ds_train = LineDetectionDataset( imgs_train, lbls_train, img_size=hyper_params['img_size'])
+        ds_val = LineDetectionDataset( imgs_val, lbls_val, img_size=hyper_params['img_size'] )
 
-
-    if args.tormentor:
+        if args.tormentor:
+            aug = build_tormentor_augmentation_for_crop_training( tormentor_dists, crop_size=hyper_params['img_size'][0], crop_before=True )
+            ds_train = tormentor.AugmentedDs( ds_train, aug, computation_device=args.device, augment_sample_function=LineDetectionDataset.augment_with_bboxes )
+    elif args.train_style=='patch': # requires Tormentor anyway
+        # Patch-based processing
+        # 1. All images resized so at least patch-size
+        ds_train = LineDetectionDataset( imgs_train, lbls_train, min_size=hyper_params['img_size'][0])
         aug = build_tormentor_augmentation_for_crop_training( tormentor_dists, crop_size=hyper_params['img_size'][0], crop_before=True )
         ds_train = tormentor.AugmentedDs( ds_train, aug, computation_device=args.device, augment_sample_function=LineDetectionDataset.augment_with_bboxes )
+        # 2. Validation set should use patch-size crops, not simply resized images!
+        ds_val = LineDetectionDataset( imgs_val, lbls_val, min_size=hyper_params['img_size'][0] )
+        aug = tormentor.RandomCropTo.new_size( hyper_params['img_size'][0], hyper_params['img_size'][0] )
+        ds_val = tormentor.AugmentedDs( ds_val, aug, computation_device=args.device, augment_sample_function=LineDetectionDataset.augment_with_bboxes )
+        
+    # not used for the moment
+    ds_test = LineDetectionDataset( imgs_test, lbls_test, img_size=hyper_params['img_size'] )
 
     dl_train = DataLoader( ds_train, batch_size=hyper_params['batch_size'], shuffle=True, collate_fn = lambda b: tuple(zip(*b)))
     dl_val = DataLoader( ds_val, batch_size=1, collate_fn = lambda b: tuple(zip(*b)))
@@ -556,12 +569,19 @@ if __name__ == '__main__':
 #        model.net.train()
    
 
-    def validate():
+    def validate(dry_run=False):
         validation_losses, loss_box_reg, loss_mask = [], [], []
         batches = iter(dl_val)
-        for batch_index in (pbar := tqdm( range(len( batches )))):
+        for imgs,targets in (pbar := tqdm( batches )):
+            if dry_run > 1 and args.device=='cpu':
+                fig, ax = plt.subplots()
+                img, target = imgs[0], targets[0]
+                print(img.shape, target['path'])
+                plt.imshow( img.permute(1,2,0) * torch.sum( target['masks'], axis=0).to(torch.bool)[:,:,None] )
+                plt.show(block=True)
+                plt.close()
+                continue
             pbar.set_description('Validate')
-            imgs, targets = next(batches)
             imgs = torch.stack(imgs).to( args.device )
             targets = [ { k:t[k].to( args.device ) for k in ('labels', 'boxes', 'masks') } for t in targets ]
             loss_dict = model.net(imgs, targets)
@@ -577,9 +597,8 @@ if __name__ == '__main__':
         
         epoch_losses = []
         batches = iter(dl_train)
-        for batch_index, batch in enumerate(pbar := tqdm(dl_train)):
-            imgs, targets = batch
-            if dry_run > 1 and args.device=='cpu':
+        for imgs,targets in (pbar := tqdm(dl_train)):
+            if dry_run > 2 and args.device=='cpu':
                 fig, ax = plt.subplots(1,len(imgs))
                 for i, img, target in zip(range(len(imgs)),imgs,targets):
                     print(img.shape, target['path'])
@@ -625,7 +644,7 @@ if __name__ == '__main__':
 
             epoch_start_time = time.time()
             mean_training_loss = train_epoch( epoch, dry_run=args.dry_run ) # this is where the action happens
-            mean_validation_loss = validate()
+            mean_validation_loss = validate( args.dry_run )
 
             update_tensorboard(writer, epoch, {'Loss/train': mean_training_loss, 'Loss/val': mean_validation_loss, 'Time': int(time.time()-start_time)})
 
