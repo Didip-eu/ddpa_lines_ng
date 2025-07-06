@@ -508,14 +508,19 @@ if __name__ == '__main__':
             aug = build_tormentor_augmentation_for_crop_training( tormentor_dists, crop_size=hyper_params['img_size'][0], crop_before=True )
             ds_train = tormentor.AugmentedDs( ds_train, aug, computation_device=args.device, augment_sample_function=LineDetectionDataset.augment_with_bboxes )
     elif args.train_style=='patch': # requires Tormentor anyway
+        crop_size = hyper_params['img_size'][0]
         # Patch-based processing
         # 1. All images resized so at least patch-size
-        ds_train = LineDetectionDataset( imgs_train, lbls_train, min_size=hyper_params['img_size'][0])
-        aug = build_tormentor_augmentation_for_crop_training( tormentor_dists, crop_size=hyper_params['img_size'][0], crop_before=True )
+        ds_train = LineDetectionDataset( imgs_train, lbls_train, min_size=crop_size)
+        aug = build_tormentor_augmentation_for_crop_training( tormentor_dists, crop_size=crop_size, crop_before=True )
         ds_train = tormentor.AugmentedDs( ds_train, aug, computation_device=args.device, augment_sample_function=LineDetectionDataset.augment_with_bboxes )
         # 2. Validation set should use patch-size crops, not simply resized images!
-        ds_val = LineDetectionDataset( imgs_val, lbls_val, min_size=hyper_params['img_size'][0] )
-        aug = tormentor.RandomCropTo.new_size( hyper_params['img_size'][0], hyper_params['img_size'][0] )
+        ds_val = LineDetectionDataset( imgs_val, lbls_val, min_size=crop_size)
+        augCropCenter = tormentor.RandomCropTo.new_size( crop_size, crop_size )
+        augCropLeft = tormentor.RandomCropTo.new_size( crop_size, crop_size ).override_distributions( center_x=tormentor.Uniform((0, .6)))
+        augCropRight = tormentor.RandomCropTo.new_size( crop_size, crop_size ).override_distributions( center_x=tormentor.Uniform((.4, 1)))
+
+        aug = ( augCropCenter ^ augCropLeft ^ augCropRight ).override_distributions( .33, .34, .33)
         ds_val = tormentor.AugmentedDs( ds_val, aug, computation_device=args.device, augment_sample_function=LineDetectionDataset.augment_with_bboxes )
         
     # not used for the moment
