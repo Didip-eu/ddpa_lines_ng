@@ -44,10 +44,11 @@ import matplotlib.pyplot as plt
 import fargv
 
 # local
+
 src_root = Path(__file__).parents[1]
 sys.path.append( str( src_root ))
-import ddp_lineseg as lsg
 from libs import seglib, list_utils as lu
+from bin import ddp_lineseg as lsg
 
 
 logging.basicConfig( level=logging.DEBUG, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
@@ -112,22 +113,80 @@ def label_map_from_patches( img: Image.Image, row_count=1, col_count=1, overlap=
     logger.debug(crops_yyxx)
     img_hwc = np.array( img )
     img_crops = [ torch.from_numpy(img_hwc[ crop[0]:crop[1], crop[2]:crop[3] ]).permute(2,0,1) for crop in crops_yyxx ]
-    crops_t, crop_preds, crop_sizes = lsg.predict( img_crops, live_model=model )
+    _, crop_preds, crop_sizes = lsg.predict( img_crops, live_model=model )
     page_mask = np.zeros((crops_yyxx[-1][1],crops_yyxx[-1][3]), dtype='bool')
     for i in range(len(crops_yyxx)):
         t,b,l,r = crops_yyxx[i]
-        page_mask[t:b, l:r] += lsg.post_process( crop_preds[i], orig_size=crop_sizes[i], mask_threshold=.2 )[0]
+        patch_mask = lsg.post_process( crop_preds[i], orig_size=crop_sizes[i], mask_threshold=.2 )
+        if patch_mask is None:
+            continue
+        page_mask[t:b, l:r] += patch_mask[0]
     return page_mask[None,:]
 
-def tile_img( img, size, constraint=20 ):
-    width, height = img.shape[1::-1]
-    col = width / size
-    if (col*size - width)/(col-1) < constraint:
-        col += 1
-    overlap = (col*size - width)/(col-1)
-    w_pos = [ c*(size-overlap) for c in range(col) ]
-    print("Left positions:", w_pos)
-    print("Total length:", wos[-1]+size)
+
+
+
+def tile_img( img_hwc:np.ndarray, size, constraint=20 ):
+    height, width = img_hwc.shape[:2]
+    assert height >= size and width >= size
+    x_pos, y_pos = [], []
+    if width == size:
+        x_pos = [0]
+    else:
+        col = math.ceil( width / size )
+        if (col*size - width)/(col-1) < constraint:
+            col += 1
+        overlap = (col*size - width)//(col-1)
+        x_pos = [ c*(size-overlap) if c < col-1 else width-size for c in range(col) ]
+    if height == size:
+        y_pos = [0]
+    else:
+        row = math.ceil( height / size )
+        overlap = (row*size - height)//(row-1)
+        y_pos = [ r*(size-overlap) if r < row-1 else height-size for r in range(row) ]
+
+    return list(itertools.product(y_pos, x_pos ))
+    
+
+def label_map_from_fixed_patches( img: Image.Image, patch_size=480, overlap=50, model=None):
+    """
+    Construct a single label map from predictions on patches of size <patch_size> x <patch_size>.
+
+    Args:
+        img (Image.Image): a PIL image.
+        patch_size (int): size of the square patch.
+        overlap (int): minimum overlap between patches (in pixels)
+
+    Returns:
+        np.ndarray: a (1,H,W) label map.
+    """
+    assert model is not None
+    img_hwc = np.array( img )
+
+    # ensure that image is at least <patch_size> high and wide
+    new_height = img_hwc.shape[0] if img_hwc.shape[0] >= patch_size else patch_size
+    new_width = img_hwc.shape[1] if img_hwc.shape[1] >= patch_size else patch_size
+    scaling_factor_hw=(0,0)
+    if new_height != img_hwc.shape[0] or new_width != img_hwc.shape[1]:
+        scaling_factor_hw = img_hwc.shape[0] / new_height, img_hwc.shape[1] / new_width
+        img_hwc = ski.transform.resize( img_hwc, (new_height, new_width ))
+    
+    # cut into tiles
+    tile_tls = tile_img( img_hwc, overlap )
+    img_crops = [ torch.from_numpy(img_hwc[y:y+patch_size,x:x+patch_size]).permute(2,0,1) for (y,x) in tile_tls ]
+    _, crop_preds, _ = lsg.predict( img_crops, live_model=model )
+    page_mask = np.zeros((img_hwc.shape[0],img_hwc.shape[1]), dtype='bool')
+    for (y,x) in tile_tls:
+        patch_mask = lsg.post_process( crop_preds[i], mask_threshold=.2 )
+        if patch_mask is None:
+            continue
+        page_mask[y:y+patch_size, x:x+patch_size] += patch_mask[0]
+    # resize to orig. size, if needed
+    if scaling_factor_hw != (0,0):
+        page_mask = ski.transform.resize( scaling_factor_hw )
+    return page_mask[None,:]
+
+
 
 
 def build_segdict( img_metadata, segmentation_record, contour_tolerance=4.0 ):

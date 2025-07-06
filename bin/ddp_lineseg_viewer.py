@@ -42,6 +42,7 @@ import sys
 import random
 import logging
 import itertools
+import math
 
 # 3rd party
 import matplotlib.pyplot as plt
@@ -80,6 +81,7 @@ p = {
     'segfile': ['', "If a line segmentation file is provided, predicted lines are read from this file."],
     'patch_row_count': [ 0, "Process the image in <patch_row_count> rows."],
     'patch_col_count': [ 0, "Process the image in <patch_col_count> cols."],
+    'patch_size': [0, "Process the image by <patch_size>*<patch_size> patches"],
 }
 
 
@@ -106,7 +108,7 @@ def label_map_from_patches( img: Image.Image, row_count=2, col_count=1, overlap=
     logger.info(crops_yyxx)
     img_hwc = np.array( img )
     img_crops = [ torch.from_numpy(img_hwc[ crop[0]:crop[1], crop[2]:crop[3] ]).permute(2,0,1) for crop in crops_yyxx ]
-    crops_t, crop_preds, crop_sizes = lsg.predict( img_crops, live_model=model )
+    _, crop_preds, crop_sizes = lsg.predict( img_crops, live_model=model )
     page_mask = np.zeros((crops_yyxx[-1][1],crops_yyxx[-1][3]), dtype='bool')
     for i in range(len(crops_yyxx)):
         t,b,l,r = crops_yyxx[i]
@@ -114,6 +116,69 @@ def label_map_from_patches( img: Image.Image, row_count=2, col_count=1, overlap=
         if patch_mask is None:
             continue
         page_mask[t:b, l:r] += patch_mask[0]
+    return page_mask[None,:]
+
+
+def tile_img( img_hwc:np.ndarray, size, constraint=20 ):
+    height, width = img_hwc.shape[:2]
+    assert height >= size and width >= size
+    x_pos, y_pos = [], []
+    if width == size:
+        x_pos = [0]
+    else:
+        col = math.ceil( width / size )
+        if (col*size - width)/(col-1) < constraint:
+            col += 1
+        overlap = (col*size - width)//(col-1)
+        x_pos = [ c*(size-overlap) if c < col-1 else width-size for c in range(col) ]
+    if height == size:
+        y_pos = [0]
+    else:
+        row = math.ceil( height / size )
+        overlap = (row*size - height)//(row-1)
+        y_pos = [ r*(size-overlap) if r < row-1 else height-size for r in range(row) ]
+
+    return list(itertools.product(y_pos, x_pos ))
+
+def label_map_from_fixed_patches( img: Image.Image, patch_size=480, overlap=50, model=None):
+    """
+    Construct a single label map from predictions on patches of size <patch_size> x <patch_size>.
+
+    Args:
+        img (Image.Image): a PIL image.
+        patch_size (int): size of the square patch.
+        overlap (int): minimum overlap between patches (in pixels)
+
+    Returns:
+        np.ndarray: a (1,H,W) label map.
+    """
+    assert model is not None
+    img_hwc = np.array( img )
+
+    # ensure that image is at least <patch_size> high and wide
+    new_height = img_hwc.shape[0] if img_hwc.shape[0] >= patch_size else patch_size
+    new_width = img_hwc.shape[1] if img_hwc.shape[1] >= patch_size else patch_size
+    scaling_factor_hw=(0,0)
+    if new_height != img_hwc.shape[0] or new_width != img_hwc.shape[1]:
+        scaling_factor_hw = img_hwc.shape[0] / new_height, img_hwc.shape[1] / new_width
+        img_hwc = ski.transform.resize( img_hwc, (new_height, new_width ))
+    
+    # cut into tiles
+    tile_tls = tile_img( img_hwc, patch_size, constraint=overlap )
+    print(tile_tls, len(tile_tls))
+    img_crops = [ torch.from_numpy(img_hwc[y:y+patch_size,x:x+patch_size]).permute(2,0,1) for (y,x) in tile_tls ]
+    print([ c.shape for c in img_crops ])
+    
+    _, crop_preds, _ = lsg.predict( img_crops, live_model=model )
+    page_mask = np.zeros((img_hwc.shape[0],img_hwc.shape[1]), dtype='bool')
+    for i,(y,x) in enumerate(tile_tls):
+        patch_mask = lsg.post_process( crop_preds[i], mask_threshold=.2 )
+        if patch_mask is None:
+            continue
+        page_mask[y:y+patch_size, x:x+patch_size] += patch_mask[0]
+    # resize to orig. size, if needed
+    if scaling_factor_hw != (0,0):
+        page_mask = ski.transform.resize( scaling_factor_hw )
     return page_mask[None,:]
 
 
@@ -147,6 +212,13 @@ if __name__ == '__main__':
                 logger.debug("label_mask.shape={}".format(label_mask.shape))
                 segmentation_record = lsg.get_morphology( label_mask, centerlines=False)
                 logger.debug("segmentation_record[0].shape={}".format(segmentation_record[0].shape))
+                mp, atts, path = segviz.batch_visuals( [img_path], [segmentation_record], color_count=0 )[0]
+            elif args.patch_size:
+                logger.debug('Patch size: {}x{}'.format( args.patch_size, args.patch_size))
+                label_mask = label_map_from_fixed_patches( Image.open(img_path), patch_size=args.patch_size, model=live_model )
+                logger.debug("Inference time: {:.5f}s".format( time.time()-start))
+                logger.debug("label_mask.shape={}".format(label_mask.shape))
+                segmentation_record = lsg.get_morphology( label_mask, centerlines=False)
                 mp, atts, path = segviz.batch_visuals( [img_path], [segmentation_record], color_count=0 )[0]
             else:
                 imgs_t, preds, sizes = lsg.predict( [img_path], live_model=live_model)

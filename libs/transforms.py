@@ -8,10 +8,23 @@ import torch
 from torch import Tensor
 from torchvision.transforms import v2
 from torchvision import tv_tensors
+import skimage as ski
 
 """
 Unused transforms, for reference. (This project uses Tormentor instead.)
 """
+
+def resize_min( img_hwc: np.ndarray, min_size ) -> np.ndarray:
+    """
+    Resize an image s.t. height and width meet minimal size. Not meat to preserve ratio.
+    """
+    new_height = img_hwc.shape[0] if img_hwc.shape[0] >= min_size else min_size
+    new_width = img_hwc.shape[1] if img_hwc.shape[1] >= min_size else min_size
+    scaling_factor_hw=(0,0)
+    if new_height != img_hwc.shape[0] or new_width != img_hwc.shape[1]:
+        scaling_factor_hw = img_hwc.shape[0] / new_height, img_hwc.shape[1] / new_width
+        img_hwc = ski.transform.resize( img_hwc, (new_height, new_width ))
+    return (img_hwc, scaling_factor_hw)
 
 
 
@@ -77,7 +90,6 @@ def grid_wave_t( img: Union[np.ndarray,Tensor], grid_cols=(4,20,),random_state=4
     return out
 
 
-
 class RandomElasticGrid(v2.Transform):
     """
     Deform the image over an elastic grid (v2-compatible)
@@ -94,7 +106,6 @@ class RandomElasticGrid(v2.Transform):
             ])
 
     """
-
     def __init__(self, **kwargs):
         """
         Args:
@@ -122,8 +133,6 @@ class RandomElasticGrid(v2.Transform):
         if isinstance(inpt, BoundingBoxes):
             return inpt
         return grid_wave_t( inpt, grid_cols=params['grid_cols'], random_state=params['random_state'])
-
-
 
 
 def build_tormentor_augmentation_for_page_wide_training( dists ):
@@ -159,13 +168,17 @@ def build_tormentor_augmentation_for_crop_training( dists, crop_size=680, crop_b
     augRotate = tormentor.RandomRotate.override_distributions(radians=dists['Rotate'])
     augWrap = tormentor.RandomWrap.override_distributions(roughness=dists['Wrap'][0], intensity=dists['Wrap'][1])
     augZoom = tormentor.RandomZoom.override_distributions( scales=dists['Zoom'])
-    augCrop = tormentor.RandomCropTo.new_size( crop_size, crop_size )
+    augCropCenter = tormentor.RandomCropTo.new_size( crop_size, crop_size )
+    # ensure that margins are well represented
+    augCropLeft = tormentor.RandomCropTo.new_size( crop_size, crop_size ).override_distributions( center_x=tormentor.Uniform((0, .6)))
+    augCropRight = tormentor.RandomCropTo.new_size( crop_size, crop_size ).override_distributions( center_x=tormentor.Uniform((.4, 1)))
+    augCrop = (augCropCenter ^ augCropLeft ^ augCropRight).override_distributions(choice=tormentor.Categorical(probs=(.4,.3,.3)))
 
     if crop_before:
         # crop before wrap:
         #   Crop___Wrap__Zoom   (distort crop-wide, zoom to get rid of BG)
         #         |__ Identity
-        aug = augCrop | ( tormentor.RandomIdentity ^ (augWrap | augZoom) ^ (augRotate | augZoom)).override_distributions(choice=tormentor.Categorical(probs=(.8,.1,.1)))
+        aug = augCrop | ( tormentor.RandomIdentity ^ (augWrap | augZoom) ^ (augRotate | augZoom)).override_distributions(choice=tormentor.Categorical(probs=(.7,.15,.15)))
 
     else:
         # transform page-wide, then crop:
