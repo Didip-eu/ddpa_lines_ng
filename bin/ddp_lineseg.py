@@ -303,7 +303,8 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False):
     skeleton_coords = [ [] for i in range(max_label) ]
 
     for lbl in range( 1, max_label+1 ):
-        polygon_coords.append( ski.measure.find_contours( labeled_msk_1hw[0] == lbl )[0].astype('int'))
+        lbl_count = np.sum( labeled_msk_1hw[0] == lbl )
+        polygon_coords.append( ski.measure.find_contours( labeled_msk_1hw[0] == lbl )[0].astype('int') if lbl_count > 4 else np.array([]))
 
     if centerlines: 
         page_wide_skeleton_hw = ski.morphology.skeletonize( page_wide_mask_1hw[0] )

@@ -47,6 +47,7 @@ import math
 # 3rd party
 import matplotlib.pyplot as plt
 from PIL import Image
+import skimage as ski
 import numpy as np
 import torch
 
@@ -154,20 +155,20 @@ def label_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=100
     """
     assert model is not None
     img_hwc = np.array( img )
+    height, width = img_hwc.shape[:2]
 
     # ensure that image is at least <patch_size> high and wide
     new_height = img_hwc.shape[0] if img_hwc.shape[0] >= patch_size else patch_size
     new_width = img_hwc.shape[1] if img_hwc.shape[1] >= patch_size else patch_size
-    scaling_factor_hw=(0,0)
+    rescaled = False
     if new_height != img_hwc.shape[0] or new_width != img_hwc.shape[1]:
-        scaling_factor_hw = img_hwc.shape[0] / new_height, img_hwc.shape[1] / new_width
         img_hwc = ski.transform.resize( img_hwc, (new_height, new_width ))
+        rescaled = True
     
     # cut into tiles
     tile_tls = tile_img( img_hwc, patch_size, constraint=overlap )
-    print(tile_tls, len(tile_tls))
     img_crops = [ torch.from_numpy(img_hwc[y:y+patch_size,x:x+patch_size]).permute(2,0,1) for (y,x) in tile_tls ]
-    print([ c.shape for c in img_crops ])
+    logger.debug([ c.shape for c in img_crops ])
     
     _, crop_preds, _ = lsg.predict( img_crops, live_model=model )
     page_mask = np.zeros((img_hwc.shape[0],img_hwc.shape[1]), dtype='bool')
@@ -177,8 +178,8 @@ def label_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=100
             continue
         page_mask[y:y+patch_size, x:x+patch_size] += patch_mask[0]
     # resize to orig. size, if needed
-    if scaling_factor_hw != (0,0):
-        page_mask = ski.transform.resize( scaling_factor_hw )
+    if rescaled:
+        page_mask = ski.transform.resize( page_mask, (height, width ))
     return page_mask[None,:]
 
 
@@ -214,7 +215,7 @@ if __name__ == '__main__':
                 logger.debug("segmentation_record[0].shape={}".format(segmentation_record[0].shape))
                 mp, atts, path = segviz.batch_visuals( [img_path], [segmentation_record], color_count=0 )[0]
             elif args.patch_size:
-                logger.debug('Patch size: {}x{}'.format( args.patch_size, args.patch_size))
+                logger.debug('Patch size: {} x {}'.format( args.patch_size, args.patch_size))
                 label_mask = label_map_from_fixed_patches( Image.open(img_path), patch_size=args.patch_size, model=live_model )
                 logger.debug("Inference time: {:.5f}s".format( time.time()-start))
                 logger.debug("label_mask.shape={}".format(label_mask.shape))

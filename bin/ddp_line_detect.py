@@ -162,14 +162,15 @@ def label_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=50,
     """
     assert model is not None
     img_hwc = np.array( img )
+    height, width = img_hwc.shape[:2]
 
     # ensure that image is at least <patch_size> high and wide
     new_height = img_hwc.shape[0] if img_hwc.shape[0] >= patch_size else patch_size
     new_width = img_hwc.shape[1] if img_hwc.shape[1] >= patch_size else patch_size
-    scaling_factor_hw=(0,0)
+    rescaled = False
     if new_height != img_hwc.shape[0] or new_width != img_hwc.shape[1]:
-        scaling_factor_hw = img_hwc.shape[0] / new_height, img_hwc.shape[1] / new_width
         img_hwc = ski.transform.resize( img_hwc, (new_height, new_width ))
+        rescaled = True
     
     # cut into tiles
     tile_tls = tile_img( img_hwc, overlap )
@@ -182,10 +183,9 @@ def label_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=50,
             continue
         page_mask[y:y+patch_size, x:x+patch_size] += patch_mask[0]
     # resize to orig. size, if needed
-    if scaling_factor_hw != (0,0):
-        page_mask = ski.transform.resize( scaling_factor_hw )
+    if rescaled:
+        page_mask = ski.transform.resize( page_mask, (height, width))
     return page_mask[None,:]
-
 
 
 
