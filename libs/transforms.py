@@ -154,7 +154,7 @@ def build_tormentor_augmentation_for_page_wide_training( dists ):
     return augChoice
     
 
-def build_tormentor_augmentation_for_crop_training( dists, crop_size=680, crop_before=True ):
+def build_tormentor_augmentation_for_crop_training( dists, crop_size=1024, crop_before=True ):
     """ Construct a Tormentor composite augmentation.
 
     Args:
@@ -243,7 +243,7 @@ class ResizeMinTransform(v2.Transform):
 class ResizeMin( ResizeMinTransform ):
     "Wrapper for class above."
 
-    def __init__(self, min_size=480):
+    def __init__(self, min_size=1024):
         self.min_size=min_size
         super().__init__()
 

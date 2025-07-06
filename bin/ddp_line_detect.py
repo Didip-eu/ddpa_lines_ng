@@ -148,7 +148,7 @@ def tile_img( img_hwc:np.ndarray, size, constraint=20 ):
     return list(itertools.product(y_pos, x_pos ))
     
 
-def label_map_from_fixed_patches( img: Image.Image, patch_size=480, overlap=50, model=None):
+def label_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=50, model=None):
     """
     Construct a single label map from predictions on patches of size <patch_size> x <patch_size>.
 
