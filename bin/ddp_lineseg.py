@@ -71,6 +71,7 @@ p = {
     'img_size': [1024, "Resize the input images to <img_size> * <img_size>; if 'img_height non-null, this determines the width."],
     'img_height': [0, "If non-null, input images are resize to <img_size> * <img_height>"],
     'batch_size': 4,
+    'num_workers': 4,
     'patience': 50,
     'param_file': [ 'parameters.json', 'If this file is created _after_ the training has started, it is read at the start of the next epoch (and then deleted), thus allowing to update hyperparameters on-the-fly.'],
     'tensorboard_sample_size': 2,
@@ -530,7 +531,7 @@ if __name__ == '__main__':
     # not used for the moment
     ds_test = LineDetectionDataset( imgs_test, lbls_test, img_size=hyper_params['img_size'], polygon_key=hyper_params['polygon_key'] )
 
-    dl_train = DataLoader( ds_train, batch_size=hyper_params['batch_size'], shuffle=True, collate_fn = lambda b: tuple(zip(*b)))
+    dl_train = DataLoader( ds_train, batch_size=hyper_params['batch_size'], shuffle=True, collate_fn = lambda b: tuple(zip(*b)), num_workers=args.num_workers)
     dl_val = DataLoader( ds_val, batch_size=1, collate_fn = lambda b: tuple(zip(*b)))
 
     # update learning parameters from past epochs
