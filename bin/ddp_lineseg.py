@@ -65,7 +65,7 @@ p = {
     'train_set_limit': [0, "If positive, train on a random sampling of the train set."],
     'validation_set_limit': [0, "If positive, validate on a random sampling of the validation set."],
     'line_segmentation_suffix': ".lines.gt.json",
-    'polygon_type': 'coreBoundary',
+    'polygon_key': 'boundary',
     'backbone': ('resnet101','resnet50'),
     'lr': 2e-4,
     'img_size': [1024, "Resize the input images to <img_size> * <img_size>; if 'img_height non-null, this determines the width."],
@@ -87,7 +87,7 @@ p = {
     'tormentor': 1,
     'device': 'cuda',
     'augmentations': [ set([]), "Pass one or more tormentor class names, to build a choice of training augmentations; by default, apply the hard-coded transformations."],
-    'train_style': [('page','patch'), ""],
+    'train_style': [('page','patch'), "Use page-wide sample images for training (default), or fixed-size patches."],
 }
 
 tormentor_dists = {
@@ -106,22 +106,23 @@ class LineDetectionDataset(Dataset):
     + image
     + target dictionary: LHW segmentation mask tensor (1 mask for each of the L lines), L4 bounding box tensor, L label tensor.
     """
-    def __init__(self, img_paths, label_paths, polygon_type='coreBoundary', transforms=None, img_size=(1024,1024), min_size=0):
+    def __init__(self, img_paths, label_paths, polygon_key='boundary', transforms=None, img_size=(1024,1024), min_size=0):
         """
         Constructor for the Dataset class.
 
         Parameters:
             img_paths (list): List of unique identifiers for images.
             label_paths (list): List of label paths.
+            polygon_key (str): type of polygon in the segmentation dictionary ('boundary' or 'extBoundary').
             transforms (callable, optional): Optional transform to be applied on a sample.
             img_size (tuple[int]): when default (pre-tormentor) transform resizes the input to a fixed size.
-            size_min (int): if non-zero, ensure that image is at least <size_min> on its smaller dimension - used when later augmentations use fixed crops.
+            min_size (int): if non-zero, ensure that image is at least <size_min> on its smaller dimension - used when later augmentations use fixed crops.
         """
         super(Dataset, self).__init__()
         
         self._img_paths = img_paths  # List of image keys
         self._label_paths = label_paths  # List of image annotation files
-        self.polygon_type = polygon_type
+        self.polygon_key = polygon_key
         self._transforms = transforms if transforms is not None else v2.Compose([
             v2.ToImage(),
             ResizeMin( min_size ) if min_size else v2.Resize( img_size ), 
@@ -179,7 +180,7 @@ class LineDetectionDataset(Dataset):
 
         with open( annotation_path, 'r') as annotation_if:
             segdict = json.load( annotation_if )
-            masks=Mask( seglib.line_binary_mask_stack_from_segmentation_dict(segdict, polygon_key='boundary'))
+            masks=Mask( seglib.line_binary_mask_stack_from_segmentation_dict(segdict, polygon_key=self.polygon_key))
             labels = torch.tensor( [ 1 ]*masks.shape[0], dtype=torch.int64)
             bboxes = BoundingBoxes(data=torchvision.ops.masks_to_boxes(masks), format='xyxy', canvas_size=img.size[::-1])
             return img, {'masks': masks, 'boxes': bboxes, 'labels': labels, 'path': img_path, 'orig_size': img.size }
@@ -458,13 +459,15 @@ if __name__ == '__main__':
 
     hyper_params={ varname:v for varname,v in vars(args).items() if varname in (
         'batch_size', 
-        'polygon_type', 
+        'polygon_key', 
         'backbone',
         'train_set_limit', 
         'validation_set_limit',
         'lr','scheduler','scheduler_patience','scheduler_cooldown','scheduler_factor',
         'max_epoch','patience',
         'augmentations',
+        'train_style',
+        'tormentor',
         )}
     
     hyper_params['img_size']=[ int(args.img_size), int(args.img_size) ] if not args.img_height else [ int(args.img_size), int(args.img_height) ]
@@ -502,8 +505,8 @@ if __name__ == '__main__':
     # Basic dataset: all images are resized at this stage
     ds_train, ds_val = None, None
     if args.train_style=='page':
-        ds_train = LineDetectionDataset( imgs_train, lbls_train, img_size=hyper_params['img_size'])
-        ds_val = LineDetectionDataset( imgs_val, lbls_val, img_size=hyper_params['img_size'] )
+        ds_train = LineDetectionDataset( imgs_train, lbls_train, img_size=hyper_params['img_size'], polygon_key=hyper_params['polygon_key'])
+        ds_val = LineDetectionDataset( imgs_val, lbls_val, img_size=hyper_params['img_size'], polygon_key=hyper_params['polygon_key'] )
 
         if args.tormentor:
             aug = build_tormentor_augmentation_for_crop_training( tormentor_dists, crop_size=hyper_params['img_size'][0], crop_before=True )
@@ -525,7 +528,7 @@ if __name__ == '__main__':
         ds_val = tormentor.AugmentedDs( ds_val, aug, computation_device=args.device, augment_sample_function=LineDetectionDataset.augment_with_bboxes )
         
     # not used for the moment
-    ds_test = LineDetectionDataset( imgs_test, lbls_test, img_size=hyper_params['img_size'] )
+    ds_test = LineDetectionDataset( imgs_test, lbls_test, img_size=hyper_params['img_size'], polygon_key=hyper_params['polygon_key'] )
 
     dl_train = DataLoader( ds_train, batch_size=hyper_params['batch_size'], shuffle=True, collate_fn = lambda b: tuple(zip(*b)))
     dl_val = DataLoader( ds_val, batch_size=1, collate_fn = lambda b: tuple(zip(*b)))

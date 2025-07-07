@@ -215,6 +215,8 @@ if __name__ == '__main__':
                 logger.debug("segmentation_record[0].shape={}".format(segmentation_record[0].shape))
                 mp, atts, path = segviz.batch_visuals( [img_path], [segmentation_record], color_count=0 )[0]
             elif args.patch_size:
+                if 'train_style' in model.hyper_parameters and model.hyper_parameters['train_style'] != 'patch':
+                    logger.warning('The model being loaded was _not_ trained on fixed-size patches: expect suboptimal results.')
                 logger.debug('Patch size: {} x {}'.format( args.patch_size, args.patch_size))
                 label_mask = label_map_from_fixed_patches( Image.open(img_path), patch_size=args.patch_size, model=live_model )
                 logger.debug("Inference time: {:.5f}s".format( time.time()-start))
@@ -222,6 +224,8 @@ if __name__ == '__main__':
                 segmentation_record = lsg.get_morphology( label_mask, centerlines=False)
                 mp, atts, path = segviz.batch_visuals( [img_path], [segmentation_record], color_count=0 )[0]
             else:
+                if 'train_style' in model.hyper_parameters and model.hyper_parameters['train_style'] == 'patch':
+                    logger.warning('The model being loaded was trained on fixed-size patches: expect suboptimal results.')
                 imgs_t, preds, sizes = lsg.predict( [img_path], live_model=live_model)
                 logger.debug("Inference time: {:.5f}s".format( time.time()-start))
                 if args.rescale:
