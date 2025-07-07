@@ -30,9 +30,13 @@ Examples:
     PYTHONPATH=. bin/ddp_lineseg_viewer.py -img_paths data/hard_cases/591e0762397178ee89e4c8b356be0da3.Wr_OldText.3.img.jpg -model_path ./models/best_101_1024_bsz4.mlmodel -patch_row_count 3
     ```
 
+    Assuming the model has been trained on fixed-size crops of the charter image, inference can be run accordingly:
+
+    ```
+    PYTHONPATH=. bin/ddp_lineseg_viewer.py -img_paths data/hard_cases/591e0762397178ee89e4c8b356be0da3.Wr_OldText.3.img.jpg -model_path ./models/best_patch_1024.mlmodel -patch_size 1024
+    ```
+
 For proper segmentation and recording of a region-based segmentation (crops), see `ddp_line_detect.py`.'
-
-
 """
 
 # stdlib
@@ -204,27 +208,34 @@ if __name__ == '__main__':
             start = time.time()
             mp, atts, path = None, None, None
             start = time.time()
-            if args.patch_row_count or args.patch_col_count:
-                patch_row_count = args.patch_row_count if args.patch_row_count else 1
-                patch_col_count = args.patch_col_count if args.patch_col_count else 1
-                logger.debug("Patches: {}x{}".format(patch_row_count, patch_col_count))
-                label_mask = label_map_from_patches( Image.open(img_path), patch_row_count, patch_col_count, model=live_model )
+
+            # Style 1: Inference on M x N patches or fixed-size squares
+            if args.patch_size or args.patch_row_count or args.patch_col_count:
+
+                if args.patch_size:
+                    patch_size = args.patch_size
+                    if 'train_style' in live_model.hyper_parameters:
+                        if live_model.hyper_parameters['train_style'] != 'patch':
+                            logger.warning('The model being loaded was _not_ trained on fixed-size patches: expect suboptimal results.')
+                        elif live_model.hyper_parameters['img_size'][0] != args.patch_size:
+                            logger.warning('The model being loaded is trained on {}x{} patches, but the script uses a {} patch size argument: overriding patch_size value with model-stored size.'.format( *live_model.hyper_parameters['img_size'], args.patch_size))
+                            patch_size = live_model.hyper_parameters['img_size'][0]
+                    logger.debug('Patch size: {} x {}'.format( patch_size, patch_size))
+                    label_mask = label_map_from_fixed_patches( Image.open(img_path), patch_size=patch_size, model=live_model )
+                else:
+                    patch_row_count = args.patch_row_count if args.patch_row_count else 1
+                    patch_col_count = args.patch_col_count if args.patch_col_count else 1
+                    logger.debug("Patches: {}x{}".format(patch_row_count, patch_col_count))
+                    label_mask = label_map_from_patches( Image.open(img_path), patch_row_count, patch_col_count, model=live_model )
                 logger.debug("Inference time: {:.5f}s".format( time.time()-start))
                 logger.debug("label_mask.shape={}".format(label_mask.shape))
                 segmentation_record = lsg.get_morphology( label_mask, centerlines=False)
                 logger.debug("segmentation_record[0].shape={}".format(segmentation_record[0].shape))
                 mp, atts, path = segviz.batch_visuals( [img_path], [segmentation_record], color_count=0 )[0]
-            elif args.patch_size:
-                if 'train_style' in model.hyper_parameters and model.hyper_parameters['train_style'] != 'patch':
-                    logger.warning('The model being loaded was _not_ trained on fixed-size patches: expect suboptimal results.')
-                logger.debug('Patch size: {} x {}'.format( args.patch_size, args.patch_size))
-                label_mask = label_map_from_fixed_patches( Image.open(img_path), patch_size=args.patch_size, model=live_model )
-                logger.debug("Inference time: {:.5f}s".format( time.time()-start))
-                logger.debug("label_mask.shape={}".format(label_mask.shape))
-                segmentation_record = lsg.get_morphology( label_mask, centerlines=False)
-                mp, atts, path = segviz.batch_visuals( [img_path], [segmentation_record], color_count=0 )[0]
+
+            # Default: Page-wide inference
             else:
-                if 'train_style' in model.hyper_parameters and model.hyper_parameters['train_style'] == 'patch':
+                if 'train_style' in live_model.hyper_parameters and live_model.hyper_parameters['train_style'] == 'patch':
                     logger.warning('The model being loaded was trained on fixed-size patches: expect suboptimal results.')
                 imgs_t, preds, sizes = lsg.predict( [img_path], live_model=live_model)
                 logger.debug("Inference time: {:.5f}s".format( time.time()-start))
