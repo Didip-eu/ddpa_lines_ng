@@ -32,7 +32,7 @@ PYTHONPATH=. python3 ./bin/ddp_lineseg.py -img_paths dataset/*.jpg -max_epoch 40
 
 
   ```sh
-  PYTHONPATH=. ./bin/ddp_line_detect.py -model_path best.mlmodel -mask_classes Wr.OldText -img_paths data/*.jpg -img_paths data/examples/0042453de0344b72519e093c7b20d593.img.jpg -output_format json
+  PYTHONPATH=. ./bin/ddp_line_detect.py -model_path best.mlmodel -mask_classes Wr:OldText -img_paths data/*.jpg -img_paths data/examples/0042453de0344b72519e093c7b20d593.img.jpg -output_format json
   ```
 
 + `ddp_lineseg_viewer.py` - reading an existing segmentation file:

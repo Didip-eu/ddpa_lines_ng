@@ -1,3 +1,7 @@
+"""
+Various visualizations for debugging or illustrating segmentation jobs.
+"""
+
 import random
 from typing import Union,Callable
 from pathlib import Path
@@ -92,7 +96,7 @@ def batch_visuals( inputs:list[Union[Tensor,dict,Path]], raw_maps: list[tuple[np
     
     return list(zip(maps, attr, ids))
 
-def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path,str]=None, segfile_suffix:str='lines.pred.json', show:dict={}, alpha=.4 ):
+def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path,str]=None, segfile_suffix:str='lines.pred.json', show:dict={}, alpha=.4, linewidth=2 ):
     """ Render segmentation data on an image.
     The segmentation dictionary is expected to have the following structure:
     
@@ -104,10 +108,13 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
         img_path (Path): image file
         segfile (Path): if not provided, look for a segmentation file that shares its prefix with the image.
         show (dict): features to be shown. Default: `{'polygons': True, 'regions': True, 'baselines': False}`
+        linewidth (int): box line width
     """
-
+    
     features = {'polygons': True, 'regions': True, 'baselines': False}
-    features.update( show )
+    if show: # because the calling program more likely to pass a list of features to be shown, rather than a dictionary
+        features = {'polygons': False, 'regions': False, 'baselines': False}
+        features.update( show )
 
     if segfile is None:
         segfile = str(img_path).replace('.img.jpg', f'.{segfile_suffix}') 
@@ -144,7 +151,7 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
             
             if features['regions'] and 'boundary' in reg:
                 reg_closed_boundary = np.array( reg['boundary']+[reg['boundary'][0]])
-                plt.plot( reg_closed_boundary[:,0], reg_closed_boundary[:,1], linewidth=2)
+                plt.plot( reg_closed_boundary[:,0], reg_closed_boundary[:,1], linewidth=linewidth)
         col_msk_hwc *= alpha
         bm_hw1 = bm_hw[:,:,None]
         img_complementary = img_hwc * ( ~bm_hw1 + bm_hw1 * (1-alpha))
@@ -210,6 +217,11 @@ def display_mask_heatmaps( masks_chw: Tensor ):
 def display_line_masks_raw( preds: list[dict], box_threshold=.8, mask_threshold=.2 ):
     """
     For each page, for each box above the threshold, display the line masks in turn.
+
+    Args:
+        preds (list[dict]): a list of prediction dictionaries (each with 'masks', 'scores' and 'boxes' entries).
+        box_threshold (float): a box whose score does not meet that threshold is ignored.
+        mask_threshold (float): a mask pixel whose score does not meet that threshold is ignored.
     """
     for msks,sc in [ (p['masks'].detach().numpy(),p['scores'].detach().numpy()) for p in preds ]:
         print(len(msks))

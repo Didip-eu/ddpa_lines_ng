@@ -83,7 +83,7 @@ p = {
     'scheduler_factor': 0.9,
     'reset_epochs': 0,
     'resume_file': 'last.mlmodel',
-    'dry_run': [0, "Load dataset and model, but does not actually train. Pass value > 1 to display the sample images"],
+    'dry_run': [0, "1: Load dataset and model, but does not actually train: 2: same, but display the validation samples; 3: same as (2) but display also the test samples."],
     'tensorboard': 1,
     'tormentor': 1,
     'device': 'cuda',

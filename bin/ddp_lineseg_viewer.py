@@ -87,6 +87,8 @@ p = {
     'patch_row_count': [ 0, "Process the image in <patch_row_count> rows."],
     'patch_col_count': [ 0, "Process the image in <patch_col_count> cols."],
     'patch_size': [0, "Process the image by <patch_size>*<patch_size> patches"],
+    'show': set(['polygons', 'regions']),
+    'linewidth': 2,
 }
 
 
@@ -266,7 +268,7 @@ if __name__ == '__main__':
             plt.show()
         else:
             if args.segfile:
-                segviz.display_segmentation_and_img( img_path, segfile=args.segfile, regions=True )
+                segviz.display_segmentation_and_img( img_path, segfile=args.segfile, show={ k:True for k in args.show }, linewidth=args.linewidth )
             elif args.segfile_suffix:
-                segviz.display_segmentation_and_img( img_path, segfile_suffix=args.segfile_suffix, regions=True )
+                segviz.display_segmentation_and_img( img_path, segfile_suffix=args.segfile_suffix, show={ k:True for k in args.show }, linewidth=args.linewidth )
 
