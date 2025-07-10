@@ -449,6 +449,7 @@ class SegModel():
             model.hyper_parameters = hyper_parameters
             model.net.eval()
             return model
+        logger.warning('Model file {} does not exist: using uinitialized model with default parameters.')
         return SegModel(**kwargs)
 
 
@@ -586,7 +587,7 @@ if __name__ == '__main__':
             if dry_run > 1 and args.device=='cpu':
                 fig, ax = plt.subplots()
                 img, target = imgs[0], targets[0]
-                print(img.shape, target['path'])
+                logger.debug(img.shape, target['path'])
                 plt.imshow( img.permute(1,2,0) * torch.sum( target['masks'], axis=0).to(torch.bool)[:,:,None] )
                 plt.show(block=True)
                 plt.close()
@@ -599,7 +600,8 @@ if __name__ == '__main__':
             validation_losses.append( loss.detach())
             loss_box_reg.append( loss_dict['loss_box_reg'].detach())
             loss_mask.append( loss_dict['loss_mask'].detach())
-        logger.info( "Loss boxes: {}".format( torch.stack(loss_box_reg).mean().item()))
+        logger.info( "Loss boxes (reg.): {}".format( torch.stack(loss_box_reg).mean().item()))
+        logger.info( "Loss boxes (cls.): {}".format( torch.stack(loss_box_cls).mean().item()))
         logger.info( "Loss masks: {}".format( torch.stack(loss_mask).mean().item()))
         return torch.stack( validation_losses ).mean().item()    
 
@@ -611,7 +613,7 @@ if __name__ == '__main__':
             if dry_run > 2 and args.device=='cpu':
                 fig, ax = plt.subplots(1,len(imgs))
                 for i, img, target in zip(range(len(imgs)),imgs,targets):
-                    print(img.shape, target['path'])
+                    logger.debug(img.shape, target['path'])
                     ax[i].imshow( img.permute(1,2,0) * torch.sum( target['masks'], axis=0).to(torch.bool)[:,:,None] )
                 plt.show(block=True)
                 plt.close()

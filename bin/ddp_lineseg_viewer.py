@@ -93,7 +93,7 @@ p = {
 
 
 
-def label_map_from_patches( img: Image.Image, row_count=2, col_count=1, overlap=50, model=None):
+def label_map_from_patches( img: Image.Image, row_count=2, col_count=1, overlap=50, model=None, mask_threshold=.25):
     """
     Construct a single label map from predictions on <row_count>x<col_count> patches.
 
@@ -119,7 +119,7 @@ def label_map_from_patches( img: Image.Image, row_count=2, col_count=1, overlap=
     page_mask = np.zeros((crops_yyxx[-1][1],crops_yyxx[-1][3]), dtype='bool')
     for i in range(len(crops_yyxx)):
         t,b,l,r = crops_yyxx[i]
-        patch_mask = lsg.post_process( crop_preds[i], orig_size=crop_sizes[i], mask_threshold=.2 )
+        patch_mask = lsg.post_process( crop_preds[i], orig_size=crop_sizes[i], mask_threshold=mask_threshold )
         if patch_mask is None:
             continue
         page_mask[t:b, l:r] += patch_mask[0]
@@ -147,7 +147,7 @@ def tile_img( img_hwc:np.ndarray, size, constraint=20 ):
 
     return list(itertools.product(y_pos, x_pos ))
 
-def label_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=100, model=None):
+def label_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=100, model=None, mask_threshold=.25):
     """
     Construct a single label map from predictions on patches of size <patch_size> x <patch_size>.
 
@@ -179,7 +179,7 @@ def label_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=100
     _, crop_preds, _ = lsg.predict( img_crops, live_model=model )
     page_mask = np.zeros((img_hwc.shape[0],img_hwc.shape[1]), dtype='bool')
     for i,(y,x) in enumerate(tile_tls):
-        patch_mask = lsg.post_process( crop_preds[i], mask_threshold=.2 )
+        patch_mask = lsg.post_process( crop_preds[i], mask_threshold=mask_threshold )
         if patch_mask is None:
             continue
         page_mask[y:y+patch_size, x:x+patch_size] += patch_mask[0]
@@ -211,9 +211,9 @@ if __name__ == '__main__':
             mp, atts, path = None, None, None
             start = time.time()
 
-            # Style 1: Inference on M x N patches or fixed-size squares
             if args.patch_size or args.patch_row_count or args.patch_col_count:
 
+                # Style 1: Inference fixed-size squares
                 if args.patch_size:
                     patch_size = args.patch_size
                     if 'train_style' in live_model.hyper_parameters:
@@ -223,12 +223,13 @@ if __name__ == '__main__':
                             logger.warning('The model being loaded is trained on {}x{} patches, but the script uses a {} patch size argument: overriding patch_size value with model-stored size.'.format( *live_model.hyper_parameters['img_size'], args.patch_size))
                             patch_size = live_model.hyper_parameters['img_size'][0]
                     logger.debug('Patch size: {} x {}'.format( patch_size, patch_size))
-                    label_mask = label_map_from_fixed_patches( Image.open(img_path), patch_size=patch_size, model=live_model )
+                    label_mask = label_map_from_fixed_patches( Image.open(img_path), patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold )
+                # Style 2: Inference M x N squares
                 else:
                     patch_row_count = args.patch_row_count if args.patch_row_count else 1
                     patch_col_count = args.patch_col_count if args.patch_col_count else 1
                     logger.debug("Patches: {}x{}".format(patch_row_count, patch_col_count))
-                    label_mask = label_map_from_patches( Image.open(img_path), patch_row_count, patch_col_count, model=live_model )
+                    label_mask = label_map_from_patches( Image.open(img_path), patch_row_count, patch_col_count, model=live_model, mask_threshold=args.mask_threshold )
                 logger.debug("Inference time: {:.5f}s".format( time.time()-start))
                 logger.debug("label_mask.shape={}".format(label_mask.shape))
                 segmentation_record = lsg.get_morphology( label_mask, centerlines=False)
@@ -256,7 +257,7 @@ if __name__ == '__main__':
                     if label_mask is None:
                         logger.warning("No line mask found for {}: skipping.".format( img_path ))
                         continue
-                    segmentation_records= lsg.get_morphology( lsg.post_process( preds[0], mask_threshold=args.mask_threshold )) 
+                    segmentation_records= lsg.get_morphology( label_mask )
                     mp, atts, path = segviz.batch_visuals( [ {'img':imgs_t[0], 'id':str(img_path)} ], [segmentation_records], color_count=0 )[0]
             logger.debug("Rendering time: {:.5f}s".format( time.time()-start))
 
