@@ -109,7 +109,7 @@ def polygon_map_from_segmentation_dict( segmentation_dict: dict, polygon_key='bo
 
 
 def line_binary_mask_from_json_file(segmentation_json: str, polygon_key='boundary' ) -> Tensor:
-    """From a segmentation dictionary describing polygons, return a boolean mask where any pixel belonging
+    """From a JSON segmentation file,  return a boolean mask where any pixel belonging
     to a polygon is 1 and the other pixels 0.
 
     Args:
@@ -120,7 +120,7 @@ def line_binary_mask_from_json_file(segmentation_json: str, polygon_key='boundar
         Tensor: a flat boolean tensor with size (H,W)
     """
     with open( segmentation_json, 'r' ) as json_file:
-        return line_binary_mask_from_segmentation_dict( json.load( json_file ), polygon_key)
+        return line_binary_mask_from_segmentation_dict( json.load( json_file ), polygon_key=polygon_key)
 
 def line_binary_mask_from_xml_file( page_xml: str ) -> Tensor:
     """From a PageXML file describing polygons, return a boolean mask where any pixel belonging
@@ -151,6 +151,20 @@ def line_binary_mask_from_segmentation_dict( segmentation_dict: dict, polygon_ke
     # create 2D boolean matrix
     mask_size = segmentation_dict['image_wh']
     return torch.tensor( np.sum( [ ski.draw.polygon2mask( mask_size, polyg ).transpose(1,0) for polyg in polygon_boundaries ], axis=0))
+
+def line_binary_mask_stack_from_json_file( segmentation_json: str, polygon_key='boundary' ) -> Tensor:
+    """From a JSON file describing polygons, return a stack of boolean masks where any pixel belonging
+    to a polygon is 1 and the other pixels 0.
+
+    Args:
+        segmentation_json (str): a JSON file describing the lines.
+        polygon_key (str): polygon dictionary entry.
+
+    Returns:
+        Tensor: a boolean tensor with size (N,H,W)
+    """
+    with open( segmentation_json, 'r' ) as json_file:
+        return line_binary_mask_stack_from_segmentation_dict( json.load( json_file ), polygon_key=polygon_key)
 
 def line_binary_mask_stack_from_segmentation_dict( segmentation_dict: dict, polygon_key='boundary' ) -> Tensor:
     """From a segmentation dictionary describing polygons, return a stack of boolean masks where any pixel belonging
@@ -941,6 +955,8 @@ def polygon_pixel_metrics_to_line_based_scores_icdar_2017( metrics: np.ndarray, 
     F1 = (2*TP) / (2*TP+FP+FN)
  
     + find all polygon pairs that have a non-empty intersection
+    + in Pred: labels that are _not_ in a pair above are FP
+      in GT: labels that are _not_ in a pair above are FN
     + sort the pairs by IoU
     + traverse the IoU-descending sorted list and select the first available match
       for each polygon belonging to the prediction set (thus ensuring that no
@@ -961,9 +977,17 @@ def polygon_pixel_metrics_to_line_based_scores_icdar_2017( metrics: np.ndarray, 
             and F1 score at the line level.
     """
     label_count_pred, label_count_gt = metrics.shape[:2]
+    #print(label_count_pred, label_count_gt)
 
-    # find all rows with non-empty intersection
+    # find all rows with non-empty intersection (excluding background)
     possible_match_indices = metrics[:,:,0].nonzero()
+    #print(possible_match_indices)
+
+    
+    TP, FP, FN = 0.0, len([ l for l in range(label_count_pred) if l not in possible_match_indices[0]]), len([ l for l in range(label_count_gt) if l not in possible_match_indices[1]])
+    #print("After finding obvious FP and FN:", TP, FP, FN)
+    
+
     match_rows_cols, possible_matches = np.transpose(possible_match_indices), metrics[ possible_match_indices ]
     ious = possible_matches[:,0]/possible_matches[:,1]
     structured_row_col_match_iou = np.array([
@@ -982,7 +1006,7 @@ def polygon_pixel_metrics_to_line_based_scores_icdar_2017( metrics: np.ndarray, 
                 ('recall', 'float32'),
                 ('iou', 'float32')])
 
-    TP, FP, FN = 0.0, 0.0, 0.0
+    #print(structured_row_col_match_iou)
     
     # sort candidate matches by ascending label order and descending IoU order
     pred_label_iou_copy = structured_row_col_match_iou[['pred_polygon', 'iou']].copy()
@@ -997,6 +1021,7 @@ def polygon_pixel_metrics_to_line_based_scores_icdar_2017( metrics: np.ndarray, 
         if not pred2match[possible_match['pred_polygon']]:
             pred2match[possible_match['pred_polygon']]=True
             precision, recall = possible_match[['precision', 'recall']]
+            #print("precision=", precision, "recall=", recall)
             TP += (precision >= threshold and recall >= threshold )
             # a FP is a non-zero (Pred, GT) pair whose P < .75 or: the system detects
             # a polygon that partially capture the GT, but too much of the rest also
@@ -1004,6 +1029,7 @@ def polygon_pixel_metrics_to_line_based_scores_icdar_2017( metrics: np.ndarray, 
             # a FN is a non-zero (Pred, GT) pair whose R < .75 or: the system detects
             # a polygon that matches the GT, but not enough of it
             FN += recall < threshold
+            #print(TP, FP, FN)
 
     Jaccard = TP / (TP+FP+FN)
     F1 = 2*TP / (2*TP+FP+FN)

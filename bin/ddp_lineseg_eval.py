@@ -4,39 +4,14 @@
 # 05.2025
 
 """
-A simple line segmenter/viewer that predicts lines on images and displays the result.
+Line segmentation: evaluation script.
 
-A segmenter just for the eyes, or a viewer that can segment if needed: it stands by itself, with no regard for export functionalities.
-For proper segmentation and recording of a region-based segmentation (crops), see `ddp_line_detect.py`, that is meant
-to included into an HTR pipeline.
+The script is for evaluating the final outcome of both segmentation stages:
 
-Examples:
+1. Mask R-CNN stage (computing line masks and boxes)
+2. Post-processing stage (construction of the flat page-wide map)
 
-    With image used as-is (no layout analysis), on-the-fly prediction and display:
-
-    ```
-    PYTHONPATH=. bin/ddp_lineseg_viewer.py -random 10 -model_path ./models/best_101_1024_bsz4.mlmodel -rescale 1 -img_paths ./dataset/*.jpg 
-    ```
-
-    Display an existing segmentation:
-
-    ```
-    PYTHONPATH=. bin/ddp_lineseg_viewer.py -random 10 -segfile_suffix lines.pred.json  -img_paths ./dataset/*.jpg
-    ```
-
-    High-quality segmentation of a COUS (Charter of Unusual Size), running inference separately on 3x1 patches:
-
-    ```
-    PYTHONPATH=. bin/ddp_lineseg_viewer.py -img_paths data/hard_cases/591e0762397178ee89e4c8b356be0da3.Wr_OldText.3.img.jpg -model_path ./models/best_101_1024_bsz4.mlmodel -patch_row_count 3
-    ```
-
-    Assuming the model has been trained on fixed-size crops of the charter image, inference can be run accordingly:
-
-    ```
-    PYTHONPATH=. bin/ddp_lineseg_viewer.py -img_paths data/hard_cases/591e0762397178ee89e4c8b356be0da3.Wr_OldText.3.img.jpg -model_path ./models/best_patch_1024.mlmodel -patch_size 1024
-    ```
-
-For proper segmentation and recording of a region-based segmentation (crops), see `ddp_line_detect.py`.'
+Works for both page-wide inference and patch-based inference, depending on the model used.
 """
 
 # stdlib
@@ -62,7 +37,7 @@ import fargv
 src_root = Path(__file__).parents[1]
 sys.path.append( str( src_root ))
 from bin import ddp_lineseg as lsg
-from libs import segviz, list_utils as lu
+from libs import seglib, list_utils as lu
 
 
 
@@ -77,9 +52,9 @@ logging.getLogger('PIL').setLevel(logging.INFO)
 p = {
     'model_path': str(src_root.joinpath("best.mlmodel")),
     'mask_threshold': [0.25, "Threshold used for line masks--a tweak on the post-processing phase."],
+    'box_threshold': [0.8, "Threshold used for line bounding boxes."],
     'rescale': [0, "If True, display segmentation on original image; otherwise (default), get the image size from the model used for inference (ex. 1024 x 1024)."],
-    'img_paths': set(Path('dataset').glob('*.jpg')),
-    'color_count': [0, "Number of colors for polygon overlay: -1 for single color, n > 1 for fixed number of colors, 0 for 1 color/line."],
+    'img_paths': set([]),
     'limit': [0, "How many files to display."],
     'random': [0, "If non-null, randomly pick <random> paths out of the <img_paths> list."],
     'segfile_suffix': ['', "If a line segmentation suffix is provided (ex. 'lines.pred.json'), predicted lines are read from <img_path>.<suffix>."],
@@ -87,15 +62,12 @@ p = {
     'patch_row_count': [ 0, "Process the image in <patch_row_count> rows."],
     'patch_col_count': [ 0, "Process the image in <patch_col_count> cols."],
     'patch_size': [0, "Process the image by <patch_size>*<patch_size> patches"],
-    'show': set(['polygons', 'regions']),
-    'linewidth': 2,
-    'out_file_dir': ['', 'Save the plot in <out_file_dir>/<img_name_stem>.png.'],
-    'show_labels': [1, 'Show connected component labels.'],
+    'out_file': 'eval_out.tsv',
 }
 
 
 
-def label_map_from_patches( img: Image.Image, row_count=2, col_count=1, overlap=100, model=None, mask_threshold=.25):
+def binary_map_from_patches( img: Image.Image, row_count=2, col_count=1, overlap=100, model=None, mask_threshold=.25, box_threshold=.8):
     """
     Construct a single label map from predictions on <row_count>x<col_count> patches.
 
@@ -104,9 +76,11 @@ def label_map_from_patches( img: Image.Image, row_count=2, col_count=1, overlap=
         row_count (int): number of rows.
         col_count (int): number of cols.
         overlap (int): overlap between patches (in pixels)
+        mask_threshold (float): confidence score threshold for soft line masks.
+        box_threshold (float): confidence score threshold for line bounding boxes.
 
     Returns:
-        np.ndarray: a (1,H,W) label map.
+        np.ndarray: a (1,H,W) binary map.
     """
     assert model is not None
     logger.info("row_count={}, col_count={}".format(row_count, col_count))
@@ -121,7 +95,7 @@ def label_map_from_patches( img: Image.Image, row_count=2, col_count=1, overlap=
     page_mask = np.zeros((crops_yyxx[-1][1],crops_yyxx[-1][3]), dtype='bool')
     for i in range(len(crops_yyxx)):
         t,b,l,r = crops_yyxx[i]
-        patch_mask = lsg.post_process( crop_preds[i], orig_size=crop_sizes[i], mask_threshold=mask_threshold )
+        patch_mask = lsg.post_process( crop_preds[i], orig_size=crop_sizes[i], mask_threshold=mask_threshold, box_threshold=box_threshold )
         if patch_mask is None:
             continue
         page_mask[t:b, l:r] += patch_mask[0]
@@ -151,7 +125,7 @@ def tile_img( img_hwc:np.ndarray, size, constraint=20, channel_dim=2 ):
 
     return list(itertools.product(y_pos, x_pos ))
 
-def label_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=100, model=None, mask_threshold=.25) -> np.ndarray:
+def binary_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=100, model=None, mask_threshold=.25, box_threshold=.8) -> np.ndarray:
     """
     Construct a single label map from predictions on patches of size <patch_size> x <patch_size>.
 
@@ -159,9 +133,11 @@ def label_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=100
         img (Image.Image): a PIL image.
         patch_size (int): size of the square patch.
         overlap (int): minimum overlap between patches (in pixels)
+        mask_threshold (float): confidence score threshold for soft line masks.
+        box_threshold (float): confidence score threshold for line bounding boxes.
 
     Returns:
-        np.ndarray: a (1,H,W) label map.
+        np.ndarray: a (1,H,W) binary map.
     """
     assert model is not None
     img_hwc = np.array( img )
@@ -183,7 +159,7 @@ def label_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=100
     _, crop_preds, _ = lsg.predict( img_crops, live_model=model )
     page_mask = np.zeros((img_hwc.shape[0],img_hwc.shape[1]), dtype='bool')
     for i,(y,x) in enumerate(tile_tls):
-        patch_mask = lsg.post_process( crop_preds[i], mask_threshold=mask_threshold )
+        patch_mask = lsg.post_process( crop_preds[i], mask_threshold=mask_threshold, box_threshold=box_threshold )
         if patch_mask is None:
             continue
         page_mask[y:y+patch_size, x:x+patch_size] += patch_mask[0]
@@ -210,58 +186,86 @@ if __name__ == '__main__':
     # pixel metrics
     pms = []
 
+    np.set_printoptions(linewidth=1000, edgeitems=10)
     for img_path in files:
         logger.info(img_path)
 
-        gt_map = seglib.gt_masks_to_labeled_map( seglib.line_binary_mask_stack_from_json_file( str(img_path).replace('img.jpg', 'lines.gt.json'))).numpy()
-        label_mask = None
+        gt_map = seglib.gt_masks_to_labeled_map( seglib.line_binary_mask_stack_from_json_file( str(img_path).replace('img.jpg', 'lines.gt.json')))
 
-        if live_model:
-            start = time.time()
+        binary_mask, label_map_hw = None, None
 
-            if args.patch_size or args.patch_row_count or args.patch_col_count:
+        if live_model is None:
+            sys.exit()
 
-                # Style 1: Inference fixed-size squares
-                if args.patch_size:
-                    patch_size = args.patch_size
-                    if 'train_style' in live_model.hyper_parameters:
-                        if live_model.hyper_parameters['train_style'] != 'patch':
-                            logger.warning('The model being loaded was _not_ trained on fixed-size patches: expect suboptimal results.')
-                        elif live_model.hyper_parameters['img_size'][0] != args.patch_size:
-                            logger.warning('The model being loaded is trained on {}x{} patches, but the script uses a {} patch size argument: overriding patch_size value with model-stored size.'.format( *live_model.hyper_parameters['img_size'], args.patch_size))
-                            patch_size = live_model.hyper_parameters['img_size'][0]
-                    logger.debug('Patch size: {} x {}'.format( patch_size, patch_size))
-                    label_mask = label_map_from_fixed_patches( Image.open(img_path), patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold )
-                # Style 2: Inference M x N squares
-                else:
-                    patch_row_count = args.patch_row_count if args.patch_row_count else 1
-                    patch_col_count = args.patch_col_count if args.patch_col_count else 1
-                    logger.debug("Patches: {}x{}".format(patch_row_count, patch_col_count))
-                    label_mask = label_map_from_patches( Image.open(img_path), patch_row_count, patch_col_count, model=live_model, mask_threshold=args.mask_threshold )
-                logger.debug("Inference time: {:.5f}s".format( time.time()-start))
-                logger.debug("label_mask.shape={}".format(label_mask.shape))
+        start = time.time()
 
+        if args.patch_size or args.patch_row_count or args.patch_col_count:
 
-            # Default: Page-wide inference
+            # Style 1: Inference fixed-size squares
+            if args.patch_size:
+                patch_size = args.patch_size
+                if 'train_style' in live_model.hyper_parameters:
+                    if live_model.hyper_parameters['train_style'] != 'patch':
+                        logger.warning('The model being loaded was _not_ trained on fixed-size patches: expect suboptimal results.')
+                    elif live_model.hyper_parameters['img_size'][0] != args.patch_size:
+                        logger.warning('The model being loaded is trained on {}x{} patches, but the script uses a {} patch size argument: overriding patch_size value with model-stored size.'.format( *live_model.hyper_parameters['img_size'], args.patch_size))
+                        patch_size = live_model.hyper_parameters['img_size'][0]
+                logger.debug('Patch size: {} x {}'.format( patch_size, patch_size))
+                binary_mask = binary_map_from_fixed_patches( Image.open(img_path), patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold )
+            # Style 2: Inference M x N squares
             else:
-                if 'train_style' in live_model.hyper_parameters and live_model.hyper_parameters['train_style'] == 'patch':
-                    logger.warning('The model being loaded was trained on fixed-size patches: expect suboptimal results.')
-                imgs_t, preds, sizes = lsg.predict( [img_path], live_model=live_model)
-                logger.debug("Inference time: {:.5f}s".format( time.time()-start))
-                if args.rescale:
-                    logger.debug("Rescale")
-                    label_mask = lsg.post_process( preds[0], orig_size=sizes[0], mask_threshold=args.mask_threshold )
-                    if label_mask is None:
-                        logger.warning("No line mask found for {}: skipping.".format( img_path ))
-                        continue
-                    logger.debug("label_mask.shape={}".format(label_mask.shape))
-                else:
-                    logger.debug("Square")
-                    label_mask = lsg.post_process( preds[0], mask_threshold=args.mask_threshold )
-                    if label_mask is None:
-                        logger.warning("No line mask found for {}: skipping.".format( img_path ))
-                        continue
-            pms.append( seglib.polygon_pixel_metrics_two_flat_maps( label_mask, gt_map ))
-            tps, fps, fns = zip(*[ seglib.polygon_pixel_metrics_to_line_based_scores_icdar_2017( pm )[:3] for pm in pms ])
+                patch_row_count = args.patch_row_count if args.patch_row_count else 1
+                patch_col_count = args.patch_col_count if args.patch_col_count else 1
+                logger.debug("Patches: {}x{}".format(patch_row_count, patch_col_count))
+                binary_mask = binary_map_from_patches( Image.open(img_path), patch_row_count, patch_col_count, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold )
+
+            logger.debug("Inference time: {:.5f}s".format( time.time()-start))
+
+
+
+        # Default: Page-wide inference
+        else:
+            if 'train_style' in live_model.hyper_parameters and live_model.hyper_parameters['train_style'] == 'patch':
+                logger.warning('The model being loaded was trained on fixed-size patches: expect suboptimal results.')
+            imgs_t, preds, sizes = lsg.predict( [img_path], live_model=live_model)
+            logger.debug("Inference time: {:.5f}s".format( time.time()-start))
+            if args.rescale:
+                logger.debug("Rescale")
+                binary_mask = lsg.post_process( preds[0], orig_size=sizes[0], mask_threshold=args.mask_threshold, box_threshold=args.box_threshold )
+                if binary_mask is None:
+                    logger.warning("No line mask found for {}: skipping.".format( img_path ))
+                    continue
+                logger.debug("label_mask.shape={}".format(binary_mask.shape))
+            else:
+                logger.debug("Square")
+                # TODO: label binary map
+                binary_mask= lsg.post_process( preds[0], mask_threshold=args.mask_threshold , box_threshold=args.box_threshold)
+                if binary_mask is None:
+                    logger.warning("No line mask found for {}: skipping.".format( img_path ))
+                    continue
+        label_map_hw = ski.measure.label( binary_mask, connectivity=2 )
+        logger.debug("label_map.shape={}, label_map._dtype={}, max_label={}".format(label_map_hw.shape, label_map_hw.dtype, np.max(label_map_hw)))
+        logger.debug("gt_map.shape={}, max_label={}".format(gt_map.shape, np.max(gt_map)))
+
+        logger.debug('GT labels: {}, Pred labels: {}'.format( np.unique( gt_map ), np.unique( label_map_hw )))
+        pixel_metrics = seglib.polygon_pixel_metrics_two_flat_maps( label_map_hw, gt_map )
+        print("Intersection counts")
+        print( pixel_metrics[:,:,0])
+        print("Union counts")
+        print( pixel_metrics[:,:,1])
+        print("Precision")
+        print( pixel_metrics[:,:,2])
+        print("Recall")
+        print( pixel_metrics[:,:,3])
+        print( pixel_metrics.shape)
+        np.save('pm.npy', pixel_metrics)
+        print(seglib.polygon_pixel_metrics_to_line_based_scores_icdar_2017( pixel_metrics ))
+        pms.append( pixel_metrics )
+    tps, fps, fns = zip(*[ seglib.polygon_pixel_metrics_to_line_based_scores_icdar_2017( pm )[:3] for pm in pms ])
+    print(tps, fps, fns)
+    #with open(args.out_file, 'w') as of:
+    #    of.write('patch_size={}, mask_threshold={}, box_threshold={}\n'.format( args.patch_size, args.mask_threshold, args.box_threshold ))
+    #    of.write('TP\tFP\tFN\n')
+    #    of.write(f'{tps}\t{fps}\t{fns}\n')
 
 

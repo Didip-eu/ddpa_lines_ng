@@ -133,7 +133,9 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
             return
 
         col_msk_hwc = np.zeros( img_hwc.shape, dtype=img_hwc.dtype )
-        for reg in segdict['regions']:
+        # for (older) JSON segmentation dictionaries, that have top-level 'lines' list.
+        regions = [segdict] if 'lines' in segdict else segdict['regions'] 
+        for reg in regions:
             color_count = len(reg['lines'])
             colors = get_n_color_palette( color_count )
             for l,line in enumerate(reg['lines']):

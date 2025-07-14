@@ -222,7 +222,7 @@ def post_process( preds: dict, box_threshold=.9, mask_threshold=.25, orig_size=(
             - 'masks' (N1HW): line heatmaps
             - 'orig_size': if provided, masks are rescaled to the respective size
     Returns:
-         np.ndarray: labeled map (1,H,W)
+         np.ndarray: binary map (1,H,W)
     """
     # select masks with best box scores
     best_masks = [ m.detach().numpy() for m in preds['masks'][preds['scores']>box_threshold]]
@@ -249,7 +249,7 @@ def post_process_boxes( preds: dict, box_threshold=.9, mask_threshold=.1, orig_s
             - 'orig_size': if provided, masks are rescaled to the respective size
     Returns:
         tuple[ np.ndarray, list[tuple[int, list, float, list]]]: a pair with
-            - labeled map(1,H,W)
+            - binary map(1,H,W)
             - a list of line attribute dicts (label, centroid pt, area, polygon coords, ...)
     """
     # select masks with best box scores

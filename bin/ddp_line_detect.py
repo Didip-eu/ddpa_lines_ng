@@ -69,6 +69,7 @@ p = {
         "centerlines": [0, "If True, compute centerlines (default is False)."],
         "output_format": [("json", "xml", "npy", "stdout"), "Segmentation output: json=<JSON file>, xml=<PageXML file>, npy=label map (HW), stdout=JSON on standard output."],
         'mask_threshold': [.25, "In the post-processing phase, threshold to use for line soft masks."],
+        'box_threshold': [0.8, "Threshold used for line bounding boxes."],
         'patch_row_count': [ 0, "Process the image in <patch_row_count> rows."],
         'patch_col_count': [ 0, "Process the image in <patch_col_count> cols."],
 }
@@ -92,7 +93,7 @@ def is_unusual_size( height, width ):
     return (0,0)
 
 
-def label_map_from_patches( img: Image.Image, row_count=1, col_count=1, overlap=50, model=None):
+def binary_mask_from_patches( img: Image.Image, row_count=1, col_count=1, overlap=50, model=None, mask_threshold=mask_threshold, box_threshold=box_threshold):
     """
     Construct a single label map from predictions on <row_count>x<col_count> patches.
 
@@ -101,6 +102,8 @@ def label_map_from_patches( img: Image.Image, row_count=1, col_count=1, overlap=
         row_count (int): number of rows.
         col_count (int): number of cols.
         overlap (int): overlap between patches (in pixels)
+        mask_threshold (float): confidence score threshold for soft line masks.
+        box_threshold (float): confidence score threshold for line bounding boxes.
 
     Returns:
         np.ndarray: a (1,H,W) label map.
@@ -117,7 +120,7 @@ def label_map_from_patches( img: Image.Image, row_count=1, col_count=1, overlap=
     page_mask = np.zeros((crops_yyxx[-1][1],crops_yyxx[-1][3]), dtype='bool')
     for i in range(len(crops_yyxx)):
         t,b,l,r = crops_yyxx[i]
-        patch_mask = lsg.post_process( crop_preds[i], orig_size=crop_sizes[i], mask_threshold=.2 )
+        patch_mask = lsg.post_process( crop_preds[i], orig_size=crop_sizes[i], mask_threshold=mask_threshold, box_threshold=box_threshold )
         if patch_mask is None:
             continue
         page_mask[t:b, l:r] += patch_mask[0]
@@ -126,8 +129,8 @@ def label_map_from_patches( img: Image.Image, row_count=1, col_count=1, overlap=
 
 
 
-def tile_img( img_hwc:np.ndarray, size, constraint=20 ):
-    height, width = img_hwc.shape[:2]
+def tile_img( img_hwc:np.ndarray, size, constraint=20, channel_dim=2 ):
+    height, width = img_hwc.shape[:2] if channel_dim==2 else img_hwc.shape[1:]
     assert height >= size and width >= size
     x_pos, y_pos = [], []
     if width == size:
@@ -148,7 +151,7 @@ def tile_img( img_hwc:np.ndarray, size, constraint=20 ):
     return list(itertools.product(y_pos, x_pos ))
     
 
-def label_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=50, model=None):
+def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=50, model=None, mask_threshold=mask_threshold, box_threshold=box_threshold):
     """
     Construct a single label map from predictions on patches of size <patch_size> x <patch_size>.
 
@@ -156,6 +159,8 @@ def label_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=50,
         img (Image.Image): a PIL image.
         patch_size (int): size of the square patch.
         overlap (int): minimum overlap between patches (in pixels)
+        mask_threshold (float): confidence score threshold for soft line masks.
+        box_threshold (float): confidence score threshold for line bounding boxes.
 
     Returns:
         np.ndarray: a (1,H,W) label map.
@@ -178,7 +183,7 @@ def label_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=50,
     _, crop_preds, _ = lsg.predict( img_crops, live_model=model )
     page_mask = np.zeros((img_hwc.shape[0],img_hwc.shape[1]), dtype='bool')
     for (y,x) in tile_tls:
-        patch_mask = lsg.post_process( crop_preds[i], mask_threshold=.2 )
+        patch_mask = lsg.post_process( crop_preds[i], mask_threshold=mask_threshold, box_threshold=box_threshold )
         if patch_mask is None:
             continue
         page_mask[y:y+patch_size, x:x+patch_size] += patch_mask[0]
@@ -308,7 +313,7 @@ if __name__ == "__main__":
             if not Path( args.model_path ).exists():
                 raise FileNotFoundError("Could not find model file", args.model_path)
             model = lsg.SegModel.load( args.model_path )
-            label_map = None
+            binary_mask = None
             segdict = {}
 
             # Option 1: segment the region crops (from seals), and construct a page-wide file
@@ -321,7 +326,7 @@ if __name__ == "__main__":
                     # iterate over seals crops and segment
                     crops_pil, boxes, classes = seglib.seals_regseg_to_crops( img, regseg, args.mask_classes )
 
-                    label_masks = []
+                    binary_masks = []
                     for crop_whc in crops_pil:
                         logger.debug("Crop size={})".format(crop_whc.size))
 
@@ -329,33 +334,33 @@ if __name__ == "__main__":
                         if rows or cols:
                             logger.debug("Unusual size detected: process {}x{} patches.".format(rows, cols))
                         if rows > 1:
-                            label_masks.append( label_map_from_patches( crop_whc, row_count=rows, model=model) )
+                            binary_masks.append( binary_mask_from_patches( crop_whc, row_count=rows, model=model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold) )
                         elif cols > 1:
-                            label_masks.append( label_map_from_patches( crop_whc, col_count=cols, model=model) )
+                            binary_masks.append( binary_mask_from_patches( crop_whc, col_count=cols, model=model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold) )
                         else:
                             imgs_t, preds, sizes = lsg.predict( [crop_whc], live_model=model )
-                            label_masks.append( lsg.post_process( preds[0], orig_size=sizes[0], mask_threshold=args.mask_threshold ) )
+                            binary_masks.append( lsg.post_process( preds[0], orig_size=sizes[0], mask_threshold=args.mask_threshold, box_threshold=args.box_threshold ) )
 
                         # each segpage: label map, attribute, <image path or id>
-                    segmentation_records = [ lsg.get_morphology( msk, centerlines=args.centerlines) for msk in label_masks ]
-                    #label_map = np.squeeze( segmentation_records[0][0] )
+                    segmentation_records = [ lsg.get_morphology( msk, centerlines=args.centerlines) for msk in binary_masks ]
+                    #binary_mask = np.squeeze( segmentation_records[0][0] )
                     segdict = build_segdict_composite( img_metadata, boxes, segmentation_records ) 
 
             # Option 2: single-file segmentation (an Wr:OldText crop, supposedly)
             else:
                 logger.info("Starting segmentation")
-                label_map = None
+                binary_mask = None
                 # case 1: process image in patches
                 if args.patch_row_count and args.patch_col_count:
                     logger.debug("Process {}x{} patches.".format(args.patch_row_count, args.patch_col_count))
-                    label_mask = label_map_from_patches( img, args.patch_row_count, args.patch_col_count, model=model )
+                    binary_mask = binary_mask_from_patches( img, args.patch_row_count, args.patch_col_count, model=model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold )
                 # case 2: process image as-is
                 else:
                     logger.debug("Page-wide processing")
                     imgs_t, preds, sizes = lsg.predict( [img], live_model=model )
                     logger.info("Successful segmentation.")
-                    label_mask = lsg.post_process( preds[0], orig_size=sizes[0], mask_threshold=args.mask_threshold )
-                segmentation_record = lsg.get_morphology( label_mask, centerlines=args.centerlines)
+                    binary_mask = lsg.post_process( preds[0], orig_size=sizes[0], mask_threshold=args.mask_threshold, box_threshold=args.box_threshold )
+                segmentation_record = lsg.get_morphology( binary_mask, centerlines=args.centerlines)
                 segdict = build_segdict( img_metadata, segmentation_record )
 
             ############ 3. Handing the output #################
@@ -373,7 +378,7 @@ if __name__ == "__main__":
                 segdict['image_wh']=img.size
                 seglib.xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
             elif args.output_format == 'npy':
-                np.save( output_file_path, label_map )
+                np.save( output_file_path, binary_mask )
             logger.info("Segmentation output saved in {}".format( output_file_path ))
 
 
