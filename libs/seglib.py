@@ -946,7 +946,7 @@ def map_to_depth(map_chw: Tensor) -> Tensor:
     return depth_map
 
 
-def polygon_pixel_metrics_to_line_based_scores_icdar_2017( metrics: np.ndarray, threshold: float=.5 ) -> tuple[float, float, float, float, float]:
+def polygon_pixel_metrics_to_line_based_scores_icdar_2017( metrics: np.ndarray, threshold: float=.75 ) -> np.ndarray:
     """Implement ICDAR 2017 evaluation metrics, as described in
     https://github.com/DIVA-DIA/DIVA_Line_Segmentation_Evaluator/releases/tag/v1.0.0
     (a Java implementation)
@@ -973,7 +973,7 @@ def polygon_pixel_metrics_to_line_based_scores_icdar_2017( metrics: np.ndarray, 
         threshold (float): IoU threshold for TP
 
     Returns:
-        tuple: a 5-tuple with the TP-, FP-, and FN-counts, as well as the Jaccard (aka. IoU)
+        np.ndarray: a 5-elt array with the TP-, FP-, and FN-counts, as well as the Jaccard (aka. IoU)
             and F1 score at the line level.
     """
     label_count_pred, label_count_gt = metrics.shape[:2]
@@ -984,9 +984,9 @@ def polygon_pixel_metrics_to_line_based_scores_icdar_2017( metrics: np.ndarray, 
     #print(possible_match_indices)
 
     
-    TP, FP, FN = 0.0, len([ l for l in range(label_count_pred) if l not in possible_match_indices[0]]), len([ l for l in range(label_count_gt) if l not in possible_match_indices[1]])
-    #print("After finding obvious FP and FN:", TP, FP, FN)
-    
+    TP = 0.0
+    FP = len([ l for l in range(label_count_pred) if l not in possible_match_indices[0]])
+    FN = len([ l for l in range(label_count_gt) if l not in possible_match_indices[1]])
 
     match_rows_cols, possible_matches = np.transpose(possible_match_indices), metrics[ possible_match_indices ]
     ious = possible_matches[:,0]/possible_matches[:,1]
@@ -1034,9 +1034,9 @@ def polygon_pixel_metrics_to_line_based_scores_icdar_2017( metrics: np.ndarray, 
     Jaccard = TP / (TP+FP+FN)
     F1 = 2*TP / (2*TP+FP+FN)
 
-    return (TP, FP, FN, Jaccard, F1)
+    return np.array([TP, FP, FN, Jaccard, F1])
 
-def polygon_pixel_metrics_to_line_based_scores( metrics_hwc: np.ndarray, threshold: float=.5 ) -> tuple[float, float, float, float, float]:
+def polygon_pixel_metrics_to_line_based_scores( metrics_hwc: np.ndarray, threshold: float=.75 ) -> np.ndarray:
     """Classic evalution metrics, where mask are matched based on the best IoU.
 
     IoU = TP / (TP+FP+FN)
@@ -1057,7 +1057,7 @@ def polygon_pixel_metrics_to_line_based_scores( metrics_hwc: np.ndarray, thresho
         threshold (float): IoU threshold for TP
 
     Returns:
-        tuple: a 3-tuple with the TP-, FP-, and FN-counts.
+        np.ndarray: a 3-elt array with the TP-, FP-, and FN-counts.
     """
     label_count_pred, label_count_gt = metrics_hwc.shape[:2]
 
@@ -1081,9 +1081,8 @@ def polygon_pixel_metrics_to_line_based_scores( metrics_hwc: np.ndarray, thresho
     fp = len(set(range(label_count_pred)) - set(pred_to_gt.keys()))
     fn = len(set(range(label_count_gt)) - set(pred_to_gt.values()))
     tp = len(pred_to_gt.items())
-    out = (tp, fp, fn)
+    return np.array([ tp, fp, fn ])
     #print(out, f"R={tp/(tp+fn)}", f"P={tp/(tp+fp)}")
-    return out
 
 
 def mAP( pixel_metrics_list: list[np.ndarray] ):

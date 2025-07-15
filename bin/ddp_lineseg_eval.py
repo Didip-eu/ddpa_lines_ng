@@ -29,6 +29,7 @@ from PIL import Image
 import skimage as ski
 import numpy as np
 import torch
+from tqdm.auto import tqdm
 
 # DiDip
 import fargv
@@ -42,7 +43,7 @@ from libs import seglib, list_utils as lu
 
 
 
-logging.basicConfig( level=logging.DEBUG, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
+logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
 logger = logging.getLogger(__name__)
 # tone down unwanted logging
 logging.getLogger('matplotlib.font_manager').disabled=True
@@ -62,7 +63,8 @@ p = {
     'patch_row_count': [ 0, "Process the image in <patch_row_count> rows."],
     'patch_col_count': [ 0, "Process the image in <patch_col_count> cols."],
     'patch_size': [0, "Process the image by <patch_size>*<patch_size> patches"],
-    'out_file': 'eval_out.tsv',
+    'icdar_threshold': 0.75,
+    'out_file': ['',"Output file name; if prefixed with '>>', append to an existing file."],
 }
 
 
@@ -83,12 +85,12 @@ def binary_map_from_patches( img: Image.Image, row_count=2, col_count=1, overlap
         np.ndarray: a (1,H,W) binary map.
     """
     assert model is not None
-    logger.info("row_count={}, col_count={}".format(row_count, col_count))
+    logger.debug("row_count={}, col_count={}".format(row_count, col_count))
     row_cuts_exact, col_cuts_exact  = [ list(int(f) for f in np.linspace(0, dim, d)) for dim, d in ((img.height, row_count+1), (img.width, col_count+1)) ]
     row_cuts, col_cuts = [[[ c+overlap, c-overlap] if c and c<cuts[-1] else c for c in cuts ] for cuts in ( row_cuts_exact, col_cuts_exact ) ]
     rows, cols = [ lu.group( lu.flatten( cut ), gs=2) for cut in (row_cuts, col_cuts) ]
     crops_yyxx=[ lu.flatten(lst) for lst in itertools.product( rows, cols ) ]
-    logger.info(crops_yyxx)
+    logger.debug(crops_yyxx)
     img_hwc = np.array( img )
     img_crops = [ torch.from_numpy(img_hwc[ crop[0]:crop[1], crop[2]:crop[3] ]).permute(2,0,1) for crop in crops_yyxx ]
     _, crop_preds, crop_sizes = lsg.predict( img_crops, live_model=model )
@@ -187,8 +189,8 @@ if __name__ == '__main__':
     pms = []
 
     np.set_printoptions(linewidth=1000, edgeitems=10)
-    for img_path in files:
-        logger.info(img_path)
+    for img_nb, img_path in (pbar := tqdm( enumerate(files))):
+        #logger.info(f'{img_nb}\t{img_path}')
 
         gt_map = seglib.gt_masks_to_labeled_map( seglib.line_binary_mask_stack_from_json_file( str(img_path).replace('img.jpg', 'lines.gt.json')))
 
@@ -249,23 +251,29 @@ if __name__ == '__main__':
 
         logger.debug('GT labels: {}, Pred labels: {}'.format( np.unique( gt_map ), np.unique( label_map_hw )))
         pixel_metrics = seglib.polygon_pixel_metrics_two_flat_maps( label_map_hw, gt_map )
-        print("Intersection counts")
-        print( pixel_metrics[:,:,0])
-        print("Union counts")
-        print( pixel_metrics[:,:,1])
-        print("Precision")
-        print( pixel_metrics[:,:,2])
-        print("Recall")
-        print( pixel_metrics[:,:,3])
-        print( pixel_metrics.shape)
         np.save('pm.npy', pixel_metrics)
-        print(seglib.polygon_pixel_metrics_to_line_based_scores_icdar_2017( pixel_metrics ))
         pms.append( pixel_metrics )
-    tps, fps, fns = zip(*[ seglib.polygon_pixel_metrics_to_line_based_scores_icdar_2017( pm )[:3] for pm in pms ])
-    print(tps, fps, fns)
-    #with open(args.out_file, 'w') as of:
-    #    of.write('patch_size={}, mask_threshold={}, box_threshold={}\n'.format( args.patch_size, args.mask_threshold, args.box_threshold ))
-    #    of.write('TP\tFP\tFN\n')
-    #    of.write(f'{tps}\t{fps}\t{fns}\n')
+    # pms is a list of 5-tuples (TP, FP, FN, Jaccard, F1)
+
+    tp_fp_fn_jaccard_f1_5n = np.stack( [ seglib.polygon_pixel_metrics_to_line_based_scores_icdar_2017( pm, threshold=args.icdar_threshold ) for pm in pms ], axis=1)
+
+    print(tp_fp_fn_jaccard_f1_5n.tolist())
+
+    file_scores = zip( [ str(f) for f in files], tp_fp_fn_jaccard_f1_5n.transpose().tolist())
+    #np.save( 'eval_metrics.npy', tp_fp_fn_jaccard_f1_5n)
+    logger.info( '\n'.join([ f'{filename}\t{score}' for filename,score in file_scores ]))
+
+    tps, fps, fns = np.sum( tp_fp_fn_jaccard_f1_5n[:3], axis=1)
+    jaccard = tps / (tps+fps+fns) 
+    f1 = 2*tps / ( 2*tps+fps+fns)
+
+    if args.out_file:
+        out_file = args.out_file.replace('>>','')
+        with open(out_file, 'a' if out_file != args.out_file else 'w') as of:
+            of.write('B-Thr\tM-Thr\tTP\tFP\tFN\tJaccard\tF1\n')
+            of.write(f'{args.box_threshold}\t{args.mask_threshold}\t{tps}\t{fps}\t{fns}\t{jaccard}\t{f1}\n')
+    else:
+        print('B-Thr\tM-Thr\tTP\tFP\tFN\tJaccard\tF1')
+        print(f'{args.box_threshold}\t{args.mask_threshold}\t{tps}\t{fps}\t{fns}\t{jaccard}\t{f1}')
 
 
