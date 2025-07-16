@@ -61,7 +61,7 @@ import fargv
 # local
 src_root = Path(__file__).parents[1]
 sys.path.append( str( src_root ))
-import ddp_lineseg as lsg
+from bin import ddp_lineseg as lsg
 from libs import segviz, list_utils as lu
 
 
@@ -88,8 +88,9 @@ p = {
     'patch_row_count': [ 0, "Process the image in <patch_row_count> rows."],
     'patch_col_count': [ 0, "Process the image in <patch_col_count> cols."],
     'patch_size': [0, "Process the image by <patch_size>*<patch_size> patches"],
-    'show': set(['polygons', 'regions']),
+    'show': set(['polygons', 'regions', 'labels']),
     'linewidth': 2,
+    'out_file_dir': ['', 'Save the plot in <out_file_dir>/<img_name_stem>.png.'],
 }
 
 
@@ -129,8 +130,17 @@ def binary_mask_from_patches( img: Image.Image, row_count=2, col_count=1, overla
     return page_mask[None,:]
 
 
-def tile_img( img_hwc:np.ndarray, size, constraint=20 ):
-    height, width = img_hwc.shape[:2]
+def tile_img( img_hwc:np.ndarray, size, constraint=20, channel_dim=2 ):
+    """ Slice an image into patches: return list of patch coordinates.
+
+    Args:
+        size (int): size of the patch square.
+        constraint (int): minimum overlap between patches.
+        channel_dim (int): which dimension stores the channels: 0 or 2 (default).
+    Returns:
+        list[list]: a list of pairs [top,left] coordinates.
+    """
+    height, width = img_hwc.shape[:2] if channel_dim==2 else img_hwc.shape[1:]
     assert height >= size and width >= size
     x_pos, y_pos = [], []
     if width == size:
@@ -145,6 +155,8 @@ def tile_img( img_hwc:np.ndarray, size, constraint=20 ):
         y_pos = [0]
     else:
         row = math.ceil( height / size )
+        if (row*size - height)/(row-1) < constraint:
+            row += 1
         overlap = (row*size - height)//(row-1)
         y_pos = [ r*(size-overlap) if r < row-1 else height-size for r in range(row) ]
 
@@ -249,7 +261,7 @@ if __name__ == '__main__':
                 logger.debug("Inference time: {:.5f}s".format( time.time()-start))
                 if args.rescale:
                     logger.debug("Rescale")
-                    binary_mask = lsg.post_process( preds[0], orig_size=sizes[0], mask_threshold=args.mask_threshold )
+                    binary_mask = lsg.post_process( preds[0], orig_size=sizes[0], mask_threshold=args.mask_threshold, box_threshold=args.box_threshold )
                     if binary_mask is None:
                         logger.warning("No line mask found for {}: skipping.".format( img_path ))
                         continue
@@ -266,15 +278,22 @@ if __name__ == '__main__':
                     mp, atts, path = segviz.batch_visuals( [ {'img':imgs_t[0], 'id':str(img_path)} ], [segmentation_records], color_count=0 )[0]
             logger.debug("Rendering time: {:.5f}s".format( time.time()-start))
 
+            plt.close()
+            plt.subplots(figsize=(6,4), dpi=400)
             plt.imshow( mp )
             plt.title( path )
-            for att_dict in atts:
-                label, centroid = att_dict['label'], att_dict['centroid']
-                plt.text(*centroid[:0:-1], label, size=15)
-            plt.show()
+            if 'labels' in args.show:
+                for att_dict in atts:
+                    label, centroid = att_dict['label'], att_dict['centroid']
+                    plt.text(*centroid[:0:-1], label, size=15)
+            if args.out_file_dir:
+                plt.subplots_adjust(0.075,0.075,0.90,0.95,0,0)
+                plt.savefig( Path( args.out_file_dir, img_path.stem).with_suffix('.png'))
+            else:
+                plt.show()
         else:
             if args.segfile:
-                segviz.display_segmentation_and_img( img_path, segfile=args.segfile, show={ k:True for k in args.show }, linewidth=args.linewidth )
+                segviz.display_segmentation_and_img( img_path, segfile=args.segfile, show={ k:True for k in args.show if k != 'labels'}, linewidth=args.linewidth )
             elif args.segfile_suffix:
-                segviz.display_segmentation_and_img( img_path, segfile_suffix=args.segfile_suffix, show={ k:True for k in args.show }, linewidth=args.linewidth )
+                segviz.display_segmentation_and_img( img_path, segfile_suffix=args.segfile_suffix, show={ k:True for k in args.show if k != 'labels'}, linewidth=args.linewidth )
 

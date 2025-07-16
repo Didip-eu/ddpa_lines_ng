@@ -96,7 +96,7 @@ def batch_visuals( inputs:list[Union[Tensor,dict,Path]], raw_maps: list[tuple[np
     
     return list(zip(maps, attr, ids))
 
-def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path,str]=None, segfile_suffix:str='lines.pred.json', show:dict={}, alpha=.4, linewidth=2 ):
+def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path,str]=None, segfile_suffix:str='lines.pred.json', show:dict={}, alpha=.4, linewidth=2, out_file='' ):
     """ Render segmentation data on an image.
     The segmentation dictionary is expected to have the following structure:
     
@@ -108,7 +108,9 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
         img_path (Path): image file
         segfile (Path): if not provided, look for a segmentation file that shares its prefix with the image.
         show (dict): features to be shown. Default: `{'polygons': True, 'regions': True, 'baselines': False}`
+        alpha (float): overlay transparency.
         linewidth (int): box line width
+        out_file (str): save figure in <out_file>.
     """
     
     features = {'polygons': True, 'regions': True, 'baselines': False}
@@ -161,7 +163,10 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
 
         plt.imshow( composed_img_array )
         plt.title( Path(img_path).name )
-        plt.show()
+        if out_file:
+            plt.savefig( outfile )
+        else:
+            plt.show()
 
 
 def display_annotated_img( img: Tensor, target: dict, alpha=.4, color='g'):

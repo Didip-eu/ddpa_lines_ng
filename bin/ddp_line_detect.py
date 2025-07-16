@@ -129,7 +129,16 @@ def binary_mask_from_patches( img: Image.Image, row_count=1, col_count=1, overla
 
 
 
-def tile_img( img_hwc:np.ndarray, size, constraint=20, channel_dim=2 ):
+def tile_img( img_hwc:np.ndarray, size: int, constraint=20, channel_dim=2 ):
+    """ Slice an image into patches: return list of patch coordinates.
+
+    Args:
+        size (int): size of the patch square.
+        constraint (int): minimum overlap between patches.
+        channel_dim (int): which dimension stores the channels: 0 or 2 (default).
+    Returns:
+        list[list]: a list of pairs [top,left] coordinates.
+    """
     height, width = img_hwc.shape[:2] if channel_dim==2 else img_hwc.shape[1:]
     assert height >= size and width >= size
     x_pos, y_pos = [], []

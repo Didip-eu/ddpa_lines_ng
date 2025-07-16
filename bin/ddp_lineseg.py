@@ -653,6 +653,7 @@ if __name__ == '__main__':
         for epoch in range( epoch_start, hyper_params['max_epoch'] ):
 
             update_parameters( args.param_file, hyper_params )
+            model.hyper_parameters = hyper_params
 
             epoch_start_time = time.time()
             mean_training_loss = train_epoch( epoch, dry_run=args.dry_run ) # this is where the action happens

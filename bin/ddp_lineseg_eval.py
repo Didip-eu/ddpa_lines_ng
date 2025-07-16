@@ -105,6 +105,15 @@ def binary_map_from_patches( img: Image.Image, row_count=2, col_count=1, overlap
 
 
 def tile_img( img_hwc:np.ndarray, size, constraint=20, channel_dim=2 ):
+    """ Slice an image into patches: return list of patch coordinates.
+
+    Args:
+        size (int): size of the patch square.
+        constraint (int): minimum overlap between patches.
+        channel_dim (int): which dimension stores the channels: 0 or 2 (default).
+    Returns:
+        list[list]: a list of pairs [top,left] coordinates.
+    """
     height, width = img_hwc.shape[:2] if channel_dim==2 else img_hwc[1:]
     assert height >= size and width >= size
     x_pos, y_pos = [], []
@@ -189,7 +198,7 @@ if __name__ == '__main__':
     pms = []
 
     np.set_printoptions(linewidth=1000, edgeitems=10)
-    for img_nb, img_path in (pbar := tqdm( enumerate(files))):
+    for img_path in tqdm( files):
         #logger.info(f'{img_nb}\t{img_path}')
 
         gt_map = seglib.gt_masks_to_labeled_map( seglib.line_binary_mask_stack_from_json_file( str(img_path).replace('img.jpg', 'lines.gt.json')))

@@ -108,7 +108,7 @@ def polygon_map_from_segmentation_dict( segmentation_dict: dict, polygon_key='bo
     return polygon_img
 
 
-def line_binary_mask_from_json_file(segmentation_json: str, polygon_key='boundary' ) -> Tensor:
+def line_binary_mask_from_json_file( segmentation_json: str, polygon_key='boundary' ) -> Tensor:
     """From a JSON segmentation file,  return a boolean mask where any pixel belonging
     to a polygon is 1 and the other pixels 0.
 
@@ -801,13 +801,10 @@ def array_has_label( label_map_hw: np.ndarray, label: int ) -> bool:
 
 
 def polygon_pixel_metrics_two_flat_maps( map_hw_1: np.ndarray, map_hw_2: np.ndarray, label_distance=5) -> np.ndarray:
-    """Provided two label maps that each encode _non_overlapping_ polygons, compute
+    """Provided two label maps that each encode _non-overlapping_ polygons, compute
     for each possible pair of labels (i_pred, j_gt) with i ∈  map1 and j ∈  map2.
     + intersection and union counts
     + precision and recall
-
-    Shared pixels in each map (i.e. overlapping polygons) have their weight decreased according
-    to the number of polygons they vote for.
 
     Args:
         map_hw_1 (np.ndarray): the predicted map, i.e. a flat map of labeled polygons.
