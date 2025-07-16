@@ -54,7 +54,7 @@ from libs.transforms import build_tormentor_augmentation_for_page_wide_training,
 from libs.train_utils import split_set, duration_estimate
 
 
-logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
+logging.basicConfig( level=logging.DEBUG, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
 logger = logging.getLogger(__name__)
 #logger.propagate=False
 
@@ -226,6 +226,8 @@ def post_process( preds: dict, box_threshold=.9, mask_threshold=.25, orig_size=(
     """
     # select masks with best box scores
     best_masks = [ m.detach().numpy() for m in preds['masks'][preds['scores']>box_threshold]]
+    if len(best_masks) < preds['masks'].shape[0]:
+        logger.debug("Selecting masks {} out of {}".format( np.argwhere( preds['scores']>box_threshold ).tolist(), len(preds['scores'])))
     if not best_masks:
         return None
     # threshold masks

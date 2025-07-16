@@ -65,6 +65,7 @@ p = {
     'patch_size': [0, "Process the image by <patch_size>*<patch_size> patches"],
     'icdar_threshold': 0.75,
     'out_file': ['',"Output file name; if prefixed with '>>', append to an existing file."],
+    'save_file_scores': ['', "Name of the file in which to save the detailed, per-file scores."],
 }
 
 
@@ -260,7 +261,7 @@ if __name__ == '__main__':
 
         logger.debug('GT labels: {}, Pred labels: {}'.format( np.unique( gt_map ), np.unique( label_map_hw )))
         pixel_metrics = seglib.polygon_pixel_metrics_two_flat_maps( label_map_hw, gt_map )
-        np.save('pm.npy', pixel_metrics)
+        #np.save('pm.npy', pixel_metrics)
         pms.append( pixel_metrics )
     # pms is a list of 5-tuples (TP, FP, FN, Jaccard, F1)
 
@@ -270,8 +271,13 @@ if __name__ == '__main__':
 
     file_scores = zip( [ str(f) for f in files], tp_fp_fn_jaccard_f1_5n.transpose().tolist())
     #np.save( 'eval_metrics.npy', tp_fp_fn_jaccard_f1_5n)
-    logger.info( '\n'.join([ f'{filename}\t{score}' for filename,score in file_scores ]))
+    file_scores_str = '\n'.join([ f'{filename}\t{score}' for filename,score in file_scores ])
+    logger.debug( file_scores_str )
+    if args.save_file_scores:
+        with open( args.save_file_scores, 'w') as of:
+            print( file_scores_str, file=of )
 
+    # aggregate scores
     tps, fps, fns = np.sum( tp_fp_fn_jaccard_f1_5n[:3], axis=1)
     jaccard = tps / (tps+fps+fns) 
     f1 = 2*tps / ( 2*tps+fps+fns)

@@ -79,7 +79,7 @@ p = {
     'mask_threshold': [0.25, "Threshold used for line masks--a tweak on the post-processing phase."],
     'box_threshold': [0.8, "Threshold used for line bounding boxes."],
     'rescale': [0, "If True, display segmentation on original image; otherwise (default), get the image size from the model used for inference (ex. 1024 x 1024)."],
-    'img_paths': set(Path('dataset').glob('*.jpg')),
+    'img_paths': set([]), #set(Path('dataset').glob('*.jpg')),
     'color_count': [0, "Number of colors for polygon overlay: -1 for single color, n > 1 for fixed number of colors, 0 for 1 color/line."],
     'limit': [0, "How many files to display."],
     'random': [0, "If non-null, randomly pick <random> paths out of the <img_paths> list."],
@@ -191,7 +191,10 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=1
     # cut into tiles
     tile_tls = tile_img( img_hwc, patch_size, constraint=overlap )
     img_crops = [ torch.from_numpy(img_hwc[y:y+patch_size,x:x+patch_size]).permute(2,0,1) for (y,x) in tile_tls ]
-    logger.debug([ c.shape for c in img_crops ])
+    for i,crop in enumerate(img_crops):
+        ski.io.imsave(f'tmp/crop-{i}.png', crop.permute(1,2,0))
+        
+    logger.debug("Process image in {} patches".format( len(img_crops)))
     
     _, crop_preds, _ = lsg.predict( img_crops, live_model=model )
     page_mask = np.zeros((img_hwc.shape[0],img_hwc.shape[1]), dtype='bool')

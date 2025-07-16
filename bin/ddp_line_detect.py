@@ -93,7 +93,7 @@ def is_unusual_size( height, width ):
     return (0,0)
 
 
-def binary_mask_from_patches( img: Image.Image, row_count=1, col_count=1, overlap=50, model=None, mask_threshold=mask_threshold, box_threshold=box_threshold):
+def binary_mask_from_patches( img: Image.Image, row_count=1, col_count=1, overlap=100, model=None, mask_threshold=mask_threshold, box_threshold=box_threshold):
     """
     Construct a single label map from predictions on <row_count>x<col_count> patches.
 
