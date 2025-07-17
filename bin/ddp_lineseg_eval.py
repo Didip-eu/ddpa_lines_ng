@@ -41,8 +41,6 @@ from bin import ddp_lineseg as lsg
 from libs import seglib, list_utils as lu
 
 
-
-
 logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
 logger = logging.getLogger(__name__)
 # tone down unwanted logging
@@ -64,6 +62,7 @@ p = {
     'patch_col_count': [ 0, "Process the image in <patch_col_count> cols."],
     'patch_size': [0, "Process the image by <patch_size>*<patch_size> patches"],
     'icdar_threshold': 0.75,
+    'foreground_only': [0, "Evaluate on foreground pixels only."],
     'out_file': ['',"Output file name; if prefixed with '>>', append to an existing file."],
     'save_file_scores': ['', "Name of the file in which to save the detailed, per-file scores."],
 }
@@ -105,38 +104,6 @@ def binary_map_from_patches( img: Image.Image, row_count=2, col_count=1, overlap
     return page_mask[None,:]
 
 
-def tile_img( img_hwc:np.ndarray, size, constraint=20, channel_dim=2 ):
-    """ Slice an image into patches: return list of patch coordinates.
-
-    Args:
-        size (int): size of the patch square.
-        constraint (int): minimum overlap between patches.
-        channel_dim (int): which dimension stores the channels: 0 or 2 (default).
-    Returns:
-        list[list]: a list of pairs [top,left] coordinates.
-    """
-    height, width = img_hwc.shape[:2] if channel_dim==2 else img_hwc[1:]
-    assert height >= size and width >= size
-    x_pos, y_pos = [], []
-    if width == size:
-        x_pos = [0]
-    else:
-        col = math.ceil( width / size )
-        if (col*size - width)/(col-1) < constraint:
-            col += 1
-        overlap = (col*size - width)//(col-1)
-        x_pos = [ c*(size-overlap) if c < col-1 else width-size for c in range(col) ]
-    if height == size:
-        y_pos = [0]
-    else:
-        row = math.ceil( height / size )
-        if (row*size - height)/(row-1) < constraint:
-            row += 1
-        overlap = (row*size - height)//(row-1)
-        y_pos = [ r*(size-overlap) if r < row-1 else height-size for r in range(row) ]
-
-    return list(itertools.product(y_pos, x_pos ))
-
 def binary_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=100, model=None, mask_threshold=.25, box_threshold=.8) -> np.ndarray:
     """
     Construct a single label map from predictions on patches of size <patch_size> x <patch_size>.
@@ -164,7 +131,7 @@ def binary_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=10
         rescaled = True
     
     # cut into tiles
-    tile_tls = tile_img( img_hwc, patch_size, constraint=overlap )
+    tile_tls = seglib.tile_img( (new_width, new_height), patch_size, constraint=overlap )
     img_crops = [ torch.from_numpy(img_hwc[y:y+patch_size,x:x+patch_size]).permute(2,0,1) for (y,x) in tile_tls ]
     logger.debug([ c.shape for c in img_crops ])
     
@@ -255,12 +222,17 @@ if __name__ == '__main__':
                 if binary_mask is None:
                     logger.warning("No line mask found for {}: skipping.".format( img_path ))
                     continue
-        label_map_hw = ski.measure.label( binary_mask, connectivity=2 )
+        label_map_hw = ski.measure.label( binary_mask, connectivity=2 ).squeeze()
         logger.debug("label_map.shape={}, label_map._dtype={}, max_label={}".format(label_map_hw.shape, label_map_hw.dtype, np.max(label_map_hw)))
         logger.debug("gt_map.shape={}, max_label={}".format(gt_map.shape, np.max(gt_map)))
 
         logger.debug('GT labels: {}, Pred labels: {}'.format( np.unique( gt_map ), np.unique( label_map_hw )))
-        pixel_metrics = seglib.polygon_pixel_metrics_two_flat_maps( label_map_hw, gt_map )
+        pixel_metrics=None
+        if args.foreground_only:
+            img_fg_mask = np.load('dataset/binary/{}'.format( img_path.name.replace('.img.jpg','.bin.npy')))
+            pixel_metrics = seglib.polygon_pixel_metrics_two_flat_maps_and_mask( label_map_hw, gt_map, img_fg_mask ) 
+        else:
+            pixel_metrics = seglib.polygon_pixel_metrics_two_flat_maps( label_map_hw, gt_map ) 
         #np.save('pm.npy', pixel_metrics)
         pms.append( pixel_metrics )
     # pms is a list of 5-tuples (TP, FP, FN, Jaccard, F1)

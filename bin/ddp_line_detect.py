@@ -128,38 +128,6 @@ def binary_mask_from_patches( img: Image.Image, row_count=1, col_count=1, overla
 
 
 
-
-def tile_img( img_hwc:np.ndarray, size: int, constraint=20, channel_dim=2 ):
-    """ Slice an image into patches: return list of patch coordinates.
-
-    Args:
-        size (int): size of the patch square.
-        constraint (int): minimum overlap between patches.
-        channel_dim (int): which dimension stores the channels: 0 or 2 (default).
-    Returns:
-        list[list]: a list of pairs [top,left] coordinates.
-    """
-    height, width = img_hwc.shape[:2] if channel_dim==2 else img_hwc.shape[1:]
-    assert height >= size and width >= size
-    x_pos, y_pos = [], []
-    if width == size:
-        x_pos = [0]
-    else:
-        col = math.ceil( width / size )
-        if (col*size - width)/(col-1) < constraint:
-            col += 1
-        overlap = (col*size - width)//(col-1)
-        x_pos = [ c*(size-overlap) if c < col-1 else width-size for c in range(col) ]
-    if height == size:
-        y_pos = [0]
-    else:
-        row = math.ceil( height / size )
-        overlap = (row*size - height)//(row-1)
-        y_pos = [ r*(size-overlap) if r < row-1 else height-size for r in range(row) ]
-
-    return list(itertools.product(y_pos, x_pos ))
-    
-
 def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=50, model=None, mask_threshold=mask_threshold, box_threshold=box_threshold):
     """
     Construct a single label map from predictions on patches of size <patch_size> x <patch_size>.
@@ -187,7 +155,7 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=5
         rescaled = True
     
     # cut into tiles
-    tile_tls = tile_img( img_hwc, overlap )
+    tile_tls = seglib.tile_img( (new_width, new_height), overlap )
     img_crops = [ torch.from_numpy(img_hwc[y:y+patch_size,x:x+patch_size]).permute(2,0,1) for (y,x) in tile_tls ]
     _, crop_preds, _ = lsg.predict( img_crops, live_model=model )
     page_mask = np.zeros((img_hwc.shape[0],img_hwc.shape[1]), dtype='bool')

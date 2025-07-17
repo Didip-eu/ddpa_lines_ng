@@ -225,13 +225,13 @@ def post_process( preds: dict, box_threshold=.9, mask_threshold=.25, orig_size=(
          np.ndarray: binary map (1,H,W)
     """
     # select masks with best box scores
-    best_masks = [ m.detach().numpy() for m in preds['masks'][preds['scores']>box_threshold]]
+    best_masks = [ m.detach().numpy() for m in preds['masks'][preds['scores']>=box_threshold]]
     if len(best_masks) < preds['masks'].shape[0]:
-        logger.debug("Selecting masks {} out of {}".format( np.argwhere( preds['scores']>box_threshold ).tolist(), len(preds['scores'])))
+        logger.debug("Selecting masks {} out of {}".format( np.argwhere( preds['scores']>=box_threshold ).tolist(), len(preds['scores'])))
     if not best_masks:
         return None
     # threshold masks
-    masks = [ m * (m > mask_threshold) for m in best_masks ]
+    masks = [ m * (m >= mask_threshold) for m in best_masks ]
     # merge masks 
     page_wide_mask_1hw = np.sum( masks, axis=0 ).astype('bool')
     # optional: scale up masks to the original size of the image

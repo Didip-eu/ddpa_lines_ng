@@ -7,6 +7,7 @@ import itertools
 import re
 import copy
 import sys
+import math
 from datetime import datetime
 
 # 3rd-party
@@ -758,7 +759,36 @@ def polygon_pixel_metrics_from_polygon_maps_and_mask(polygon_chw_pred: Tensor, p
 
     polygon_chw_fg_pred, polygon_chw_fg_gt = [ polygon_img * binary_hw_mask for polygon_img in (polygon_chw_pred, polygon_chw_gt) ]
     
-    metrics = polygon_pixel_metrics_two_maps( polygon_chw_fg_pred, polygon_chw_fg_gt, label_distance )
+    metrics = polygon_pixel_metrics_two_deep_maps( polygon_chw_fg_pred, polygon_chw_fg_gt, label_distance )
+
+    return metrics
+
+def polygon_pixel_metrics_two_flat_maps_and_mask(map_hw_1: Tensor, map_hw_2: Tensor, binary_hw_mask: Optional[Tensor]=None, label_distance=0) -> np.ndarray:
+
+    """Compute pixel-based metrics from two tensors that each encode non-overlapping polygons
+    and a FG mask.
+
+    Args:
+        map_hw_1 (np.ndarray): the predicted map, i.e. a flat map of labeled polygons.
+        map_hw_2 (np.ndarray): the GT map, i.e. a flat map of labeled polygons.
+        binary_hw_mask (Tensor): a boolean mask that selects the input image's FG pixel
+
+    Returns:
+        np.ndarray: metrics (intersection, union, precision, recall, f1) values for each
+            possible pair of labels (i,j) with i ∈  map1 and j ∈ map2. Shared pixels in
+            each map (i.e. overlapping polygons) have their weight decreased according to the
+            number of polygons they vote for.
+    """
+
+    if binary_hw_mask is None:
+        binary_hw_mask = torch.full( map_hw_1.shape, 1, dtype=torch.bool )
+    #print("map_hw_1.shape:", map_hw_1.shape, "map_hw_2.shape:", map_hw_2.shape)
+    if binary_hw_mask.shape != map_hw_2.shape:
+        print("mask shape=", binary_hw_mask.shape, "map_hw_2.shape =", map_hw_2.shape)
+        raise TypeError("Wrong type: binary mask should have shape {}".format(map_hw_2.shape))
+
+    map_hw_fg_1, map_hw_fg_2 = [ mp * binary_hw_mask for mp in (map_hw_1, map_hw_2) ]
+    metrics = polygon_pixel_metrics_two_flat_maps( map_hw_fg_1, map_hw_fg_2, label_distance )
 
     return metrics
 
@@ -768,8 +798,7 @@ def retrieve_polygon_mask_from_map( label_map_chw: Tensor, label: int) -> Tensor
     intersection or not.
 
     Args:
-        label_map_chw (Tensor): a 4-channel tensor, where each pixel can
-            store up to 4 labels.
+        label_map_chw (Tensor): a 4-channel tensor, where each pixel can store up to 4 labels.
         label (int): the label to be selected.
 
     Returns:
@@ -808,7 +837,6 @@ def polygon_pixel_metrics_two_flat_maps( map_hw_1: np.ndarray, map_hw_2: np.ndar
 
     Args:
         map_hw_1 (np.ndarray): the predicted map, i.e. a flat map of labeled polygons.
-            overlaps.
         map_hw_2 (np.ndarray): the GT map, i.e. a flat map of labeled polygons.
 
     Returns:
@@ -1252,6 +1280,39 @@ def gt_masks_to_labeled_map( masks: Mask ) -> np.ndarray:
     Combine stacks of GT line masks (as in data annotations) into a single, labeled page-wide map.
     """
     return np.sum( np.stack([ m * lbl for (lbl,m) in enumerate(masks, start=1)]), axis=0)
+
+
+def tile_img( img_wh: tuple[int,int], size, constraint=20, channel_dim=2 ):
+    """ Slice an image into patches: return list of patch coordinates.
+
+    Args:
+        image size (tuple[int,int]): (width, height) of image
+        size (int): size of the patch square.
+        constraint (int): minimum overlap between patches.
+        channel_dim (int): which dimension stores the channels: 0 or 2 (default).
+    Returns:
+        list[list]: a list of pairs [top,left] coordinates.
+    """
+    width, height = img_wh
+    assert height >= size and width >= size
+    x_pos, y_pos = [], []
+    if width == size:
+        x_pos = [0]
+    else:
+        col = math.ceil( width / size )
+        if (col*size - width)/(col-1) < constraint:
+            col += 1
+        overlap = (col*size - width)//(col-1)
+        x_pos = [ c*(size-overlap) if c < col-1 else width-size for c in range(col) ]
+    if height == size:
+        y_pos = [0]
+    else:
+        row = math.ceil( height / size )
+        if (row*size - height)/(row-1) < constraint:
+            row += 1
+        overlap = (row*size - height)//(row-1)
+        y_pos = [ r*(size-overlap) if r < row-1 else height-size for r in range(row) ]
+    return list(itertools.product(y_pos, x_pos ))
 
 
 def dummy():

@@ -81,7 +81,9 @@ def batch_visuals( inputs:list[Union[Tensor,dict,Path]], raw_maps: list[tuple[np
         col_msk = None
         if color_count>=0:
             colors = get_n_color_palette( color_count ) if color_count > 0 else get_n_color_palette( np.max(labeled_msk))
+            print(len(colors))
             col_msk = np.zeros( img.shape, dtype=img.dtype )
+            print( "col_msk.dtype=", col_msk.dtype, "labeled_msk.dtype=", labeled_msk.dtype)
             for l in range(1, np.max(labeled_msk)+1):
                 col = np.array(colors[l % len(colors) ])
                 col_msk += (labeled_msk==l) * (col/255.0)
@@ -179,15 +181,15 @@ def display_tensor_and_target( img_chw: Tensor, target: dict, alpha=.4, color='g
         - 'boxes'=(N,4) tensor of BB coordinates (x1, y1, x2, y2)
         - 'labels'=(N) tensor of box labels
     """
-    img_hwc = img_chw.detach().numpy().transpose(1,2,0)
+    img_chw = img_chw.detach().numpy()
     masks = target['masks'].detach().numpy()
     masks = [ m * (m>.5) for m in masks ]
     boxes = [ [ int(c) for c in box ] for box in target['boxes'].detach().numpy().tolist()]
     bm = np.sum( masks, axis=0).astype('bool')
     col = {'r': [1.0,0,0], 'g':[0,1.0,0], 'b':[0,0,1.0]}[color]
     # RED * BOOL * ALPHA
-    red_mask = np.transpose( np.full((img.shape[2],img.shape[1],3), col), (2,0,1)) * bm * alpha
-    img_complementary = img * ( ~bm + bm * (1-alpha))
+    red_mask = np.transpose( np.full((img_chw.shape[2],img_chw.shape[1],3), col), (2,0,1)) * bm * alpha
+    img_complementary = img_chw * ( ~bm + bm * (1-alpha))
     composed_img_array = np.transpose(img_complementary + red_mask, (1,2,0))
     # x1,y1 ; x2,y1; x2,y2; x1,y2
     polygon_boundaries = [ np.array([[box[0],box[1]], [box[2],box[1]], [box[2],box[3]], [box[0],box[3]], [box[0],box[1]]]) for box in boxes] 
@@ -197,6 +199,30 @@ def display_tensor_and_target( img_chw: Tensor, target: dict, alpha=.4, color='g
         #if i%2 != 0:
         plt.plot(polyg, color=col[color])
     plt.show()
+
+
+def display_tensor_and_masks( img_chw: Tensor, masks: Tensor, scores: Tensor, box_threshold=.9, mask_threshold=.35, alpha=.4, color='g', out_file=''):
+    """ Overlay of instance masks.
+    Args:
+        img_chw (Tensor): (C,H,W) image
+        'masks'=(N,H,W) tensor of masks, where N=# instances for image
+    """
+    img_chw = img_chw.detach().numpy()
+    masks = masks.detach().numpy()
+    masks = [ m * (m >= mask_threshold) for m in masks[ scores >= box_threshold ] ]
+    bm = np.sum( masks, axis=0).astype('bool')
+    col = {'r': [1.0,0,0], 'g':[0,1.0,0], 'b':[0,0,1.0]}[color]
+    # RED * BOOL * ALPHA
+    red_mask = np.transpose( np.full((img_chw.shape[2],img_chw.shape[1],3), col), (2,0,1)) * bm * alpha
+    img_complementary = img_chw * ( ~bm + bm * (1-alpha))
+    composed_img_array = np.transpose(img_complementary + red_mask, (1,2,0))
+    # x1,y1 ; x2,y1; x2,y2; x1,y2
+    print(composed_img_array.shape)
+    plt.imshow( composed_img_array.astype('uint8') )
+    if out_file:
+        plt.savefig( out_file )
+    else:
+        plt.show()
 
 
 def display_tensor_and_boxes( img_chw: Tensor, boxes: Tensor, scores: Tensor, threshold=.9, alpha=.4, color='g', image_only=False, out_file=''):
@@ -214,56 +240,50 @@ def display_tensor_and_boxes( img_chw: Tensor, boxes: Tensor, scores: Tensor, th
     polygon_boundaries = [ np.array([[box[0],box[1]], [box[2],box[1]], [box[2],box[3]], [box[0],box[3]],[box[0],box[1]]]) for box in boxes ] 
     plt.close()
     if image_only:
-        fig = plt.figure(frameon=False)
+        fig = plt.figure(frameon=False, figsize=(2.5,2.5))
         ax = plt.Axes(fig, [0,0,1,1])
         ax.set_axis_off()   
         fig.add_axes(ax)
+        ax.set_aspect('equal', adjustable='box')
         ax.imshow( img_hwc, aspect='auto')
     else:
         fig, ax = plt.subplots()
         plt.imshow( img_hwc )
     for i,polyg in enumerate(polygon_boundaries):
         color = 'r' if scores[i]<threshold else 'g'
-        plt.plot(polyg[:,0],polyg[:,1], linewidth=3, color=color)
+        plt.plot(polyg[:,0],polyg[:,1], linewidth=1, color=color)
     if out_file:
         fig.savefig(out_file)
     else:
         plt.show()
 
-def display_tensor_soft_masks( img_chw: Tensor, masks: Tensor, scores: Tensor, threshold=.9, alpha=.4, image_only=False, out_file=''):
-    """ Overlay of instance masks and boxes.
+def display_soft_masks( masks: Tensor, scores: Tensor, box_threshold=.9, alpha=.4, image_only=False, out_file=''):
+    """ Display or save soft masks.
     Args:
-        img_chw (Tensor): (C,H,W) image
         masks (Tensor): (N,H,W) tensor of masks
         threshold (float): box threshold
     """
-    img_hwc = img_chw.detach().numpy().transpose(1,2,0)
     masks = masks.detach().numpy()
     print("Total masks:", len(masks))
     #masks = [ m * (m>.5) for m in masks ]
-    masks = masks[ scores > threshold ]
+    masks = masks[ scores >= box_threshold ]
     print("Keep masks:", len(masks))
     
     plt.close()
-    if image_only:
+
+    fig, ax = plt.subplots()
+    if out_file and image_only:
         fig = plt.figure(frameon=False)
         ax = plt.Axes(fig, [0,0,1,1])
         ax.set_axis_off()   
         fig.add_axes(ax)
-        for m in masks:
-            ax.imshow( m.squeeze() )
-            if out_file:
-                fig.savefig(f'{out_file}-{i}.png')
-            else:
-                plt.show()
-    else:    
-        fig, ax = plt.subplots()
-        for i, m in enumerate(masks):
-            plt.imshow( m.squeeze() )
-            if out_file:
-                fig.savefig(f'{out_file}-{i}.png')
-            else:
-                plt.show()
+
+    for i,m in enumerate(masks):
+        plt.imshow( m.squeeze())
+        if out_file:
+            fig.savefig(f'{out_file}-{i}.png')
+        else:
+            plt.show()
 
 
 
