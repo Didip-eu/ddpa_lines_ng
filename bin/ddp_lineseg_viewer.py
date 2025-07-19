@@ -76,8 +76,8 @@ logging.getLogger('PIL').setLevel(logging.INFO)
 
 p = {
     'model_path': str(src_root.joinpath("best.mlmodel")),
-    'mask_threshold': [0.25, "Threshold used for line masks--a tweak on the post-processing phase."],
-    'box_threshold': [0.8, "Threshold used for line bounding boxes."],
+    'mask_threshold': [0.35, "Threshold used for line masks--a tweak on the post-processing phase."],
+    'box_threshold': [0.9, "Threshold used for line bounding boxes."],
     'rescale': [0, "If True, display segmentation on original image; otherwise (default), get the image size from the model used for inference (ex. 1024 x 1024)."],
     'img_paths': set([]), #set(Path('dataset').glob('*.jpg')),
     'color_count': [0, "Number of colors for polygon overlay: -1 for single color, n > 1 for fixed number of colors, 0 for 1 color/line."],
@@ -251,7 +251,7 @@ if __name__ == '__main__':
             logger.debug("Rendering time: {:.5f}s".format( time.time()-start))
 
             plt.close()
-            plt.subplots(figsize=(6,4), dpi=400)
+            plt.subplots(dpi=300)
             plt.imshow( mp )
             plt.title( path )
             if 'labels' in args.show:
@@ -259,8 +259,8 @@ if __name__ == '__main__':
                     label, centroid = att_dict['label'], att_dict['centroid']
                     plt.text(*centroid[:0:-1], label, size=15)
             if args.out_file_dir:
-                plt.subplots_adjust(0.075,0.075,0.90,0.95,0,0)
-                plt.savefig( Path( args.out_file_dir, img_path.stem).with_suffix('.png'))
+                #plt.subplots_adjust(0.2,0.075,0.90,0.95,0,0)
+                plt.savefig( Path( args.out_file_dir, img_path.stem).with_suffix('.png'), bbox_inches='tight')
             else:
                 plt.show()
         else:
