@@ -45,14 +45,14 @@ def batch_visuals( inputs:list[Union[Tensor,dict,Path]], raw_maps: list[tuple[np
     with mask overlays, as well as attributes.
 
     Args:
-        inputs (list[Tensor]): a list of 
-            - image tensors
-            - dictionaries with 'img' tensor
-            - image paths
+        inputs (list[Union[Tensor,dict,Path]]): a list of either
+            - image tensors (CHW)
+         or - dictionaries with 'img' tensor
+         or - image paths
         raw_maps (list[tuple[np.ndarray,dict]]): a list of tuples with
             - labeled map (1,H,W)
             - attributes: i.e. dictionary of morphological attributes (simply passed through, for use 
-              by a consumer, plotting function)
+              by a consumer, plotting function) og 
     Returns:
         list[tuple[np.array, dict, str]]: a list of tuples (img_HWC, attributes, id)
     """
@@ -60,41 +60,41 @@ def batch_visuals( inputs:list[Union[Tensor,dict,Path]], raw_maps: list[tuple[np
     
     imgs, ids, maps, attr = [], [], [], []
     if isinstance(inputs[0], Tensor):
-        imgs = [ img.cpu().numpy() for img in inputs ] 
-        ids = [ f"image-{i}" for i in range(len(imgs)) ]
+        imgs_chw = [ img_chw.cpu().numpy() for img_chw in inputs ] 
+        ids = [ f"image-{i}" for i in range(len(imgs_chw)) ]
     elif type(inputs[0]) is dict and 'img' in inputs[0]:
-        imgs=[ img['img'].cpu().numpy() for img in inputs ]
+        imgs_chw=[ img['img'].cpu().numpy() for img in inputs ]
         ids = [ img['id'] if 'id' in img else f'image-{i}' for (i,img) in enumerate(inputs) ] 
     elif isinstance(inputs[0], Path):
-        imgs,ids=zip(*[ (np.transpose(ski.io.imread(img),(2,0,1)).astype('float32')/255, str(img.name)) for img in inputs ])
+        imgs_chw,ids=zip(*[ (np.transpose(ski.io.imread(img),(2,0,1)).astype('float32')/255, str(img.name)) for img in inputs ])
     #print([ (Id,img.shape, img.dtype, np.ptp(img)) for img,Id in zip(imgs,ids) ])
-    assert all([ img.shape[1:] == mp[0].shape[1:] for img,mp in zip(imgs,raw_maps) ])
+    assert all([ img_chw.shape[1:] == mp[0].shape[1:] for img_chw,mp in zip(imgs_chw,raw_maps) ])
 
     default_color = [0,0,1.0] # BLUE
-    for img,mp in zip(imgs,raw_maps):
+    for img_chw, mp in zip(imgs_chw,raw_maps):
         # generate labeled masks
-        labeled_msk, attributes = mp
-        labeled_msk = np.transpose( labeled_msk, (1,2,0))
-        bm = labeled_msk.astype('bool')
-        img = np.transpose( img, (1,2,0))
-        img_complementary = img * ( ~bm + bm * (1-alpha))
-        col_msk = None
+        labeled_msk_1hw, attributes = mp
+        labeled_msk_hw1 = np.transpose( labeled_msk_1hw, (1,2,0))
+        bm_hw1 = labeled_msk_hw1.astype('bool')
+        img_hwc = np.transpose( img_chw, (1,2,0))
+        img_complementary_hwc = img_hwc * ( ~bm_hw1 + bm_hw1 * (1-alpha))
+        col_msk_hwc = None
         if color_count>=0:
-            colors = get_n_color_palette( color_count ) if color_count > 0 else get_n_color_palette( np.max(labeled_msk))
+            colors = get_n_color_palette( color_count ) if color_count > 0 else get_n_color_palette( np.max(labeled_msk_hw1))
             print(len(colors))
-            col_msk = np.zeros( img.shape, dtype=img.dtype )
-            print( "col_msk.dtype=", col_msk.dtype, "labeled_msk.dtype=", labeled_msk.dtype)
-            for l in range(1, np.max(labeled_msk)+1):
+            col_msk_hwc = np.zeros( img_hwc.shape, dtype=img_chw.dtype )
+            print( "col_msk.dtype=", col_msk_hwc.dtype, "labeled_msk.dtype=", labeled_msk_hw1.dtype)
+            for l in range(1, np.max(labeled_msk_hw1)+1):
                 col = np.array(colors[l % len(colors) ])
-                col_msk += (labeled_msk==l) * (col/255.0)
-            col_msk *= alpha
+                col_msk_hwc += (labeled_msk_hw1==l) * (col/255.0)
+            col_msk_hwc *= alpha
         # single color
         else:
             # BLUE * BOOL * ALPHA
-            col_msk = np.full(img.shape, default_color) * bm * alpha
-        composed_img_array = img_complementary + col_msk
+            col_msk_hwc = np.full(img_hwc.shape, default_color) * bm_hw1 * alpha
+        composed_img_array_hwc = img_complementary_hwc + col_msk_hwc
         # Combination: (H,W,C), i.e. fit for image viewers and plots
-        maps.append(composed_img_array)
+        maps.append(composed_img_array_hwc)
         attr.append(attributes)
     
     return list(zip(maps, attr, ids))
@@ -160,11 +160,14 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
                 reg_closed_boundary = np.array( reg['boundary']+[reg['boundary'][0]])
                 plt.plot( reg_closed_boundary[:,0], reg_closed_boundary[:,1], linewidth=linewidth)
         col_msk_hwc *= alpha
+        print(col_msk_hwc.dtype, np.max(col_msk_hwc))
         bm_hw1 = bm_hw[:,:,None]
-        img_complementary = img_hwc * ( ~bm_hw1 + bm_hw1 * (1-alpha))
-        composed_img_array = img_complementary + col_msk_hwc
+        img_complementary_hwc = img_hwc * ( ~bm_hw1 + bm_hw1 * (1-alpha))
+        print(img_complementary_hwc.dtype, np.max(img_complementary_hwc))
 
-        plt.imshow( composed_img_array )
+        composed_img_array_hwc = img_complementary_hwc + col_msk_hwc
+
+        plt.imshow( composed_img_array_hwc )
         plt.title( Path(img_path).name )
         if out_file:
             plt.savefig( outfile )
@@ -173,7 +176,7 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
 
 
 def display_tensor_and_target( img_chw: Tensor, target: dict, alpha=.4, color='g'):
-    """ Overlay of instance masks and boxes.
+    """ Overlay of instance masks and boxes, no frills: single color.
     Args:
         img_chw (Tensor): (C,H,W) image
         target (dict[str,Tensor]): a dictionary of labels with
@@ -182,43 +185,62 @@ def display_tensor_and_target( img_chw: Tensor, target: dict, alpha=.4, color='g
         - 'labels'=(N) tensor of box labels
     """
     img_chw = img_chw.detach().numpy()
-    masks = target['masks'].detach().numpy()
-    masks = [ m * (m>.5) for m in masks ]
+    mask_nhw = target['masks'].detach().numpy()
+    masks_hw = [ m * (m>.5) for m in mask_nhw ]
     boxes = [ [ int(c) for c in box ] for box in target['boxes'].detach().numpy().tolist()]
-    bm = np.sum( masks, axis=0).astype('bool')
+    bm_hw = np.sum( masks_hw, axis=0).astype('bool')
     col = {'r': [1.0,0,0], 'g':[0,1.0,0], 'b':[0,0,1.0]}[color]
     # RED * BOOL * ALPHA
-    red_mask = np.transpose( np.full((img_chw.shape[2],img_chw.shape[1],3), col), (2,0,1)) * bm * alpha
-    img_complementary = img_chw * ( ~bm + bm * (1-alpha))
-    composed_img_array = np.transpose(img_complementary + red_mask, (1,2,0))
+    red_mask_3hw = np.transpose(np.full(img_chw.shape[1:]+(3,), col),(2,0,1)) * bm_hw * alpha
+    img_complementary_chw = img_chw * ( ~bm_hw + bm_hw * (1-alpha))
+    composed_img_array_hwc = np.transpose(img_complementary_chw + red_mask_3hw, (1,2,0))
     # x1,y1 ; x2,y1; x2,y2; x1,y2
     polygon_boundaries = [ np.array([[box[0],box[1]], [box[2],box[1]], [box[2],box[3]], [box[0],box[3]], [box[0],box[1]]]) for box in boxes] 
     plt.close()
-    plt.imshow( composed_img_array )
+    plt.imshow( composed_img_array_hwc )
     for i,polyg in enumerate(polygon_boundaries):
         #if i%2 != 0:
         plt.plot(polyg, color=col[color])
     plt.show()
 
 
-def display_tensor_and_masks( img_chw: Tensor, masks: Tensor, scores: Tensor, box_threshold=.9, mask_threshold=.35, alpha=.4, color='g', out_file=''):
-    """ Overlay of instance masks.
+def display_tensor_and_masks( img_chw: Tensor, mask_n1hw: Tensor, alpha=.4, color_count=-1, out_file=''):
+    """ Overlay of instance masks, with choice of colorx and option for saving image.
     Args:
         img_chw (Tensor): (C,H,W) image
-        'masks'=(N,H,W) tensor of masks, where N=# instances for image
+        mask_n1hw (Tensor): (N,1,H,W) tensor of masks, where N=# instances for image
+        color_count (int): -1 (default) = default color; 0=one color/instance; n>0=n colors
     """
-    img_chw = img_chw.detach().numpy()
-    masks = masks.detach().numpy()
-    masks = [ m * (m >= mask_threshold) for m in masks[ scores >= box_threshold ] ]
-    bm = np.sum( masks, axis=0).astype('bool')
-    col = {'r': [1.0,0,0], 'g':[0,1.0,0], 'b':[0,0,1.0]}[color]
-    # RED * BOOL * ALPHA
-    red_mask = np.transpose( np.full((img_chw.shape[2],img_chw.shape[1],3), col), (2,0,1)) * bm * alpha
-    img_complementary = img_chw * ( ~bm + bm * (1-alpha))
-    composed_img_array = np.transpose(img_complementary + red_mask, (1,2,0))
+    img_hwc = img_chw.detach().numpy().transpose(1,2,0)/255
+    np.unique(img_hwc)
+    mask_n1hw = mask_n1hw.detach().numpy()
+    print("mask_n1hw.shape=", mask_n1hw.shape)
+    bm_hw1 = np.sum( mask_n1hw, axis=0).astype('bool').transpose(1,2,0)
+    print("bm_hw1=", bm_hw1.shape)
+    col_msk_hwc = None
+    default_color = [0,0,1.0] # BLUE
+    if color_count>=0:
+        colors = get_n_color_palette( color_count ) if color_count > 0 else get_n_color_palette( mask_n1hw.shape[0])
+        col_msk_hwc = np.zeros( img_hwc.shape, dtype=img_hwc.dtype )
+        for l in range( mask_n1hw.shape[0]):
+            col = np.array(colors[l % len(colors) ])
+            print(col)
+            print(np.sum(mask_n1hw[l].transpose(1,2,0)==1))
+            col_msk_hwc += (mask_n1hw[l].transpose(1,2,0)==1) * (col/255.0)
+        col_msk_hwc *= alpha
+        print(col_msk_hwc.dtype, np.max(col_msk_hwc), np.unique(col_msk_hwc))
+    else:
+        # BLUE * BOOL * ALPHA
+        #red_mask_3hw = np.transpose( np.full((img_chw.shape[2],img_chw.shape[1],3), col), (2,0,1)) * bm * alpha
+        col_msk_hwc = np.full(img_hwc.shape[:2]+(3,), default_color) * bm_hw1 * alpha
+    img_complementary_hwc = img_hwc * ( ~bm_hw1 + bm_hw1 * (1-alpha))
+    print(img_complementary_hwc.dtype, np.max(img_complementary_hwc))
+    composed_img_array_hwc = img_complementary_hwc + col_msk_hwc
+    print(composed_img_array_hwc.dtype, np.max(composed_img_array_hwc), np.unique(composed_img_array_hwc))
     # x1,y1 ; x2,y1; x2,y2; x1,y2
-    print(composed_img_array.shape)
-    plt.imshow( composed_img_array.astype('uint8') )
+    print(composed_img_array_hwc.shape)
+    plt.close()
+    plt.imshow( composed_img_array_hwc)
     if out_file:
         plt.savefig( out_file )
     else:
@@ -226,7 +248,7 @@ def display_tensor_and_masks( img_chw: Tensor, masks: Tensor, scores: Tensor, bo
 
 
 def display_tensor_and_boxes( img_chw: Tensor, boxes: Tensor, scores: Tensor, threshold=.9, alpha=.4, color='g', image_only=False, out_file=''):
-    """ Overlay of instance boxes.
+    """ Overlay of instance boxes witn threshold option.
     Args:
         img_chw (Tensor): (C,H,W) image
         boxes (Tensor): (N,4) tensor of BB coordinates (x1, y1, x2, y2)
