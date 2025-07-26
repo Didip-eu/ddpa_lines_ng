@@ -168,6 +168,7 @@ def build_tormentor_augmentation_for_crop_training( dists, crop_size=1024, crop_
     augRotate = tormentor.RandomRotate.override_distributions(radians=dists['Rotate'])
     augWrap = tormentor.RandomWrap.override_distributions(roughness=dists['Wrap'][0], intensity=dists['Wrap'][1])
     augZoom = tormentor.RandomZoom.override_distributions( scales=dists['Zoom'])
+    augBrightness = tormentor.RandomBrightness.override_distributions(brightness=dists['Brightness'])
     augCropCenter = tormentor.RandomCropTo.new_size( crop_size, crop_size )
     # ensure that margins are well represented
     augCropLeft = tormentor.RandomCropTo.new_size( crop_size, crop_size ).override_distributions( center_x=tormentor.Uniform((0, .6)))
@@ -178,13 +179,13 @@ def build_tormentor_augmentation_for_crop_training( dists, crop_size=1024, crop_
         # crop before wrap:
         #   Crop___Wrap__Zoom   (distort crop-wide, zoom to get rid of BG)
         #         |__ Identity
-        aug = augCrop | ( tormentor.RandomIdentity ^ (augWrap | augZoom) ^ (augRotate | augZoom)).override_distributions(choice=tormentor.Categorical(probs=(.7,.15,.15)))
+        aug = augCrop | augBrightness | ( tormentor.RandomIdentity ^ (augWrap | augZoom) ^ (augRotate | augZoom)).override_distributions(choice=tormentor.Categorical(probs=(.7,.15,.15)))
 
     else:
         # transform page-wide, then crop:
         #             __Wrap__Zoom___Crop   (distort image-wide, zoom to get rid of BG, then crop)
         #           _|__Rotate_Zoom_| 
-        aug = (Identity ^ ( augWrap | augZoom) ^ (augRotate | augZoom )).override_distributions( choice=tormentor.Categorical(probs=(.8,.1,.1))) | augCrop
+        aug = (tormentor.RandomIdentity ^ ( augWrap | augZoom) ^ (augRotate | augZoom )).override_distributions( choice=tormentor.Categorical(probs=(.7,.15,.15))) | augCrop | augBrightness
 
     return aug
 

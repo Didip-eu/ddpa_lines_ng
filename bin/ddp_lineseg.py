@@ -99,6 +99,7 @@ tormentor_dists = {
         'Perspective': (tormentor.Uniform((0.85, 1.25)), tormentor.Uniform((.85,1.25))),
         'Wrap': (tormentor.Uniform((0.1, 0.12)), tormentor.Uniform((0.64,0.66))), # no too rough, but intense (large-scale distortion)
         'Zoom': tormentor.Uniform((1.1,1.6)),
+        'Brightness': tormentor.Uniform((-0.35,0.35)),
 }
 
 
@@ -272,7 +273,8 @@ class CachedDataset( Dataset ):
                     root_dir = dir_path.joinpath( subdir )
                     if root_dir != dir_path:
                         if root_dir.exists():
-                            pass # TODO: ensure empty
+                            for item in [ f for f in root_dir.iterdir() if not f.is_dir()]:
+                                item.unlink()
                         else:
                             root_dir.mkdir()
                 #plt.imshow( img.permute(1,2,0))
