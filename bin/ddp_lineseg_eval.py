@@ -239,11 +239,11 @@ if __name__ == '__main__':
 
     tp_fp_fn_jaccard_f1_5n = np.stack( [ seglib.polygon_pixel_metrics_to_line_based_scores_icdar_2017( pm, threshold=args.icdar_threshold ) for pm in pms ], axis=1)
 
-    print(tp_fp_fn_jaccard_f1_5n.tolist())
+    #print(tp_fp_fn_jaccard_f1_5n.tolist())
 
     file_scores = zip( [ str(f) for f in files], tp_fp_fn_jaccard_f1_5n.transpose().tolist())
     #np.save( 'eval_metrics.npy', tp_fp_fn_jaccard_f1_5n)
-    file_scores_str = '\n'.join([ f'{filename}\t{score}' for filename,score in file_scores ])
+    file_scores_str = '\n'.join([ '{}\t{}'.format(filename, '\t'.join(scores)) for filename,scores in file_scores ])
     logger.debug( file_scores_str )
     if args.save_file_scores:
         with open( args.save_file_scores, 'w') as of:

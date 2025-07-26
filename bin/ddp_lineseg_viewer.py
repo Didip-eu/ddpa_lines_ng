@@ -223,7 +223,7 @@ if __name__ == '__main__':
                 logger.debug("binary_mask.shape={}".format(binary_mask.shape))
                 segmentation_record = lsg.get_morphology( binary_mask, centerlines=False)
                 logger.debug("segmentation_record[0].shape={}".format(segmentation_record[0].shape))
-                mp, atts, path = segviz.batch_visuals( [img_path], [segmentation_record], color_count=0 )[0]
+                mp, atts, path = segviz.display_batch_label_maps( [img_path], [segmentation_record], color_count=0 )[0]
 
             # Default: Page-wide inference
             else:
@@ -239,7 +239,7 @@ if __name__ == '__main__':
                         continue
                     logger.debug("binary_mask.shape={}".format(binary_mask.shape))
                     segmentation_record = lsg.get_morphology( binary_mask, centerlines=False)
-                    mp, atts, path = segviz.batch_visuals( [img_path], [segmentation_record], color_count=0 )[0]
+                    mp, atts, path = segviz.display_batch_label_maps( [img_path], [segmentation_record], color_count=0 )[0]
                 else:
                     logger.debug("Square")
                     binary_mask = lsg.post_process( preds[0], mask_threshold=args.mask_threshold, box_threshold=args.box_threshold )
@@ -247,7 +247,7 @@ if __name__ == '__main__':
                         logger.warning("No line mask found for {}: skipping.".format( img_path ))
                         continue
                     segmentation_records= lsg.get_morphology( binary_mask )
-                    mp, atts, path = segviz.batch_visuals( [ {'img':imgs_t[0], 'id':str(img_path)} ], [segmentation_records], color_count=0 )[0]
+                    mp, atts, path = segviz.display_batch_label_maps( [ {'img':imgs_t[0], 'id':str(img_path)} ], [segmentation_records], color_count=0 )[0]
             logger.debug("Rendering time: {:.5f}s".format( time.time()-start))
 
             plt.close()

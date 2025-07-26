@@ -17,6 +17,7 @@ import random
 import math
 import logging
 import time
+import re
 
 # 3rd party
 from PIL import Image
@@ -54,7 +55,7 @@ from libs.transforms import build_tormentor_augmentation_for_page_wide_training,
 from libs.train_utils import split_set, duration_estimate
 
 
-logging.basicConfig( level=logging.DEBUG, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
+logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
 logger = logging.getLogger(__name__)
 #logger.propagate=False
 
@@ -89,6 +90,8 @@ p = {
     'device': 'cuda',
     'augmentations': [ set([]), "Pass one or more tormentor class names, to build a choice of training augmentations; by default, apply the hard-coded transformations."],
     'train_style': [('page','patch'), "Use page-wide sample images for training (default), or fixed-size patches."],
+    'cache_dir_train': '',
+    'cache_dir_val': '',
 }
 
 tormentor_dists = {
@@ -190,7 +193,7 @@ class LineDetectionDataset(Dataset):
     @staticmethod
     def augment_with_bboxes( sample, aug, device ):
         """  Augment a sample (img + masks), and add bounding boxes to the target.
-        (For Tormentor only).
+        (For Tormentor only.)
 
         Args:
             sample (tuple[Tensor,dict]): tuple with image (as tensor) and label dictionary.
@@ -210,6 +213,113 @@ class LineDetectionDataset(Dataset):
 
         target['boxes'], target['labels'], target['masks'] = boxes[keep], labels[keep], masks[keep]
         return (img, target)
+
+
+class CachedDataset( Dataset ):
+    """
+    Wrap an existing dataste into a new one, that provides disk-caching functionalities:
+    
+    + image tensors saved as such
+    + annotations saved as Torch pickles
+    """
+
+    def __init__(self, data_source:Union[str,Dataset]=None, serialize=False, repeat=1 ):
+        self._source_dataset = None
+        self._img_paths = []
+        self._label_paths = []
+        # data source is an existing serialization: load the paths
+        if type(data_source) is str:
+            assert Path(data_source).is_dir() and Path(data_source).exists()
+            self.load( data_source )
+        # data source is an existing Dataset: serialize on disk and load the newly generated paths
+        elif isinstance(data_source, Dataset) or isinstance(data_source, tormentor.AugmentedDs):
+            logger.info("Initialize from {}".format( data_source ))
+            assert len(data_source) > 0
+            self._source_dataset = data_source
+            if serialize:
+                self.serialize( repeat=repeat )
+            else:
+                logger.warning('CachedDataset object has a data source but contains no cached data yet: call serialize() to generate them.')
+        else:
+            logger.info("Could not identity data_source type")
+
+    def __len__( self ):
+        return len( self._img_paths )
+
+    def __getitem__( self, index ):
+        """ Load an item from the serialized dataset"""
+        assert len(self._img_paths)
+        img_chw = torch.load( self._img_paths[index] )
+        target = torch.load( self._label_paths[index], weights_only=False )
+
+        #plt.imshow( (img_chw * torch.sum(target['masks'], axis=0)).permute(1,2,0))
+        #plt.show()
+        return img_chw, target
+      
+    def _reset( self ):
+        self._img_paths = []
+        self._label_paths = []
+
+    def serialize( self, subdir='', repeat=1 ):
+        # TODO: ensure that reset() empties the cache before
+        self._reset()
+        root_dir = None
+        for r in range(repeat):
+            logger.info('serialization: repeat={}'.format(r))
+            for (img, target) in tqdm( self._source_dataset ):
+                if root_dir is None:
+                    dir_path = Path(target['path']).parents[0]
+                    root_dir = dir_path.joinpath( subdir )
+                    if root_dir != dir_path:
+                        if root_dir.exists():
+                            pass # TODO: ensure empty
+                        else:
+                            root_dir.mkdir()
+                #plt.imshow( img.permute(1,2,0))
+                #plt.show()
+                masks = target['masks']
+                #plt.imshow( (img * torch.sum(masks, axis=0)).permute(1,2,0))
+                #plt.show()
+                self._save_sample(img, target, root_dir=root_dir, index=r)
+
+        logger.info('Generated {} samples.'.format( len(self._img_paths)))
+
+    def load( self, cache:str ):
+        """
+        Load sample image and annotation pathnames from cache directory.
+        Image and annotations have same prefix and '.img.plt' and '.plt'
+        suffixes, respectively.
+        
+        Args:
+            cache (str): a directory path (created if it does not exist).
+        """
+        for img_path in Path(cache).glob('*.img.plt'):
+            label_path = Path(str(img_path).replace('img.plt', 'plt'))
+            assert label_path.exists()
+            self._img_paths.append( img_path )
+            self._label_paths.append( label_path )
+        logger.info('Loaded {} sample names from cache {}.'.format( len(self._img_paths), cache ))
+        
+    def _save_sample(self, img, target, root_dir='', index=0 ):
+        """ Serialize both image and target on disk.
+        Args:
+            img (Tensor): image
+            target (dict): labels (boxes, masks, labels, path)
+            root_dir (Path): where to save
+            index (int): iteration (when saving multiple flavor of same dataset)
+        """
+        img_stem = re.sub(r'([^.]+)\..+$', r'\1', target['path'].name )
+        stem = f'{img_stem}-{index}'
+        # saving image as tensor
+        target['path'] = root_dir.joinpath( f'{stem}.img.plt' )
+        torch.save( img, target['path'] )
+        # saving target as pickle
+        target_path = root_dir.joinpath( f'{stem}.plt' )
+        torch.save( target, target_path )
+        
+        self._img_paths.append( target['path'])
+        self._label_paths.append( target_path )
+
 
 
 def post_process( preds: dict, box_threshold=.9, mask_threshold=.25, orig_size=()):
@@ -506,8 +616,8 @@ if __name__ == '__main__':
     if hyper_params['validation_set_limit']:
         imgs_val, _, lbls_val, _ = split_set( imgs_val, lbls_val, limit=hyper_params['validation_set_limit'])
 
-    # Basic dataset: all images are resized at this stage
     ds_train, ds_val = None, None
+    # Page-wide processing 
     if args.train_style=='page':
         ds_train = LineDetectionDataset( imgs_train, lbls_train, img_size=hyper_params['img_size'], polygon_key=hyper_params['polygon_key'])
         ds_val = LineDetectionDataset( imgs_val, lbls_val, img_size=hyper_params['img_size'], polygon_key=hyper_params['polygon_key'] )
@@ -515,21 +625,30 @@ if __name__ == '__main__':
         if args.tormentor:
             aug = build_tormentor_augmentation_for_crop_training( tormentor_dists, crop_size=hyper_params['img_size'][0], crop_before=True )
             ds_train = tormentor.AugmentedDs( ds_train, aug, computation_device=args.device, augment_sample_function=LineDetectionDataset.augment_with_bboxes )
+    # Patch-based processing
     elif args.train_style=='patch': # requires Tormentor anyway
         crop_size = hyper_params['img_size'][0]
-        # Patch-based processing
-        # 1. All images resized so at least patch-size
-        ds_train = LineDetectionDataset( imgs_train, lbls_train, min_size=crop_size)
-        aug = build_tormentor_augmentation_for_crop_training( tormentor_dists, crop_size=crop_size, crop_before=True )
-        ds_train = tormentor.AugmentedDs( ds_train, aug, computation_device=args.device, augment_sample_function=LineDetectionDataset.augment_with_bboxes )
-        # 2. Validation set should use patch-size crops, not simply resized images!
-        ds_val = LineDetectionDataset( imgs_val, lbls_val, min_size=crop_size)
-        augCropCenter = tormentor.RandomCropTo.new_size( crop_size, crop_size )
-        augCropLeft = tormentor.RandomCropTo.new_size( crop_size, crop_size ).override_distributions( center_x=tormentor.Uniform((0, .6)))
-        augCropRight = tormentor.RandomCropTo.new_size( crop_size, crop_size ).override_distributions( center_x=tormentor.Uniform((.4, 1)))
-
-        aug = ( augCropCenter ^ augCropLeft ^ augCropRight ).override_distributions(choice=tormentor.Categorical(probs=(.33, .34, .33)))
-        ds_val = tormentor.AugmentedDs( ds_val, aug, computation_device=args.device, augment_sample_function=LineDetectionDataset.augment_with_bboxes )
+        if args.cache_dir_train:
+            ds_train = CachedDataset( data_source=args.cache_dir_train )
+        else:
+            # 1. All images resized to at least patch-size
+            ds_train = LineDetectionDataset( imgs_train, lbls_train, min_size=crop_size)
+            aug = build_tormentor_augmentation_for_crop_training( tormentor_dists, crop_size=crop_size, crop_before=True )
+            ds_train = tormentor.AugmentedDs( ds_train, aug, computation_device=args.device, augment_sample_function=LineDetectionDataset.augment_with_bboxes )
+            #ds_train = CachedDataset( ds_train )
+            #ds_train.serialize( subdir='train_cached', repeat=4 )
+        if args.cache_dir_val:
+            ds_val = CachedDataset( data_source=args.cache_dir_val )
+        else:
+            # 2. Validation set should use patch-size crops, not simply resized images!
+            ds_val = LineDetectionDataset( imgs_val, lbls_val, min_size=crop_size)
+            augCropCenter = tormentor.RandomCropTo.new_size( crop_size, crop_size )
+            augCropLeft = tormentor.RandomCropTo.new_size( crop_size, crop_size ).override_distributions( center_x=tormentor.Uniform((0, .6)))
+            augCropRight = tormentor.RandomCropTo.new_size( crop_size, crop_size ).override_distributions( center_x=tormentor.Uniform((.4, 1)))
+            aug = ( augCropCenter ^ augCropLeft ^ augCropRight ).override_distributions(choice=tormentor.Categorical(probs=(.33, .34, .33)))
+            ds_val = tormentor.AugmentedDs( ds_val, aug, computation_device=args.device, augment_sample_function=LineDetectionDataset.augment_with_bboxes )
+            #ds_val = CachedDataset( ds_val )
+            #ds_val.serialize( subdir='val_cached', repeat=4)
         
     # not used for the moment
     ds_test = LineDetectionDataset( imgs_test, lbls_test, img_size=hyper_params['img_size'], polygon_key=hyper_params['polygon_key'] )
