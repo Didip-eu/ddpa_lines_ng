@@ -218,7 +218,7 @@ class LineDetectionDataset(Dataset):
 
 class CachedDataset( Dataset ):
     """
-    Wrap an existing dataste into a new one, that provides disk-caching functionalities:
+    Wrap an existing dataset into a new one, that provides disk-caching functionalities:
     
     + image tensors saved as such
     + annotations saved as Torch pickles
