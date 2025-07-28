@@ -262,7 +262,6 @@ class CachedDataset( Dataset ):
         self._label_paths = []
 
     def serialize( self, subdir='', repeat=1 ):
-        # TODO: ensure that reset() empties the cache before
         self._reset()
         root_dir = None
         for r in range(repeat):
@@ -277,8 +276,6 @@ class CachedDataset( Dataset ):
                                 item.unlink()
                         else:
                             root_dir.mkdir()
-                #plt.imshow( img.permute(1,2,0))
-                #plt.show()
                 masks = target['masks']
                 #plt.imshow( (img * torch.sum(masks, axis=0)).permute(1,2,0))
                 #plt.show()
@@ -296,7 +293,7 @@ class CachedDataset( Dataset ):
             cache (str): a directory path (created if it does not exist).
         """
         for img_path in Path(cache).glob('*.img.plt'):
-            label_path = Path(str(img_path).replace('img.plt', 'plt'))
+            label_path = Path(str(img_path).replace('img.plt', 'lbl.plt'))
             assert label_path.exists()
             self._img_paths.append( img_path )
             self._label_paths.append( label_path )
@@ -316,7 +313,7 @@ class CachedDataset( Dataset ):
         target['path'] = root_dir.joinpath( f'{stem}.img.plt' )
         torch.save( img, target['path'] )
         # saving target as pickle
-        target_path = root_dir.joinpath( f'{stem}.plt' )
+        target_path = root_dir.joinpath( f'{stem}.lbl.plt' )
         torch.save( target, target_path )
         
         self._img_paths.append( target['path'])
