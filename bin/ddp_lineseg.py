@@ -81,7 +81,7 @@ p = {
     'scheduler': 0,
     'scheduler_patience': 15,
     'scheduler_cooldown': 5,
-    'scheduler_factor': 0.9,
+    'scheduler_factor': 0.8,
     'reset_epochs': 0,
     'resume_file': 'last.mlmodel',
     'dry_run': [0, "1: Load dataset and model, but does not actually train: 2: same, but display the validation samples; 3: same as (2) but display also the test samples."],
@@ -629,6 +629,7 @@ if __name__ == '__main__':
         crop_size = hyper_params['img_size'][0]
         if args.cache_dir_train:
             ds_train = CachedDataset( data_source=args.cache_dir_train )
+            logger.info("Loading disk-cached dataset from {} ({} samples).".format( args.cache_dir_train, len(ds_train)))
         else:
             # 1. All images resized to at least patch-size
             ds_train = LineDetectionDataset( imgs_train, lbls_train, min_size=crop_size)
@@ -701,7 +702,8 @@ if __name__ == '__main__':
    
 
     def validate(dry_run=False):
-        validation_losses, loss_box_reg, loss_mask = [], [], []
+        #dict_keys(['loss_classifier', 'loss_box_reg', 'loss_mask', 'loss_objectness', 'loss_rpn_box_reg'])
+        validation_losses, loss_classifier, loss_box_reg, loss_mask, loss_objectness = [ [] for i in range(5) ]
         batches = iter(dl_val)
         for imgs,targets in (pbar := tqdm( batches )):
             if dry_run > 1 and args.device=='cpu':
@@ -718,10 +720,13 @@ if __name__ == '__main__':
             loss_dict = model.net(imgs, targets)
             loss = sum( loss_dict.values()) 
             validation_losses.append( loss.detach())
+            loss_objectness.append( loss_dict['loss_objectness'].detach())
+            loss_classifier.append( loss_dict['loss_classifier'].detach())
             loss_box_reg.append( loss_dict['loss_box_reg'].detach())
             loss_mask.append( loss_dict['loss_mask'].detach())
+        logger.info( "Loss objectness: {}".format( torch.stack(loss_objectness).mean().item()))
+        logger.info( "Loss classifier: {}".format( torch.stack(loss_classifier).mean().item()))
         logger.info( "Loss boxes (reg.): {}".format( torch.stack(loss_box_reg).mean().item()))
-        logger.info( "Loss boxes (cls.): {}".format( torch.stack(loss_box_cls).mean().item()))
         logger.info( "Loss masks: {}".format( torch.stack(loss_mask).mean().item()))
         return torch.stack( validation_losses ).mean().item()    
 
