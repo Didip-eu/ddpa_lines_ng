@@ -78,8 +78,8 @@ p = {
     'tensorboard_sample_size': 2,
     'mode': ('train','validate'),
     'weight_file': None,
-    'scheduler': 0,
-    'scheduler_patience': 15,
+    'scheduler': 1,
+    'scheduler_patience': 10,
     'scheduler_cooldown': 5,
     'scheduler_factor': 0.8,
     'reset_epochs': 0,
@@ -676,10 +676,10 @@ if __name__ == '__main__':
             return
         with open(pfile,'r') as pfin:
             pdict = json.load( pfin )
-            logger.debug("Updating existing params: {} with {}".format(existing_params, pdict))
+            logger.info("Updating existing params: {} with {}".format(existing_params, pdict))
             existing_params.update( pdict )
         pfile.unlink( missing_ok=True )
-        logger.debug("Updated params: {}".format(existing_params))
+        logger.info("Updated params: {}".format(existing_params))
 
         
     def update_tensorboard(writer, epoch, scalar_dict):
