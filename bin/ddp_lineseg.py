@@ -691,15 +691,6 @@ if __name__ == '__main__':
                 continue
             writer.add_scalar(k, v, epoch)
         return
-#        model.net.eval()
-#        net=model.net.cpu()
-#        inputs = [ ds_val[i][0].cpu() for i in random.sample( range( len(ds_val)), args.tensorboard_sample_size) ]
-#        predictions = net( inputs )
-#        # (H,W,C) -> (C,H,W)
-#        #writer.add_images('batch[10]', np.transpose( batch_visuals( inputs, net( inputs ), color_count=5), (0,3,1,2)))
-#        model.net.cuda()
-#        model.net.train()
-   
 
     def validate(dry_run=False):
         #dict_keys(['loss_classifier', 'loss_box_reg', 'loss_mask', 'loss_objectness', 'loss_rpn_box_reg'])

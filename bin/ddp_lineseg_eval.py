@@ -22,6 +22,7 @@ import random
 import logging
 import itertools
 import math
+from hashlib import md5
 
 # 3rd party
 import matplotlib.pyplot as plt
@@ -64,7 +65,9 @@ p = {
     'icdar_threshold': 0.75,
     'foreground_only': [0, "Evaluate on foreground pixels only."],
     'out_file': ['',"Output file name; if prefixed with '>>', append to an existing file."],
-    'save_file_scores': ['', "Name of the file in which to save the detailed, per-file scores."],
+    'save_file_scores': [1, "Save the detailed, per-file scores."],
+    'cache_predictions': [1, "Cache prediction tensors for faster, repeated calls with various post-processing optiosn."],
+    'cached_prediction_dir': ['/tmp', "Where to save the cached predictions."],
 }
 
 
@@ -104,7 +107,7 @@ def binary_map_from_patches( img: Image.Image, row_count=2, col_count=1, overlap
     return page_mask[None,:]
 
 
-def binary_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=100, model=None, mask_threshold=.25, box_threshold=.8) -> np.ndarray:
+def binary_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=100, model=None, mask_threshold=.25, box_threshold=.8, cached_prediction_prefix='', cached_prediction_dir='/tmp') -> np.ndarray:
     """
     Construct a single label map from predictions on patches of size <patch_size> x <patch_size>.
 
@@ -114,6 +117,8 @@ def binary_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=10
         overlap (int): minimum overlap between patches (in pixels)
         mask_threshold (float): confidence score threshold for soft line masks.
         box_threshold (float): confidence score threshold for line bounding boxes.
+        cached_prediction_prefix (str): a MD5 string for this image, to indicate that a prediction pickle should be checked for.
+        cached_prediction_dir (str): where to save the cached predictions.
 
     Returns:
         np.ndarray: a (1,H,W) binary map.
@@ -129,13 +134,25 @@ def binary_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=10
     if new_height != img_hwc.shape[0] or new_width != img_hwc.shape[1]:
         img_hwc = ski.transform.resize( img_hwc, (new_height, new_width ))
         rescaled = True
-    
     # cut into tiles
     tile_tls = seglib.tile_img( (new_width, new_height), patch_size, constraint=overlap )
-    img_crops = [ torch.from_numpy(img_hwc[y:y+patch_size,x:x+patch_size]).permute(2,0,1) for (y,x) in tile_tls ]
-    logger.debug([ c.shape for c in img_crops ])
-    
-    _, crop_preds, _ = lsg.predict( img_crops, live_model=model )
+    # Safety valve :)
+    if  len(tile_tls) > 25:
+        return None
+
+    crop_preds = None
+    cached_prediction_file = Path( cached_prediction_dir, '{}.plt'.format( cached_prediction_prefix ))
+    if cached_prediction_prefix and cached_prediction_file.exists():
+        crop_preds = torch.load( cached_prediction_file, weights_only=False)
+    else:
+        
+        img_crops = [ torch.from_numpy(img_hwc[y:y+patch_size,x:x+patch_size]).permute(2,0,1) for (y,x) in tile_tls ]
+        logger.debug([ c.shape for c in img_crops ])
+        
+        _, crop_preds, _ = lsg.predict( img_crops, live_model=model )
+        if cached_prediction_prefix:
+            torch.save(crop_preds, cached_prediction_file)
+
     page_mask = np.zeros((img_hwc.shape[0],img_hwc.shape[1]), dtype='bool')
     for i,(y,x) in enumerate(tile_tls):
         patch_mask = lsg.post_process( crop_preds[i], mask_threshold=mask_threshold, box_threshold=box_threshold )
@@ -166,12 +183,18 @@ if __name__ == '__main__':
     pms = []
 
     np.set_printoptions(linewidth=1000, edgeitems=10)
-    for img_path in tqdm( files):
-        #logger.info(f'{img_nb}\t{img_path}')
+    for img_path in tqdm( files ):
+        #logger.info(f'{img_path}')
 
         gt_map = seglib.gt_masks_to_labeled_map( seglib.line_binary_mask_stack_from_json_file( str(img_path).replace('img.jpg', 'lines.gt.json')))
 
         binary_mask, label_map_hw = None, None
+
+        img_md5=''
+        if args.cache_predictions:
+            with open( img_path, 'rb') as imgf:
+                img_md5 = md5( imgf.read()).hexdigest()
+                #logger.info(f'{img_md5}')
 
         if live_model is None:
             sys.exit()
@@ -190,7 +213,7 @@ if __name__ == '__main__':
                         logger.warning('The model being loaded is trained on {}x{} patches, but the script uses a {} patch size argument: overriding patch_size value with model-stored size.'.format( *live_model.hyper_parameters['img_size'], args.patch_size))
                         patch_size = live_model.hyper_parameters['img_size'][0]
                 logger.debug('Patch size: {} x {}'.format( patch_size, patch_size))
-                binary_mask = binary_map_from_fixed_patches( Image.open(img_path), patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold )
+                binary_mask = binary_map_from_fixed_patches( Image.open(img_path), patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold, cached_prediction_prefix=img_md5, cached_prediction_dir=args.cached_prediction_dir )
             # Style 2: Inference M x N squares
             else:
                 patch_row_count = args.patch_row_count if args.patch_row_count else 1
@@ -199,8 +222,6 @@ if __name__ == '__main__':
                 binary_mask = binary_map_from_patches( Image.open(img_path), patch_row_count, patch_col_count, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold )
 
             logger.debug("Inference time: {:.5f}s".format( time.time()-start))
-
-
 
         # Default: Page-wide inference
         else:
@@ -211,17 +232,13 @@ if __name__ == '__main__':
             if args.rescale:
                 logger.debug("Rescale")
                 binary_mask = lsg.post_process( preds[0], orig_size=sizes[0], mask_threshold=args.mask_threshold, box_threshold=args.box_threshold )
-                if binary_mask is None:
-                    logger.warning("No line mask found for {}: skipping.".format( img_path ))
-                    continue
-                logger.debug("label_mask.shape={}".format(binary_mask.shape))
             else:
                 logger.debug("Square")
                 # TODO: label binary map
                 binary_mask= lsg.post_process( preds[0], mask_threshold=args.mask_threshold , box_threshold=args.box_threshold)
-                if binary_mask is None:
-                    logger.warning("No line mask found for {}: skipping.".format( img_path ))
-                    continue
+        if binary_mask is None:
+            logger.warning("No line mask found for {}: skipping.".format( img_path ))
+            continue
         label_map_hw = ski.measure.label( binary_mask, connectivity=2 ).squeeze()
         logger.debug("label_map.shape={}, label_map._dtype={}, max_label={}".format(label_map_hw.shape, label_map_hw.dtype, np.max(label_map_hw)))
         logger.debug("gt_map.shape={}, max_label={}".format(gt_map.shape, np.max(gt_map)))
@@ -236,31 +253,32 @@ if __name__ == '__main__':
         #np.save('pm.npy', pixel_metrics)
         pms.append( pixel_metrics )
     # pms is a list of 5-tuples (TP, FP, FN, Jaccard, F1)
+    iou_tp_fp_fn_prec_rec_jaccard_f1_8n = np.stack( [ np.concatenate(( np.array( [float(args.icdar_threshold)] ), seglib.polygon_pixel_metrics_to_line_based_scores_icdar_2017( pm, threshold=args.icdar_threshold ))) for pm in pms ], axis=1)
 
-    tp_fp_fn_jaccard_f1_5n = np.stack( [ seglib.polygon_pixel_metrics_to_line_based_scores_icdar_2017( pm, threshold=args.icdar_threshold ) for pm in pms ], axis=1)
-
-    #print(tp_fp_fn_jaccard_f1_5n.tolist())
-
-    file_scores = zip( [ str(f) for f in files], tp_fp_fn_jaccard_f1_5n.transpose().tolist())
-    #np.save( 'eval_metrics.npy', tp_fp_fn_jaccard_f1_5n)
-    file_scores_str = '\n'.join([ '{}\t{}'.format(filename, '\t'.join(scores)) for filename,scores in file_scores ])
-    logger.debug( file_scores_str )
-    if args.save_file_scores:
-        with open( args.save_file_scores, 'w') as of:
+    # individual file scores are not saved when aggregate output only on stdout
+    if args.save_file_scores and args.out_file:
+        out_dir = Path( args.out_file.replace('>>','') ).parent
+        file_scores = zip( [ str(f) for f in files], iou_tp_fp_fn_prec_rec_jaccard_f1_8n.transpose().tolist())
+        file_scores_str = '\n'.join([ '{}\t{}'.format(filename, '\t'.join([ str(s) for s in scores])) for filename, scores in file_scores ])
+        file_scores_filepath = Path(out_dir, f'file_scores_{args.box_threshold}_{args.mask_threshold}.tsv')
+        with open( file_scores_filepath, 'w') as of:
             print( file_scores_str, file=of )
 
     # aggregate scores
-    tps, fps, fns = np.sum( tp_fp_fn_jaccard_f1_5n[:3], axis=1)
+    tps, fps, fns = np.sum( iou_tp_fp_fn_prec_rec_jaccard_f1_8n[1:4], axis=1)
+    precs = tps / (tps+fps)
+    recs = tps / (tps+fns)
     jaccard = tps / (tps+fps+fns) 
     f1 = 2*tps / ( 2*tps+fps+fns)
 
     if args.out_file:
         out_file = args.out_file.replace('>>','')
-        with open(out_file, 'a' if out_file != args.out_file else 'w') as of:
-            of.write('B-Thr\tM-Thr\tTP\tFP\tFN\tJaccard\tF1\n')
-            of.write(f'{args.box_threshold}\t{args.mask_threshold}\t{tps}\t{fps}\t{fns}\t{jaccard}\t{f1}\n')
+        with open( out_file, 'a' if out_file != args.out_file else 'w') as of:
+            logger.info('Evaluation metrics saved on {}'.format( out_file ))
+            of.write('IoU\tB-Thr\tM-Thr\tTP\tFP\tFN\tPrecision\tRecall\tJaccard\tF1\n')
+            of.write(f'{args.icdar_threshold}\t{args.box_threshold}\t{args.mask_threshold}\t{tps}\t{fps}\t{fns}\t{precs}\t{recs}\t{jaccard}\t{f1}\n')
     else:
-        print('B-Thr\tM-Thr\tTP\tFP\tFN\tJaccard\tF1')
-        print(f'{args.box_threshold}\t{args.mask_threshold}\t{tps}\t{fps}\t{fns}\t{jaccard}\t{f1}')
+        print('IoU\tB-Thr\tM-Thr\tTP\tFP\tFN\tPrecision\tRecall\tJaccard\tF1')
+        print(f'{args.icdar_threshold}\t{args.box_threshold}\t{args.mask_threshold}\t{tps}\t{fps}\t{fns}\t{precs}\t{recs}\t{jaccard}\t{f1}')
 
 

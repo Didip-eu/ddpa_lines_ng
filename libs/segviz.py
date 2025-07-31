@@ -207,14 +207,15 @@ def display_tensor_and_masks( img_chw: Tensor, mask_n1hw: Tensor, alpha=.4, colo
 
     Args:
         img_chw (Tensor): (C,H,W) image
-        mask_n1hw (Tensor): (N,1,H,W) tensor of binary masks, where N=# instances for image
+        mask_n1hw (Tensor): (N,1,H,W) or (N,H,W) tensor of binary masks, where N=# instances for image
         color_count (int): -1 (default) = default color; 0=one color/instance; n>0=n colors
     """
     img_hwc = img_chw.detach().numpy().transpose(1,2,0)
     if np.max(img_hwc) > 1.0:
-        print("Normalizing")
-        img_hwc /= 255
+        img_hwc = img_hwc.astype('float32')/ 255.0
     mask_n1hw = mask_n1hw.detach().numpy()
+    if mask_n1hw.ndim == 3:
+        mask_n1hw = mask_n1hw[:,None,:]
     bm_hw1 = np.sum( mask_n1hw, axis=0).astype('bool').transpose(1,2,0)
     col_msk_hwc = None
     default_color = [0,0,1.0] # BLUE
