@@ -1056,12 +1056,14 @@ def polygon_pixel_metrics_to_line_based_scores_icdar_2017( metrics: np.ndarray, 
             FN += recall < threshold
             #print(TP, FP, FN)
 
-    Precision = TP / (TP+FP)
-    Recall = TP / (TP+FN)
-    Jaccard = TP / (TP+FP+FN)
-    F1 = 2*TP / (2*TP+FP+FN)
+    if (TP+FP) and (TP+FN):
+        Precision = TP / (TP+FP)
+        Recall = TP / (TP+FN)
+        Jaccard = TP / (TP+FP+FN)
+        F1 = 2*TP / (2*TP+FP+FN)
 
-    return np.array([TP, FP, FN, Precision, Recall, Jaccard, F1])
+        return np.array([TP, FP, FN, Precision, Recall, Jaccard, F1])
+    return None
 
 def polygon_pixel_metrics_to_line_based_scores( metrics_hwc: np.ndarray, threshold: float=.75 ) -> np.ndarray:
     """Classic evalution metrics, where mask are matched based on the best IoU.

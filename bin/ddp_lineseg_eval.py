@@ -23,6 +23,7 @@ import logging
 import itertools
 import math
 from hashlib import md5
+import shutil
 
 # 3rd party
 import matplotlib.pyplot as plt
@@ -64,10 +65,10 @@ p = {
     'patch_size': [0, "Process the image by <patch_size>*<patch_size> patches"],
     'icdar_threshold': 0.75,
     'foreground_only': [0, "Evaluate on foreground pixels only."],
-    'out_file': ['',"Output file name; if prefixed with '>>', append to an existing file."],
+    'output_file_name': ['',"Output file name; if prefixed with '>>', append to an existing file."],
     'save_file_scores': [1, "Save the detailed, per-file scores."],
     'cache_predictions': [1, "Cache prediction tensors for faster, repeated calls with various post-processing optiosn."],
-    'cached_prediction_dir': ['/tmp', "Where to save the cached predictions."],
+    'output_root_dir': ['/tmp', "Where to save the cached predictions."],
 }
 
 
@@ -107,7 +108,7 @@ def binary_map_from_patches( img: Image.Image, row_count=2, col_count=1, overlap
     return page_mask[None,:]
 
 
-def binary_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=100, model=None, mask_threshold=.25, box_threshold=.8, cached_prediction_prefix='', cached_prediction_dir='/tmp') -> np.ndarray:
+def binary_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=100, model=None, mask_threshold=.25, box_threshold=.8, cached_prediction_prefix='', cached_prediction_path=Path('/tmp')) -> np.ndarray:
     """
     Construct a single label map from predictions on patches of size <patch_size> x <patch_size>.
 
@@ -118,7 +119,7 @@ def binary_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=10
         mask_threshold (float): confidence score threshold for soft line masks.
         box_threshold (float): confidence score threshold for line bounding boxes.
         cached_prediction_prefix (str): a MD5 string for this image, to indicate that a prediction pickle should be checked for.
-        cached_prediction_dir (str): where to save the cached predictions.
+        cached_prediction_path (Path): where to save the cached predictions.
 
     Returns:
         np.ndarray: a (1,H,W) binary map.
@@ -141,11 +142,10 @@ def binary_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=10
         return None
 
     crop_preds = None
-    cached_prediction_file = Path( cached_prediction_dir, '{}.plt'.format( cached_prediction_prefix ))
+    cached_prediction_file = cached_prediction_path.joinpath( '{}.pt'.format( cached_prediction_prefix ))
     if cached_prediction_prefix and cached_prediction_file.exists():
         crop_preds = torch.load( cached_prediction_file, weights_only=False)
     else:
-        
         img_crops = [ torch.from_numpy(img_hwc[y:y+patch_size,x:x+patch_size]).permute(2,0,1) for (y,x) in tile_tls ]
         logger.debug([ c.shape for c in img_crops ])
         
@@ -170,6 +170,47 @@ if __name__ == '__main__':
 
     args, _ = fargv.fargv(p)
     logger.debug( args )
+
+    # Using cached predictions: raw prediction tensors (as given by Mask-RCNN before preprocessing) are 
+    # written (and later retrieved) in a different directory for each model used. Ex.
+    # <args.output_root_dir>
+    #     |__ 657434a3452b61ca05fcb1011aac166a.mlmodel
+    #     |__ 657434a3452b61ca05fcb1011aac166a
+    #     |      |__ <args.output_file_name.tsv>
+    #     |      |__ cache
+    #     |            |__ 3b1a7985522752da4a21bb5fa8ebe963.pt
+    #     |            |__ 418098bc2cbc0c878430737a410e1554.pt
+    #     |            |__ ...
+    #     |__ 7e50e7f159611756e2fdb11c056130ab.mlmodel
+    #     |__ 7e50e7f159611756e2fdb11c056130ab
+    #     |      |__ *.tsv
+    #     |      |__ cache
+    #     |            |__ 3b1a7985522752da4a21bb5fa8ebe963.pt
+    #     |            |__ 418098bc2cbc0c878430737a410e1554.pt
+    #     |            |__ ...
+    output_file_name = args.output_file_name
+    if output_file_name and Path(args.output_file_name).match('*/*'):
+        output_file_name = Path(args.output_file_name).name
+        logger.warning('Parameter -output_file_name cannot be a path: removing path directory component.')
+
+    output_root_path = Path(args.output_root_dir)
+    output_subdir_path = None
+    cache_subdir_path = None
+    with open( args.model_path, 'rb') as mf:
+        # computing MD5 of model file used
+        model_md5 = md5( mf.read() ).hexdigest()
+        # create output subdir for this model
+        output_subdir_path = output_root_path.joinpath( model_md5 )
+        print(output_subdir_path)
+        output_subdir_path.mkdir( exist_ok=True )
+        model_local_copy_path = output_subdir_path.with_suffix('.mlmodel')
+        # copy model file into root folder, with MD5 identifier (make it easier to rerun eval loops later)
+        if not model_local_copy_path.exists():
+            shutil.copy2( args.model_path, model_local_copy_path )
+        if args.cache_predictions:
+            cache_subdir_path = output_subdir_path.joinpath('cached') 
+            cache_subdir_path.mkdir( exist_ok=True )
+            logger.info( 'Using cache subdirectory {}.'.format( cache_subdir_path ))
 
     live_model = lsg.SegModel.load( args.model_path ) if (not args.segfile_suffix and not args.segfile) else None
 
@@ -213,7 +254,7 @@ if __name__ == '__main__':
                         logger.warning('The model being loaded is trained on {}x{} patches, but the script uses a {} patch size argument: overriding patch_size value with model-stored size.'.format( *live_model.hyper_parameters['img_size'], args.patch_size))
                         patch_size = live_model.hyper_parameters['img_size'][0]
                 logger.debug('Patch size: {} x {}'.format( patch_size, patch_size))
-                binary_mask = binary_map_from_fixed_patches( Image.open(img_path), patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold, cached_prediction_prefix=img_md5, cached_prediction_dir=args.cached_prediction_dir )
+                binary_mask = binary_map_from_fixed_patches( Image.open(img_path), patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold, cached_prediction_prefix=img_md5, cached_prediction_path=cache_subdir_path )
             # Style 2: Inference M x N squares
             else:
                 patch_row_count = args.patch_row_count if args.patch_row_count else 1
@@ -237,7 +278,7 @@ if __name__ == '__main__':
                 # TODO: label binary map
                 binary_mask= lsg.post_process( preds[0], mask_threshold=args.mask_threshold , box_threshold=args.box_threshold)
         if binary_mask is None:
-            logger.warning("No line mask found for {}: skipping.".format( img_path ))
+            logger.warning("No line mask found for {}: skipping item.".format( img_path ))
             continue
         label_map_hw = ski.measure.label( binary_mask, connectivity=2 ).squeeze()
         logger.debug("label_map.shape={}, label_map._dtype={}, max_label={}".format(label_map_hw.shape, label_map_hw.dtype, np.max(label_map_hw)))
@@ -255,12 +296,14 @@ if __name__ == '__main__':
     # pms is a list of 5-tuples (TP, FP, FN, Jaccard, F1)
     iou_tp_fp_fn_prec_rec_jaccard_f1_8n = np.stack( [ np.concatenate(( np.array( [float(args.icdar_threshold)] ), seglib.polygon_pixel_metrics_to_line_based_scores_icdar_2017( pm, threshold=args.icdar_threshold ))) for pm in pms ], axis=1)
 
+    if iou_tp_fp_fn_prec_rec_jaccard_f1_8n is None:
+        logger.warning('All FP, TP, and FN have null values for {}: skipping item.'.format(img_path))
+
     # individual file scores are not saved when aggregate output only on stdout
-    if args.save_file_scores and args.out_file:
-        out_dir = Path( args.out_file.replace('>>','') ).parent
+    if args.save_file_scores:
         file_scores = zip( [ str(f) for f in files], iou_tp_fp_fn_prec_rec_jaccard_f1_8n.transpose().tolist())
         file_scores_str = '\n'.join([ '{}\t{}'.format(filename, '\t'.join([ str(s) for s in scores])) for filename, scores in file_scores ])
-        file_scores_filepath = Path(out_dir, f'file_scores_{args.box_threshold}_{args.mask_threshold}.tsv')
+        file_scores_filepath = Path(output_subdir_path, f'file_scores_{args.box_threshold}_{args.mask_threshold}.tsv')
         with open( file_scores_filepath, 'w') as of:
             print( file_scores_str, file=of )
 
@@ -271,10 +314,11 @@ if __name__ == '__main__':
     jaccard = tps / (tps+fps+fns) 
     f1 = 2*tps / ( 2*tps+fps+fns)
 
-    if args.out_file:
-        out_file = args.out_file.replace('>>','')
-        with open( out_file, 'a' if out_file != args.out_file else 'w') as of:
-            logger.info('Evaluation metrics saved on {}'.format( out_file ))
+    if output_file_name:
+        output_file = output_file_name.replace('>>','')
+        output_file_path = output_subdir_path.joinpath( output_file )
+        with open( output_file_path, 'a' if output_file != output_file_name else 'w') as of:
+            logger.info('Evaluation metrics saved on {}'.format( output_file_path ))
             of.write('IoU\tB-Thr\tM-Thr\tTP\tFP\tFN\tPrecision\tRecall\tJaccard\tF1\n')
             of.write(f'{args.icdar_threshold}\t{args.box_threshold}\t{args.mask_threshold}\t{tps}\t{fps}\t{fns}\t{precs}\t{recs}\t{jaccard}\t{f1}\n')
     else:
