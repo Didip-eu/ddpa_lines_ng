@@ -16,7 +16,7 @@ Generated with:
 ```
 PYTHONPATH=.
 # all pixels
-rm evaluation/2.0/eval_out.tsv ; PYTHONPATH=.; for bt in 0.85 0.9 0.95 0.97 0.98 ; do for mt in  0.25 0.3 0.35 .40 .45 .5 .55; do ./bin/ddp_lineseg_eval.py -img_paths dataset/val/*.jpg  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -out_file '>>eval_out.tsv' -cache_predictions 1 -output_root_dir evaluation/2.0 -save_file_scores 1; done; done
+PYTHONPATH=.; for bt in 0.85 0.9 0.95 0.97 0.98 ; do for mt in  0.25 0.3 0.35 .40 .45 .5 .55; do ./bin/ddp_lineseg_eval.py -img_paths dataset/val/*.jpg  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -out_file '>>eval_out.tsv' -cache_predictions 1 -output_root_dir evaluation/2.0 -save_file_scores 1; done; done
 ```
 
 With the options used above, the evalutation script generates two additional sets of files:
@@ -27,7 +27,7 @@ With the options used above, the evalutation script generates two additional set
 Or, with foreground pixels only:
 
 ```
-rm touch evaluation/2.0/eval_out.tsv ; PYTHONPATH=.; for bt in 0.85 0.9 0.95 0.97 0.98 ; do for mt in  0.25 0.3 0.35 .40 .45 .5 .55; do ./bin/ddp_lineseg_eval.py -img_paths dataset/val/*.jpg -foreground_only 1  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -out_file '>>eval_out_foreground.tsv' -cache_predictions 1 -output_root_dir evaluation/2.0 -save_file_scores 0; done; done
+PYTHONPATH=.; for bt in 0.85 0.9 0.95 0.97 0.98 ; do for mt in  0.25 0.3 0.35 .40 .45 .5 .55; do ./bin/ddp_lineseg_eval.py -img_paths dataset/val/*.jpg -foreground_only 1  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -out_file '>>eval_out_foreground.tsv' -cache_predictions 1 -output_root_dir evaluation/2.0 -save_file_scores 0; done; done
 ```
 
 
