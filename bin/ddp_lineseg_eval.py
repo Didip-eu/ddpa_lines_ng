@@ -225,10 +225,7 @@ if __name__ == '__main__':
 
     np.set_printoptions(linewidth=1000, edgeitems=10)
     for img_path in tqdm( files ):
-        #logger.info(f'{img_path}')
-
         gt_map = seglib.gt_masks_to_labeled_map( seglib.line_binary_mask_stack_from_json_file( str(img_path).replace('img.jpg', 'lines.gt.json')))
-
         binary_mask, label_map_hw = None, None
 
         img_md5=''
@@ -293,11 +290,9 @@ if __name__ == '__main__':
             pixel_metrics = seglib.polygon_pixel_metrics_two_flat_maps( label_map_hw, gt_map ) 
         #np.save('pm.npy', pixel_metrics)
         pms.append( pixel_metrics )
-    # pms is a list of 5-tuples (TP, FP, FN, Jaccard, F1)
-    iou_tp_fp_fn_prec_rec_jaccard_f1_8n = np.stack( [ np.concatenate(( np.array( [float(args.icdar_threshold)] ), seglib.polygon_pixel_metrics_to_line_based_scores_icdar_2017( pm, threshold=args.icdar_threshold ))) for pm in pms ], axis=1)
-
-    if iou_tp_fp_fn_prec_rec_jaccard_f1_8n is None:
-        logger.warning('All FP, TP, and FN have null values for {}: skipping item.'.format(img_path))
+    # pms is a list of 6-tuples (Match-threshold, TP, FP, FN, Jaccard, F1)
+    raw_tuples = [ seglib.polygon_pixel_metrics_to_line_based_scores_icdar_2017( pm, threshold=args.icdar_threshold ) for pm in pms ]
+    iou_tp_fp_fn_prec_rec_jaccard_f1_8n = np.stack( [ rt for rt in raw_tuples if not np.sum(np.isnan( rt )) ], axis=1)
 
     # individual file scores are not saved when aggregate output only on stdout
     if args.save_file_scores:

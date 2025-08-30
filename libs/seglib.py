@@ -1006,8 +1006,6 @@ def polygon_pixel_metrics_to_line_based_scores_icdar_2017( metrics: np.ndarray, 
 
     # find all rows with non-empty intersection (excluding background)
     possible_match_indices = metrics[:,:,0].nonzero()
-    #print(possible_match_indices)
-
     
     TP = 0.0
     FP = len([ l for l in range(label_count_pred) if l not in possible_match_indices[0]])
@@ -1056,14 +1054,13 @@ def polygon_pixel_metrics_to_line_based_scores_icdar_2017( metrics: np.ndarray, 
             FN += recall < threshold
             #print(TP, FP, FN)
 
-    if (TP+FP) and (TP+FN):
-        Precision = TP / (TP+FP)
-        Recall = TP / (TP+FN)
+    if TP+FP and TP+FN:
+        Precision = TP / (TP+FP) 
+        Recall = TP / (TP+FN) 
         Jaccard = TP / (TP+FP+FN)
         F1 = 2*TP / (2*TP+FP+FN)
-
-        return np.array([TP, FP, FN, Precision, Recall, Jaccard, F1])
-    return None
+        return np.array([threshold, TP, FP, FN, Precision, Recall, Jaccard, F1])
+    return np.array([ threshold, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan ] )
 
 def polygon_pixel_metrics_to_line_based_scores( metrics_hwc: np.ndarray, threshold: float=.75 ) -> np.ndarray:
     """Classic evalution metrics, where mask are matched based on the best IoU.
