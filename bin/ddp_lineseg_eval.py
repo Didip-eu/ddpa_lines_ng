@@ -300,7 +300,8 @@ if __name__ == '__main__':
         file_scores_str = '\n'.join([ '{}\t{}'.format(filename, '\t'.join([ str(s) for s in scores])) for filename, scores in file_scores ])
         file_scores_filepath = Path(output_subdir_path, f'file_scores_{args.box_threshold}_{args.mask_threshold}.tsv')
         with open( file_scores_filepath, 'w') as of:
-            print( file_scores_str, file=of )
+            of.write('Img_path\tIoU\tTP\tFP\tFN\tPrecision\tRecall\tJaccard\tF1\n')
+            of.write( file_scores_str + '\n')
 
     # aggregate scores
     tps, fps, fns = np.sum( iou_tp_fp_fn_prec_rec_jaccard_f1_8n[1:4], axis=1)
@@ -311,10 +312,12 @@ if __name__ == '__main__':
 
     if output_file_name:
         output_file = output_file_name.replace('>>','')
+        append = output_file != output_file_name
         output_file_path = output_subdir_path.joinpath( output_file )
-        with open( output_file_path, 'a' if output_file != output_file_name else 'w') as of:
+        with open( output_file_path, 'a' if append else 'w') as of:
             logger.info('Evaluation metrics saved on {}'.format( output_file_path ))
-            of.write('IoU\tB-Thr\tM-Thr\tTP\tFP\tFN\tPrecision\tRecall\tJaccard\tF1\n')
+            if of.tell() == 0: # add header on empty file 
+                of.write('IoU\tB-Thr\tM-Thr\tTP\tFP\tFN\tPrecision\tRecall\tJaccard\tF1\n')
             of.write(f'{args.icdar_threshold}\t{args.box_threshold}\t{args.mask_threshold}\t{tps}\t{fps}\t{fns}\t{precs}\t{recs}\t{jaccard}\t{f1}\n')
     else:
         print('IoU\tB-Thr\tM-Thr\tTP\tFP\tFN\tPrecision\tRecall\tJaccard\tF1')

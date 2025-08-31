@@ -286,14 +286,14 @@ class CachedDataset( Dataset ):
     def load( self, cache:str ):
         """
         Load sample image and annotation pathnames from cache directory.
-        Image and annotations have same prefix and '.img.plt' and '.plt'
+        Image and annotations have same prefix and '.img.pt' and '.lbl.pt'
         suffixes, respectively.
         
         Args:
             cache (str): a directory path (created if it does not exist).
         """
         for img_path in Path(cache).glob('*.img.plt'):
-            label_path = Path(str(img_path).replace('img.plt', 'lbl.plt'))
+            label_path = Path(str(img_path).replace('img.pt', 'lbl.pt'))
             assert label_path.exists()
             self._img_paths.append( img_path )
             self._label_paths.append( label_path )
@@ -310,10 +310,10 @@ class CachedDataset( Dataset ):
         img_stem = re.sub(r'([^.]+)\..+$', r'\1', target['path'].name )
         stem = f'{img_stem}-{index}'
         # saving image as tensor
-        target['path'] = root_dir.joinpath( f'{stem}.img.plt' )
+        target['path'] = root_dir.joinpath( f'{stem}.img.pt' )
         torch.save( img, target['path'] )
         # saving target as pickle
-        target_path = root_dir.joinpath( f'{stem}.lbl.plt' )
+        target_path = root_dir.joinpath( f'{stem}.lbl.pt' )
         torch.save( target, target_path )
         
         self._img_paths.append( target['path'])
