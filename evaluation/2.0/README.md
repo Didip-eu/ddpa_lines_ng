@@ -16,7 +16,7 @@ Generated with:
 ```
 PYTHONPATH=.
 # all pixels
-PYTHONPATH=.; for bt in 0.85 0.9 0.95 0.97 0.98 ; do for mt in  0.25 0.3 0.35 .40 .45 .5 .55; do ./bin/ddp_lineseg_eval.py -img_paths dataset/val/*.jpg  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -output_file_name '>>eval_out.tsv' -cache_predictions 1 -output_root_dir evaluation/2.0 -save_file_scores 1; done; done
+PYTHONPATH=.; for bt in .7 .75 .8 0.85 0.9 0.95 0.97 0.98 ; do for mt in 0.25 0.3 0.35 .40 .45 .5 .55 .6 .65; do ./bin/ddp_lineseg_eval.py -img_paths dataset/val/*.jpg  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -output_file_name '>>eval_out.tsv' -cache_predictions 1 -output_root_dir evaluation/2.0 -save_file_scores 1; done; done
 ```
 
 With the options used above, the evalutation script generates two additional sets of files:
@@ -27,41 +27,20 @@ With the options used above, the evalutation script generates two additional set
 Or, with foreground pixels only:
 
 ```
-PYTHONPATH=.; for bt in 0.85 0.9 0.95 0.97 0.98 ; do for mt in  0.25 0.3 0.35 .40 .45 .5 .55; do ./bin/ddp_lineseg_eval.py -img_paths dataset/val/*.jpg -foreground_only 1  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -output_file_name '>>eval_out_foreground.tsv' -cache_predictions 1 -output_root_dir evaluation/2.0 -save_file_scores 0; done; done
+PYTHONPATH=.; for bt in .7 .75 .8 0.85 0.9 0.95 0.97 0.98 ; do for mt in 0.25 0.3 0.35 .40 .45 .5 .55 .6 .65; do ./bin/ddp_lineseg_eval.py -img_paths dataset/val/*.jpg -foreground_only 1  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -output_file_name '>>eval_out_foreground.tsv' -cache_predictions 1 -output_root_dir evaluation/2.0 -save_file_scores 0; done; done
 ```
 Each set of output files is stored in a different subdirectory, whose name is the MD5 of the model file used for the predictions (accordingly, even if it is not loaded in memory for the job, this model file dictates which subdirectory to check for the cached predictions). For instance, the following, compound command generates both kinds of evaluation files (with and without polygon binarization) for two different models:
 
 ```
-PYTHONPATH=.; for mp in models/{best_cached_patches,best_no_scheduler_62_iterations}.mlmodel ; do for bt in .8 0.85 0.9 0.95 0.97 0.98 ; do for mt in  0.25 0.3 0.35 .40 .45 .5 .55 .6 .65; do echo "$(md5sum $mp) $bt $mt"; ./bin/ddp_lineseg_eval.py -img_paths dataset/val/*.jpg  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -output_file_name '>>eval_out.tsv' -model_path $mp -cache_predictions 1 -output_root_dir evaluation/2.0 -save_file_scores 1; done; done ; done ;   for mp in models/{best_cached_patches,best_no_scheduler_62_iterations}.mlmodel ; do for bt in .8 0.85 0.9 0.95 0.97 0.98 ; do for mt in  0.25 0.3 0.35 .40 .45 .5 .55 .6 .65; do echo "$(md5sum $mp) $bt $mt"; ./bin/ddp_lineseg_eval.py -img_paths dataset/val/*.jpg -foreground_only 1  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -output_file_name '>>eval_out_foreground.tsv' -model_path $mp -cache_predictions 1 -output_root_dir evaluation/2.0 -save_file_scores 0; done; done ; done
+PYTHONPATH=.; for mp in models/{best_cached_patches,best_no_scheduler_62_iterations}.mlmodel ; do for bt in .7 .75 .8 0.85 0.9 0.95 0.97 0.98 ; do for mt in  0.25 0.3 0.35 .40 .45 .5 .55 .6 .65; do echo "$(md5sum $mp) $bt $mt"; ./bin/ddp_lineseg_eval.py -img_paths dataset/val/*.jpg  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -output_file_name '>>eval_out.tsv' -model_path $mp -cache_predictions 1 -output_root_dir evaluation/2.0 -save_file_scores 1; done; done ; done ;   for mp in models/{best_cached_patches,best_no_scheduler_62_iterations}.mlmodel ; do for bt in .7 .75 .8 0.85 0.9 0.95 0.97 0.98 ; do for mt in  0.25 0.3 0.35 .40 .45 .5 .55 .6 .65; do echo "$(md5sum $mp) $bt $mt"; ./bin/ddp_lineseg_eval.py -img_paths dataset/val/*.jpg -foreground_only 1  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -output_file_name '>>eval_out_foreground.tsv' -model_path $mp -cache_predictions 1 -output_root_dir evaluation/2.0 -save_file_scores 0; done; done ; done
 ```
 
-Header files are added later, manually:
-
-```
-echo -ne "IoU\tB-Thr\tM-Thr\tTP\tFP\tFN\tPrecision\tRecall\tJaccard\tF1\n"
-```
+Headers are handled internally by the Python script (if a file is written more than once, the header is not duplicated).
 
 ## Recall-precision (mAP) over a range of IoU for given box and mask thresholds:
 
 
-The file `recall_precision_0.1-0.95.tsv`:
-
-```
-IoU     B-Thr   M-Thr   TP      FP      FN      Precision       Recall  Jaccard F1
-0.1     0.95    0.45    4601.0  90.0    102.0   0.9808143253037732      0.9783117159260046      0.9599415814729815      0.979561422184373
-0.15    0.95    0.45    4598.0  90.0    105.0   0.98080204778157        0.977673825217946       0.9593156686834967      0.9792354381854967
-0.2     0.95    0.45    4593.0  90.0    110.0   0.9807815502882767      0.9766106740378482      0.9582724807010223      0.978691668442361
-...
-0.95    0.95    0.45    204.0   3757.0  2123.0  0.05150214592274678     0.08766652342071336     0.03353057199211045     0.0648854961832061
-```
-
-has been generated with:
-
-```
-PYTHONPATH=.; b=0.95; mt=.45; iou=0.1; while [[ $(echo "$iou < 1"|bc) -eq 1 ]] ; do ./bin/ddp_lineseg_eval.py -img_paths dataset/val/*.jpg  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -icdar_threshold $iou -cache_predictions 1 -output_root_dir evaluation/2.0 ; done;
-```
-
-Similarly, the file `recall_precision_test_0.5-0.95.tsv`:
+Eg. the file `recall_precision_test_0.5-0.95.tsv`:
 
 ```
 IoU	B-Thr	M-Thr	TP	FP	FN	Precision	Recall	Jaccard	F1
@@ -74,6 +53,6 @@ IoU	B-Thr	M-Thr	TP	FP	FN	Precision	Recall	Jaccard	F1
 has been generated with:
 
 ```
-PYTHONPATH=.; b=0.95; mt=.45; iou=0.5; while [[ $(echo "$iou < 1"|bc) -eq 1 ]] ; do ./bin/ddp_lineseg_eval.py -img_paths dataset/test/*.jpg  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -icdar_threshold $iou -cache_predictions 1 -output_root_dir evaluation/2.0 ; done;
+PYTHONPATH=.; b=0.95; mt=.5; iou=0.5; while [[ $(echo "$iou < 1"|bc) -eq 1 ]] ; do echo "IoU=$iou" ; ./bin/ddp_lineseg_eval.py -img_paths dataset/test/*.jpg  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -icdar_threshold $iou -cache_predictions 1 -output_root_dir evaluation/2.0 -output_file_name '>>recall_precision_test_0.5-0.95.tsv' ; iou=$( echo "$iou+.5"|bc ) ; done;
 ```
 

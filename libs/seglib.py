@@ -1093,7 +1093,7 @@ def polygon_pixel_metrics_to_line_based_scores( metrics_hwc: np.ndarray, thresho
 
     pred_to_gt = {}
     best_match_iou = {}
-    fp = 0
+    FP = 0
 
     # match each predicted with its unique gt line, based on best IoU
     # TODO
@@ -1104,11 +1104,19 @@ def polygon_pixel_metrics_to_line_based_scores( metrics_hwc: np.ndarray, thresho
                 pred_to_gt[ lpred ] = lgt
     #print(pred_to_gt)
     # false positives: all those predictions that do not have a match with GT
-    fp = len(set(range(label_count_pred)) - set(pred_to_gt.keys()))
-    fn = len(set(range(label_count_gt)) - set(pred_to_gt.values()))
-    tp = len(pred_to_gt.items())
-    return np.array([ tp, fp, fn ])
-    #print(out, f"R={tp/(tp+fn)}", f"P={tp/(tp+fp)}")
+    FP = len(set(range(label_count_pred)) - set(pred_to_gt.keys()))
+    FN = len(set(range(label_count_gt)) - set(pred_to_gt.values()))
+    TP = len(pred_to_gt.items())
+
+    if TP+FP and TP+FN:
+        Precision = TP / (TP+FP) 
+        Recall = TP / (TP+FN) 
+        Jaccard = TP / (TP+FP+FN)
+        F1 = 2*TP / (2*TP+FP+FN)
+        return np.array([threshold, TP, FP, FN, Precision, Recall, Jaccard, F1])
+
+    return np.array([ threshold, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan ] )
+
 
 
 def mAP( pixel_metrics_list: list[np.ndarray] ):

@@ -69,6 +69,7 @@ p = {
     'save_file_scores': [1, "Save the detailed, per-file scores."],
     'cache_predictions': [1, "Cache prediction tensors for faster, repeated calls with various post-processing optiosn."],
     'output_root_dir': ['/tmp', "Where to save the cached predictions."],
+    'method': [ ('icdar2017', 'iou') ],
 }
 
 
@@ -291,7 +292,8 @@ if __name__ == '__main__':
         #np.save('pm.npy', pixel_metrics)
         pms.append( pixel_metrics )
     # pms is a list of 6-tuples (Match-threshold, TP, FP, FN, Jaccard, F1)
-    raw_tuples = [ seglib.polygon_pixel_metrics_to_line_based_scores_icdar_2017( pm, threshold=args.icdar_threshold ) for pm in pms ]
+    eval_method = seglib.polygon_pixel_metrics_to_line_based_scores_icdar_2017 if args.method=='icdar2017' else seglib.polygon_pixel_metrics_to_line_based_scores
+    raw_tuples = [ eval_method( pm, threshold=args.icdar_threshold ) for pm in pms ]
     iou_tp_fp_fn_prec_rec_jaccard_f1_8n = np.stack( [ rt for rt in raw_tuples if not np.sum(np.isnan( rt )) ], axis=1)
 
     # individual file scores are not saved when aggregate output only on stdout
