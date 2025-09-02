@@ -53,6 +53,6 @@ IoU	B-Thr	M-Thr	TP	FP	FN	Precision	Recall	Jaccard	F1
 has been generated with:
 
 ```
-PYTHONPATH=.; b=0.95; mt=.5; iou=0.5; while [[ $(echo "$iou < 1"|bc) -eq 1 ]] ; do echo "IoU=$iou" ; ./bin/ddp_lineseg_eval.py -img_paths dataset/test/*.jpg  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -icdar_threshold $iou -cache_predictions 1 -output_root_dir evaluation/2.0 -output_file_name '>>recall_precision_test_0.5-0.95.tsv' ; iou=$( echo "$iou+.5"|bc ) ; done;
+PYTHONPATH=.; b=0.95; mt=.5; iou=0.5; while [[ $(echo "$iou < 1"|bc) -eq 1 ]] ; do echo "IoU=$iou" ; ./bin/ddp_lineseg_eval.py -img_paths dataset/test/*.jpg  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -icdar_threshold $iou -cache_predictions 1 -output_root_dir evaluation/2.0 -output_file_name '>>recall_precision_test_0.5-0.95.tsv' -method 'icdar2017' -save_file_scores 0 ; iou=$( echo "$iou+.5"|bc ) ; done;
 ```
 

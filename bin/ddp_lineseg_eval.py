@@ -24,6 +24,7 @@ import itertools
 import math
 from hashlib import md5
 import shutil
+import gzip
 
 # 3rd party
 import matplotlib.pyplot as plt
@@ -69,7 +70,7 @@ p = {
     'save_file_scores': [1, "Save the detailed, per-file scores."],
     'cache_predictions': [1, "Cache prediction tensors for faster, repeated calls with various post-processing optiosn."],
     'output_root_dir': ['/tmp', "Where to save the cached predictions."],
-    'method': [ ('icdar2017', 'iou') ],
+    'method': [ ('icdar2017', 'iou'), "Evaluation method: 'icdar2017' checks both prec. and rec. separately for find TPs; 'iou' checks best IoU."],
 }
 
 
@@ -143,16 +144,18 @@ def binary_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=10
         return None
 
     crop_preds = None
-    cached_prediction_file = cached_prediction_path.joinpath( '{}.pt'.format( cached_prediction_prefix ))
+    cached_prediction_file = cached_prediction_path.joinpath( '{}.pt.gz'.format( cached_prediction_prefix ))
     if cached_prediction_prefix and cached_prediction_file.exists():
-        crop_preds = torch.load( cached_prediction_file, weights_only=False)
+        uzpf = gzip.GzipFile( cached_prediction_file, 'r')
+        crop_preds = torch.load( uzpf, weights_only=False)
     else:
         img_crops = [ torch.from_numpy(img_hwc[y:y+patch_size,x:x+patch_size]).permute(2,0,1) for (y,x) in tile_tls ]
         logger.debug([ c.shape for c in img_crops ])
         
         _, crop_preds, _ = lsg.predict( img_crops, live_model=model )
         if cached_prediction_prefix:
-            torch.save(crop_preds, cached_prediction_file)
+            zpf = gzip.GzipFile( cached_prediction_file, 'w')
+            torch.save(crop_preds, zpf)
 
     page_mask = np.zeros((img_hwc.shape[0],img_hwc.shape[1]), dtype='bool')
     for i,(y,x) in enumerate(tile_tls):
