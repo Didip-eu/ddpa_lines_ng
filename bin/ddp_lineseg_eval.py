@@ -145,10 +145,16 @@ def binary_map_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=10
 
     crop_preds = None
     cached_prediction_file = cached_prediction_path.joinpath( '{}.pt.gz'.format( cached_prediction_prefix ))
+    ignore_cached_file = True
     if cached_prediction_prefix and cached_prediction_file.exists():
-        uzpf = gzip.GzipFile( cached_prediction_file, 'r')
-        crop_preds = torch.load( uzpf, weights_only=False)
-    else:
+        ignore_cached_file = False
+        try:
+            uzpf = gzip.GzipFile( cached_prediction_file, 'r')
+            crop_preds = torch.load( uzpf, weights_only=False)
+        except RuntimeError as e:
+            logger.warning("Runtime error {}".format(e))
+            ignore_cached_file = True 
+    if ignore_cached_file:
         img_crops = [ torch.from_numpy(img_hwc[y:y+patch_size,x:x+patch_size]).permute(2,0,1) for (y,x) in tile_tls ]
         logger.debug([ c.shape for c in img_crops ])
         
