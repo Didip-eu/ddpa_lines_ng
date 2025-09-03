@@ -88,7 +88,7 @@ p = {
     'patch_row_count': [ 0, "Process the image in <patch_row_count> rows."],
     'patch_col_count': [ 0, "Process the image in <patch_col_count> cols."],
     'patch_size': [0, "Process the image by <patch_size>*<patch_size> patches"],
-    'show': set(['polygons', 'regions', 'labels']),
+    'show': set(['polygons', 'regions', 'labels', 'title']),
     'linewidth': 2,
     'out_file_dir': ['', 'Save the plot in <out_file_dir>/<img_name_stem>.png.'],
 }
@@ -253,7 +253,8 @@ if __name__ == '__main__':
             plt.close()
             plt.subplots(dpi=300)
             plt.imshow( mp )
-            plt.title( path )
+            if 'title' in args.show:
+                plt.title( path )
             if 'labels' in args.show:
                 for att_dict in atts:
                     label, centroid = att_dict['label'], att_dict['centroid']
