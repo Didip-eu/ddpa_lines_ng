@@ -305,11 +305,11 @@ if __name__ == '__main__':
     raw_tuples = [ eval_method( pm, threshold=args.icdar_threshold ) for pm in pms ]
     iou_tp_fp_fn_prec_rec_jaccard_f1_8n = np.stack( [ rt for rt in raw_tuples if not np.sum(np.isnan( rt )) ], axis=1)
 
-    # individual file scores are not saved when aggregate output only on stdout
     if args.save_file_scores:
         file_scores = zip( [ str(f) for f in files], iou_tp_fp_fn_prec_rec_jaccard_f1_8n.transpose().tolist())
         file_scores_str = '\n'.join([ '{}\t{}'.format(filename, '\t'.join([ str(s) for s in scores])) for filename, scores in file_scores ])
         file_scores_filepath = Path(output_subdir_path, f'file_scores_{args.box_threshold}_{args.mask_threshold}.tsv')
+        logger.info("Saving file scores into {}".format(file_scores_filepath))
         with open( file_scores_filepath, 'w') as of:
             of.write('Img_path\tIoU\tTP\tFP\tFN\tPrecision\tRecall\tJaccard\tF1\n')
             of.write( file_scores_str + '\n')
