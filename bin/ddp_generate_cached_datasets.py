@@ -1,4 +1,17 @@
 #!/usr/bin/env python3
+"""
+From a dataset of images, generate Tormented crops and save them as tensors, for later use in training.
+
+Usage:
+
+```
+# generate training and validation sets, with 6 patches out of every source image
+PYTHONPATH=. ./bin/ddp_generate_cached_datasets.py -img_paths dataset/*.img.jpg -repeat 6
+# generate only validation set
+PYTHONPATH=. ./bin/ddp_generate_cached_datasets.py -img_paths dataset/*.img.jpg -repeat 6 -subsets val
+```
+
+"""
 
 import tormentor
 import math
@@ -16,7 +29,7 @@ from libs.train_utils import split_set
 
 p = {
         'img_paths': set(list(Path("dataset").glob('*.img.jpg'))),
-        'repeat': 1,
+        'repeat': (1, "Number of patch samples to generate from one image.")
         'img_size': 1024,
         'subsets': set(['train', 'val']),
 }
@@ -33,7 +46,7 @@ lbls = [ str(img_path).replace('.img.jpg','lines.gt.json') for img_path in imgs 
 imgs_train, imgs_test, lbls_train, lbls_test = split_set( imgs, lbls )
 imgs_train, imgs_val, lbls_train, lbls_val = split_set( imgs_train, lbls_train )
 
-
+# for training, Torment at will
 ds_train = lsg.LineDetectionDataset( imgs_train, lbls_train, min_size=args.img_size, polygon_key='boundary')
 aug = tsf.build_tormentor_augmentation_for_crop_training( lsg.tormentor_dists, crop_size=args.img_size, crop_before=False )
 ds_train = tormentor.AugmentedDs( ds_train, aug, computation_device='cpu', augment_sample_function=lsg.LineDetectionDataset.augment_with_bboxes )
@@ -42,6 +55,7 @@ if 'train' in args.subsets:
     ds_train_cached = lsg.CachedDataset( data_source = ds_train )
     ds_train_cached.serialize( subdir='cached_train', repeat=args.repeat)
 
+# for validation and test, only crops
 ds_val = lsg.LineDetectionDataset( imgs_val, lbls_val, min_size=args.img_size, polygon_key='boundary')
 augCropCenter = tormentor.RandomCropTo.new_size( args.img_size, args.img_size )
 augCropLeft = tormentor.RandomCropTo.new_size( args.img_size, args.img_size ).override_distributions( center_x=tormentor.Uniform((0, .6)))
