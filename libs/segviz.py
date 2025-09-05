@@ -285,6 +285,7 @@ def display_tensor_and_boxes( img_chw: Tensor, boxes: Tensor, scores: Tensor, th
     else:
         plt.show()
 
+
 def display_soft_masks( masks: Tensor, scores: Tensor, box_threshold=.9, alpha=.4, image_only=False, output_file_path=''):
     """ Display or save soft masks (several plots)
     Args:
@@ -305,12 +306,11 @@ def display_soft_masks( masks: Tensor, scores: Tensor, box_threshold=.9, alpha=.
     for i,m in enumerate(masks):
         plt.imshow( m.squeeze())
         if output_file_path:
-            output_file_path = Path( output_file_path )
-            output_file_path = output_file_path.joinpath( f"{img_path.stem}-{i}" ).with_suffix('png') if output_file_path.is_dir() else Path(f"{output_file_path.with_suffix('')}-{i}{output_file_path.suffix}")
-            plt.savefig( output_file_path, bbox_inches='tight' )
+            output_file_path_rewritten = Path( output_file_path )
+            output_file_path_rewritten = output_file_path.joinpath( f"{img_path.stem}-{i}" ).with_suffix('png') if output_file_path_rewritten.is_dir() else Path(f"{output_file_path_rewritten.with_suffix('')}-{i}{output_file_path_rewritten.suffix}")
+            plt.savefig( output_file_path_rewritten, bbox_inches='tight' )
         else:
             plt.show()
-
 
 
 def img_rgb_to_binary( img_path: Path, alg='otsu' ):
