@@ -81,9 +81,7 @@ def display_batch_label_maps( inputs:list[Union[Tensor,dict,Path]], raw_maps: li
         col_msk_hwc = None
         if color_count>=0:
             colors = get_n_color_palette( color_count ) if color_count > 0 else get_n_color_palette( np.max(labeled_msk_hw1))
-            print(len(colors))
             col_msk_hwc = np.zeros( img_hwc.shape, dtype=img_chw.dtype )
-            print( "col_msk.dtype=", col_msk_hwc.dtype, "labeled_msk.dtype=", labeled_msk_hw1.dtype)
             for l in range(1, np.max(labeled_msk_hw1)+1):
                 col = np.array(colors[l % len(colors) ])
                 col_msk_hwc += (labeled_msk_hw1==l) * (col/255.0)
@@ -99,7 +97,7 @@ def display_batch_label_maps( inputs:list[Union[Tensor,dict,Path]], raw_maps: li
     
     return list(zip(maps, attr, ids))
 
-def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path,str]=None, segfile_suffix:str='lines.pred.json', show:dict={}, alpha=.4, linewidth=2, out_file='' ):
+def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path,str]=None, segfile_suffix:str='lines.pred.json', show:dict={}, alpha=.4, linewidth=2, out_file='', crop=(1,1), output_file_path='' ):
     """ Render segmentation data on an image.
     The segmentation dictionary is expected to have the following structure:
     
@@ -113,7 +111,8 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
         show (dict): features to be shown. Default: `{'polygons': True, 'regions': True, 'baselines': False}`
         alpha (float): overlay transparency.
         linewidth (int): box line width
-        out_file (str): save figure in <out_file>.
+        output_file_path (str): If path is a directory, save the plot in <output_file_path>/<img_name_stem>.png.; otherwise, save under the provided file path.
+        crop (tuple[float,float]): ratio for zoom-in, for x and y respectively.
     """
     
     features = {'polygons': True, 'regions': True, 'baselines': False}
@@ -125,8 +124,9 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
         segfile = str(img_path).replace('.img.jpg', f'.{segfile_suffix}') 
     assert Path(segfile).exists()
 
+
     plt.close()
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(12,12))
 
     img_hwc = ski.io.imread( img_path )/255.0
     bm_hw = np.zeros( img_hwc.shape[:2], dtype='bool' )
@@ -154,21 +154,29 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
 
                 if features['baselines'] and 'baseline' in line:
                     baseline_arr = np.sort(np.array( line['baseline'] ), axis=0)
-                    plt.plot( baseline_arr[:,0], baseline_arr[:,1], linewidth=2)
+                    plt.plot( baseline_arr[:,0], baseline_arr[:,1], linewidth=1/np.mean(crop))
             
             if features['regions'] and 'boundary' in reg:
                 reg_closed_boundary = np.array( reg['boundary']+[reg['boundary'][0]])
-                plt.plot( reg_closed_boundary[:,0], reg_closed_boundary[:,1], linewidth=linewidth)
+                plt.plot( reg_closed_boundary[:,0], reg_closed_boundary[:,1], linewidth=linewidth*1/np.mean(crop))
         col_msk_hwc *= alpha
         bm_hw1 = bm_hw[:,:,None]
         img_complementary_hwc = img_hwc * ( ~bm_hw1 + bm_hw1 * (1-alpha))
 
         composed_img_array_hwc = img_complementary_hwc + col_msk_hwc
 
+        #with plt.rc_context({'lines.linewidth': .2}):
         plt.imshow( composed_img_array_hwc )
-        plt.title( Path(img_path).name )
-        if out_file:
-            plt.savefig( outfile, bbox_inches='tight' )
+        height, width = img_hwc.shape[:2]
+        delta_x, delta_y = (1-crop[0])*width/2, (1-crop[1])*height/2 
+        plt.xlim(delta_x, width-delta_x)
+        plt.ylim(height-delta_y, delta_y)
+        if 'title' in show:
+            plt.title( Path(img_path).name )
+
+        if output_file_path:
+            output_file_path = Path( output_file_path, img_path.stem).with_suffix('.pdf') if Path(output_file_path).is_dir() else Path(output_file_path)
+            plt.savefig( output_file_path, bbox_inches='tight', dpi=fig.dpi )
         else:
             plt.show()
 
@@ -202,13 +210,14 @@ def display_tensor_and_target( img_chw: Tensor, target: dict, alpha=.4, color='g
     plt.show()
 
 
-def display_tensor_and_masks( img_chw: Tensor, mask_n1hw: Tensor, alpha=.4, color_count=-1, out_file=''):
+def display_tensor_and_masks( img_chw: Tensor, mask_n1hw: Tensor, alpha=.4, color_count=-1, output_file_path=''):
     """ Overlay of instance binary masks, with choice of colors and option for saving image.
 
     Args:
         img_chw (Tensor): (C,H,W) image
         mask_n1hw (Tensor): (N,1,H,W) or (N,H,W) tensor of binary masks, where N=# instances for image
         color_count (int): -1 (default) = default color; 0=one color/instance; n>0=n colors
+        output_file_path (str): If path is a directory, save the plot in <output_file_path>/<img_name_stem>.png.; otherwise, save under the provided file path.
     """
     img_hwc = img_chw.detach().numpy().transpose(1,2,0)
     if np.max(img_hwc) > 1.0:
@@ -232,14 +241,16 @@ def display_tensor_and_masks( img_chw: Tensor, mask_n1hw: Tensor, alpha=.4, colo
     img_complementary_hwc = img_hwc * ( ~bm_hw1 + bm_hw1 * (1-alpha))
     composed_img_array_hwc = img_complementary_hwc + col_msk_hwc
     plt.close()
+    fig = plt.figure(figsize=(12,12))
     plt.imshow( composed_img_array_hwc)
-    if out_file:
-        plt.savefig( out_file, bbox_inches='tight' )
+    if output_file_path:
+        output_file_path = Path( output_file_path, img_path.stem).with_suffix('.png') if Path(output_file_path).is_dir() else Path(output_file_path)
+        plt.savefig( output_file_path, bbox_inches='tight' )
     else:
         plt.show()
 
 
-def display_tensor_and_boxes( img_chw: Tensor, boxes: Tensor, scores: Tensor, threshold=0, alpha=.4, color='g', image_only=False, out_file=''):
+def display_tensor_and_boxes( img_chw: Tensor, boxes: Tensor, scores: Tensor, threshold=0, alpha=.4, color='g', image_only=False, output_file_path=''):
     """ Overlay of instance boxes with threshold option.
     Args:
         img_chw (Tensor): (C,H,W) image
@@ -247,41 +258,45 @@ def display_tensor_and_boxes( img_chw: Tensor, boxes: Tensor, scores: Tensor, th
         scores (Tensor): (N,) tensor of bbox confidence scores.
         threshold (float): bboxes with a score less than <threshold< are drawn in red.
         image_only: show only the image, not the plot axes.
+        output_file_path (str): If path is a directory, save the plot in <output_file_path>/<img_name_stem>.png.; otherwise, save under the provided file path.
     """
     img_hwc = img_chw.detach().numpy().transpose(1,2,0)
     boxes = [ [ int(c) for c in box ] for box in boxes.detach().numpy().tolist()]
     polygon_boundaries = [ np.array([[box[0],box[1]], [box[2],box[1]], [box[2],box[3]], [box[0],box[3]],[box[0],box[1]]]) for box in boxes ] 
     plt.close()
+    fig = None
     if image_only:
-        fig = plt.figure(frameon=False, figsize=(2.5,2.5))
+        fig = plt.figure(frameon=False, figsize=(10,10))
         ax = plt.Axes(fig, [0,0,1,1])
         ax.set_axis_off()   
         fig.add_axes(ax)
         ax.set_aspect('equal', adjustable='box')
         ax.imshow( img_hwc, aspect='auto')
     else:
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize=(10,10))
         plt.imshow( img_hwc )
     for i,polyg in enumerate(polygon_boundaries):
         assert scores is not None or threshold==0
         color = 'r' if scores[i]<threshold else 'g'
         plt.plot(polyg[:,0],polyg[:,1], linewidth=1, color=color)
-    if out_file:
-        fig.savefig(out_file, bbox_inches='tight')
+    if output_file_path:
+        output_file_path = Path( output_file_path, img_path.stem).with_suffix('.png') if Path(output_file_path).is_dir() else Path(output_file_path)
+        plt.savefig( output_file_path, bbox_inches='tight' )
     else:
         plt.show()
 
-def display_soft_masks( masks: Tensor, scores: Tensor, box_threshold=.9, alpha=.4, image_only=False, out_file=''):
-    """ Display or save soft masks.
+def display_soft_masks( masks: Tensor, scores: Tensor, box_threshold=.9, alpha=.4, image_only=False, output_file_path=''):
+    """ Display or save soft masks (several plots)
     Args:
         masks (Tensor): (N,H,W) tensor of masks
         threshold (float): box threshold
+        output_file_path (str): If path is a directory, save the plots in <output_file_path>/<img_name_stem>-<i>.png.; otherwise, save under the provided file path, with mask/plot number inserted.
     """
     masks = masks.detach().numpy()
     masks = masks[ scores >= box_threshold ]
     plt.close()
     fig, ax = plt.subplots()
-    if out_file and image_only:
+    if output_file_path and image_only:
         fig = plt.figure(frameon=False)
         ax = plt.Axes(fig, [0,0,1,1])
         ax.set_axis_off()   
@@ -289,8 +304,10 @@ def display_soft_masks( masks: Tensor, scores: Tensor, box_threshold=.9, alpha=.
 
     for i,m in enumerate(masks):
         plt.imshow( m.squeeze())
-        if out_file:
-            fig.savefig(f'{out_file}-{i}.png', bbox_inches='tight')
+        if output_file_path:
+            output_file_path = Path( output_file_path )
+            output_file_path = output_file_path.joinpath( f"{img_path.stem}-{i}" ).with_suffix('png') if output_file_path.is_dir() else Path(f"{output_file_path.with_suffix('')}-{i}{output_file_path.suffix}")
+            plt.savefig( output_file_path, bbox_inches='tight' )
         else:
             plt.show()
 
@@ -329,7 +346,6 @@ def display_line_masks_raw( preds: list[dict], box_threshold=.8, mask_threshold=
         mask_threshold (float): a mask pixel whose score does not meet that threshold is ignored.
     """
     for msks,sc in [ (p['masks'].detach().numpy(),p['scores'].detach().numpy()) for p in preds ]:
-        print(len(msks))
         for m in msks[sc>box_threshold]:
             m = m[0]
             plt.imshow( m*(m>mask_threshold) )

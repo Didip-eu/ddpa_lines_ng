@@ -90,7 +90,10 @@ p = {
     'patch_size': [0, "Process the image by <patch_size>*<patch_size> patches"],
     'show': set(['polygons', 'regions', 'labels', 'title']),
     'linewidth': 2,
-    'out_file_dir': ['', 'Save the plot in <out_file_dir>/<img_name_stem>.png.'],
+    'output_file_path': ['', 'If path is a directory, save the plot in <output_file_path>/<img_name_stem>.png.; otherwise, save under the provided file path.'],
+    'crop_x': [1.0, "crop-in ratio (x axis, centered)"],
+    'crop_y': [1.0, "crop-in ratio (y axis, centered)"],
+
 }
 
 
@@ -250,23 +253,28 @@ if __name__ == '__main__':
                     mp, atts, path = segviz.display_batch_label_maps( [ {'img':imgs_t[0], 'id':str(img_path)} ], [segmentation_records], color_count=0 )[0]
             logger.debug("Rendering time: {:.5f}s".format( time.time()-start))
 
+            height, width = mp.shape[:2]
+            delta_x, delta_y = (1-args.crop_x)/2, (1-args.crop_y)/2
             plt.close()
-            plt.subplots(dpi=300)
+            plt.subplots(figsize=(12,12), dpi=144)
             plt.imshow( mp )
+            plt.xlim( delta_x , width-delta_x)
+            plt.ylim( height-delta_y, delta_y)
             if 'title' in args.show:
                 plt.title( path )
             if 'labels' in args.show:
                 for att_dict in atts:
                     label, centroid = att_dict['label'], att_dict['centroid']
                     plt.text(*centroid[:0:-1], label, size=15)
-            if args.out_file_dir:
+            if args.output_file_path:
                 #plt.subplots_adjust(0.2,0.075,0.90,0.95,0,0)
-                plt.savefig( Path( args.out_file_dir, img_path.stem).with_suffix('.png'), bbox_inches='tight')
+                output_file_path = Path( args.output_file_path, img_path.stem).with_suffix('.png') if Path(args.output_file_path).is_dir() else Path(args.output_file_path)
+                plt.savefig( output_file_path, bbox_inches='tight')
             else:
                 plt.show()
         else:
             if args.segfile:
-                segviz.display_segmentation_and_img( img_path, segfile=args.segfile, show={ k:True for k in args.show if k != 'labels'}, linewidth=args.linewidth )
+                segviz.display_segmentation_and_img( img_path, segfile=args.segfile, show={ k:True for k in args.show if k != 'labels'}, linewidth=args.linewidth, crop=(args.crop_x, args.crop_y), output_file_path=args.output_file_path )
             elif args.segfile_suffix:
-                segviz.display_segmentation_and_img( img_path, segfile_suffix=args.segfile_suffix, show={ k:True for k in args.show if k != 'labels'}, linewidth=args.linewidth )
+                segviz.display_segmentation_and_img( img_path, segfile_suffix=args.segfile_suffix, show={ k:True for k in args.show if k != 'labels'}, linewidth=args.linewidth, crop=(args.crop_x, args.crop_y), output_file_path=args.output_file_path )
 
