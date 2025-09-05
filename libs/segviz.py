@@ -278,7 +278,7 @@ def display_tensor_and_boxes( img_chw: Tensor, boxes: Tensor, scores: Tensor, th
     for i,polyg in enumerate(polygon_boundaries):
         assert scores is not None or threshold==0
         color = 'r' if scores[i]<threshold else 'g'
-        plt.plot(polyg[:,0],polyg[:,1], linewidth=1, color=color)
+        plt.plot(polyg[:,0],polyg[:,1], linewidth=3, color=color)
     if output_file_path:
         output_file_path = Path( output_file_path, img_path.stem).with_suffix('.png') if Path(output_file_path).is_dir() else Path(output_file_path)
         plt.savefig( output_file_path, bbox_inches='tight' )
