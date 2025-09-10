@@ -29,9 +29,13 @@ from libs.train_utils import split_set
 
 p = {
         'img_paths': set(list(Path("dataset").glob('*.img.jpg'))),
-        'repeat': (1, "Number of patch samples to generate from one image.")
+        'repeat': (1, "Number of patch samples to generate from one image."),
         'img_size': 1024,
         'subsets': set(['train', 'val']),
+        'log_tsv': 1,
+        'dummy': 0,
+        'img_suffix': '.img.jpg',
+        'lbl_suffix': '.lines.gt.json',
 }
 
 
@@ -39,12 +43,21 @@ args, _ = fargv.fargv( p )
 
 
 random.seed(46)
-imgs = list(args.img_paths)
-lbls = [ str(img_path).replace('.img.jpg','lines.gt.json') for img_path in imgs ]
+imgs = list([ Path( ip ) for ip in args.img_paths ])
+lbls = [ str(img_path).replace(args.img_suffix, args.lbl_suffix) for img_path in imgs ]
 
 
 imgs_train, imgs_test, lbls_train, lbls_test = split_set( imgs, lbls )
 imgs_train, imgs_val, lbls_train, lbls_val = split_set( imgs_train, lbls_train )
+
+if args.log_tsv:
+    for subset, log_tsv_file in ((imgs_train, 'train_ds.tsv'), (imgs_val, 'val_ds.tsv'), (imgs_test, 'test_ds.tsv')):
+        tsv_path = imgs[0].parent.joinpath(log_tsv_file)
+        with open( imgs[0].parent.joinpath(log_tsv_file), 'w') as tsv:
+            for path in subset:
+                tsv.write('{}\t{}\n'.format(path.name, path.name.replace(args.img_suffix, args.lbl_suffix)))
+if args.dummy:
+    sys.exit()
 
 # for training, Torment at will
 ds_train = lsg.LineDetectionDataset( imgs_train, lbls_train, min_size=args.img_size, polygon_key='boundary')

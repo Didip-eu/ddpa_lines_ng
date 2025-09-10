@@ -16,7 +16,7 @@ Generated with:
 ```
 PYTHONPATH=.
 # all pixels
-PYTHONPATH=.; for bt in .7 .75 .8 0.85 0.9 0.95 0.97 0.98 ; do for mt in 0.25 0.3 0.35 .40 .45 .5 .55 .6 .65; do ./bin/ddp_lineseg_eval.py -img_paths dataset/val/*.jpg  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -output_file_name '>>eval_out.tsv' -cache_predictions 1 -output_root_dir evaluation/2.0 -save_file_scores 1; done; done
+PYTHONPATH=.; for bt in .5 .55 .6 .65 .7 .75 .8 0.85 0.9 0.95 ; do for mt in 0.35 .40 .45 .5 .55 .6 .65 .7 .75; do ./bin/ddp_lineseg_eval.py -img_paths dataset/val/*.jpg  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -output_file_name '>>eval_out.tsv' -cache_predictions 1 -output_root_dir evaluation/2.0 -save_file_scores 1; done; done
 ```
 
 With the options used above, the evalutation script generates two additional sets of files:
@@ -27,12 +27,12 @@ With the options used above, the evalutation script generates two additional set
 Or, with foreground pixels only:
 
 ```
-PYTHONPATH=.; for bt in .7 .75 .8 0.85 0.9 0.95 0.97 0.98 ; do for mt in 0.25 0.3 0.35 .40 .45 .5 .55 .6 .65; do ./bin/ddp_lineseg_eval.py -img_paths dataset/val/*.jpg -foreground_only 1  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -output_file_name '>>eval_out_foreground.tsv' -cache_predictions 1 -output_root_dir evaluation/2.0 -save_file_scores 0; done; done
+PYTHONPATH=.; for bt in .5 .55 .6 .65 .7 .75 .8 0.85 0.9 0.95 ; do for mt in 0.35 .40 .45 .5 .55 .6 .65 .7 .75; do ./bin/ddp_lineseg_eval.py -img_paths dataset/val/*.jpg -foreground_only 1  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -output_file_name '>>eval_out_foreground.tsv' -cache_predictions 1 -output_root_dir evaluation/2.0 -save_file_scores 0; done; done
 ```
 Each set of output files is stored in a different subdirectory, whose name is the MD5 of the model file used for the predictions (accordingly, even if it is not loaded in memory for the job, this model file dictates which subdirectory to check for the cached predictions). For instance, the following, compound command generates both kinds of evaluation files (with and without polygon binarization) for two different models:
 
 ```
-PYTHONPATH=.; for mp in models/{best_cached_patches,best_no_scheduler_62_iterations}.mlmodel ; do for bt in .7 .75 .8 0.85 0.9 0.95 0.97 0.98 ; do for mt in  0.25 0.3 0.35 .40 .45 .5 .55 .6 .65; do echo "$(md5sum $mp) $bt $mt"; ./bin/ddp_lineseg_eval.py -img_paths dataset/val/*.jpg  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -output_file_name '>>eval_out.tsv' -model_path $mp -cache_predictions 1 -output_root_dir evaluation/2.0 -save_file_scores 1; done; done ; done ;   for mp in models/{best_cached_patches,best_no_scheduler_62_iterations}.mlmodel ; do for bt in .7 .75 .8 0.85 0.9 0.95 0.97 0.98 ; do for mt in  0.25 0.3 0.35 .40 .45 .5 .55 .6 .65; do echo "$(md5sum $mp) $bt $mt"; ./bin/ddp_lineseg_eval.py -img_paths dataset/val/*.jpg -foreground_only 1  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -output_file_name '>>eval_out_foreground.tsv' -model_path $mp -cache_predictions 1 -output_root_dir evaluation/2.0 -save_file_scores 0; done; done ; done
+PYTHONPATH=.; for mp in models/{best_cached_patches,best_no_scheduler_62_iterations}.mlmodel ; do for bt in .5 .55 .6 .65 .7 .75 .8 0.85 0.9 0.95 ; do for mt in 0.35 .40 .45 .5 .55 .6 .65 .7 .75; do echo "$(md5sum $mp) $bt $mt"; ./bin/ddp_lineseg_eval.py -img_paths dataset/val/*.jpg  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -output_file_name '>>eval_out.tsv' -model_path $mp -cache_predictions 1 -output_root_dir evaluation/2.0 -save_file_scores 1; done; done ; done ;   for mp in models/{best_cached_patches,best_no_scheduler_62_iterations}.mlmodel ; do for bt in .5 .55 .6 .65 .7 .75 .8 0.85 0.9 0.95 ; do for mt in 0.35 .40 .45 .5 .55 .6 .65 .7 .75; do echo "$(md5sum $mp) $bt $mt"; ./bin/ddp_lineseg_eval.py -img_paths dataset/val/*.jpg -foreground_only 1  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -output_file_name '>>eval_out_foreground.tsv' -model_path $mp -cache_predictions 1 -output_root_dir evaluation/2.0 -save_file_scores 0; done; done ; done
 ```
 
 Headers are handled internally by the Python script (if a file is written more than once, the header is not duplicated).
