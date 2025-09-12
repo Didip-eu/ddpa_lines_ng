@@ -40,7 +40,7 @@ Headers are handled internally by the Python script (if a file is written more t
 ## Recall-precision (mAP) over a range of IoU for given box and mask thresholds:
 
 
-Eg. the file `recall_precision_test_0.5-0.95.tsv`:
+Eg. the file `recall_precision_test_0.5-0.95.tsv`, based on ICDAR 2017 evalution algorithm:
 
 ```
 IoU	B-Thr	M-Thr	TP	FP	FN	Precision	Recall	Jaccard	F1
@@ -53,6 +53,12 @@ IoU	B-Thr	M-Thr	TP	FP	FN	Precision	Recall	Jaccard	F1
 has been generated with:
 
 ```
-PYTHONPATH=.; b=0.95; mt=.5; iou=0.5; while [[ $(echo "$iou < 1"|bc) -eq 1 ]] ; do echo "IoU=$iou" ; ./bin/ddp_lineseg_eval.py -img_paths dataset/test/*.jpg  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -icdar_threshold $iou -cache_predictions 1 -output_root_dir evaluation/2.0 -output_file_name '>>recall_precision_test_0.5-0.95.tsv' -method 'icdar2017' -save_file_scores 0 ; iou=$( echo "$iou+.5"|bc ) ; done;
+PYTHONPATH=.; bt=0.75; mt=.6; iou=0.5; while [[ $(echo "$iou < 1"|bc) -eq 1 ]] ; do echo "IoU=$iou" ; ./bin/ddp_lineseg_eval.py -img_paths dataset/test/*.jpg  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -icdar_threshold $iou -cache_predictions 1 -output_root_dir evaluation/2.0 -output_file_name '>>recall_precision_test_0.5-0.95.tsv' -method 'icdar2017' -save_file_scores 0 ; iou=$( echo "$iou+.05"|bc ) ; done;
+```
+
+With a slightly different evalutation method (using IoU for line matches, instead of AND-ing precision and recall):
+
+```
+PYTHONPATH=.; bt=0.75; mt=.6; iou=0.5; while [[ $(echo "$iou < 1"|bc) -eq 1 ]] ; do echo "IoU=$iou" ; ./bin/ddp_lineseg_eval.py -img_paths dataset/test/*.jpg  -patch_size 1024 -mask_threshold $mt -box_threshold $bt -icdar_threshold $iou -cache_predictions 1 -output_root_dir evaluation/2.0 -output_file_name '>>recall_precision_test_0.5-0.95_classic.tsv' -method 'iou' -save_file_scores 0 ; iou=$( echo "$iou+.05"|bc ) ; done;
 ```
 
