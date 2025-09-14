@@ -8,5 +8,5 @@ for file in *.lines.gt.json ; do
 	line_count=$(grep 'boundary' $file | wc -l) ; 
 	let line_count=$line_count-1 ;
 	avg_line_height=$(./line_height.py $file)
-       	echo -e "$file\t$size\t$line_count\t$avg_line_height" ; 
+       	echo -e "${file%.lines.gt.json}.img.jpg\t$size\t$line_count\t$avg_line_height" ; 
 done
