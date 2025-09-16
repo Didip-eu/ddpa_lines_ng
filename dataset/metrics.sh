@@ -2,7 +2,7 @@
 
 # Basic image/line metrics
 
-echo -e "img_path\twidth\theight\tline_count\tavg_line_height" ; 
+echo -e "Img_filename\tWidth\tHeight\tLine_count\tAvg_line_height" ; 
 for file in *.lines.gt.json ; do 
 	size=$(xli -identify ${file%.lines.gt.json}.img.jpg | perl -pe 's/^.+[^\d](\d+)x(\d+).+$/$1\t$2/') ; 
 	line_count=$(grep 'boundary' $file | wc -l) ; 
