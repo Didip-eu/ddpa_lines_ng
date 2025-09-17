@@ -61,7 +61,7 @@ if args.dummy:
 
 # for training, Torment at will
 ds_train = lsg.LineDetectionDataset( imgs_train, lbls_train, min_size=args.img_size, polygon_key='boundary')
-aug = tsf.build_tormentor_augmentation_for_crop_training( lsg.tormentor_dists, crop_size=args.img_size, crop_before=False )
+aug = tsf.build_tormentor_augmentation_for_crop_training( crop_size=args.img_size, crop_before=False )
 ds_train = tormentor.AugmentedDs( ds_train, aug, computation_device='cpu', augment_sample_function=lsg.LineDetectionDataset.augment_with_bboxes )
 
 if 'train' in args.subsets:

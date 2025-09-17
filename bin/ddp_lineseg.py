@@ -94,14 +94,6 @@ p = {
     'cache_dir_val': '',
 }
 
-tormentor_dists = {
-        'Rotate': tormentor.Uniform((math.radians(-10.0), math.radians(10.0))),
-        'Perspective': (tormentor.Uniform((0.85, 1.25)), tormentor.Uniform((.85,1.25))),
-        'Wrap': (tormentor.Uniform((0.1, 0.12)), tormentor.Uniform((0.64,0.66))), # no too rough, but intense (large-scale distortion)
-        'Zoom': tormentor.Uniform((1.1,1.6)),
-        'Brightness': tormentor.Uniform((-0.35,0.35)),
-}
-
 
 class LineDetectionDataset(Dataset):
     """
@@ -622,7 +614,7 @@ if __name__ == '__main__':
         ds_val = LineDetectionDataset( imgs_val, lbls_val, img_size=hyper_params['img_size'], polygon_key=hyper_params['polygon_key'] )
 
         if args.tormentor:
-            aug = build_tormentor_augmentation_for_crop_training( tormentor_dists, crop_size=hyper_params['img_size'][0], crop_before=True )
+            aug = build_tormentor_augmentation_for_crop_training( crop_size=hyper_params['img_size'][0], crop_before=True )
             ds_train = tormentor.AugmentedDs( ds_train, aug, computation_device=args.device, augment_sample_function=LineDetectionDataset.augment_with_bboxes )
     # Patch-based processing
     elif args.train_style=='patch': # requires Tormentor anyway
@@ -633,7 +625,7 @@ if __name__ == '__main__':
         else:
             # 1. All images resized to at least patch-size
             ds_train = LineDetectionDataset( imgs_train, lbls_train, min_size=crop_size)
-            aug = build_tormentor_augmentation_for_crop_training( tormentor_dists, crop_size=crop_size, crop_before=True )
+            aug = build_tormentor_augmentation_for_crop_training( crop_size=crop_size, crop_before=True )
             ds_train = tormentor.AugmentedDs( ds_train, aug, computation_device=args.device, augment_sample_function=LineDetectionDataset.augment_with_bboxes )
             #ds_train = CachedDataset( ds_train )
             #ds_train.serialize( subdir='train_cached', repeat=4 )

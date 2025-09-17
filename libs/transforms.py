@@ -1,6 +1,7 @@
 # nprenet@gmail.com
 # 05.2025
 
+import math
 from typing import Union,Any
 import numpy as np
 import tormentor
@@ -9,6 +10,15 @@ from torch import Tensor
 from torchvision.transforms import v2
 from torchvision import tv_tensors
 import skimage as ski
+
+default_tormentor_dists = {
+        'Rotate': tormentor.Uniform((math.radians(-25.0), math.radians(25.0))),
+        'Perspective': (tormentor.Uniform((0.85, 1.25)), tormentor.Uniform((.85,1.25))),
+        'Wrap': (tormentor.Uniform((0.1, 0.12)), tormentor.Uniform((0.64,0.66))), # no too rough, but intense (large-scale distortion)
+        'Zoom': tormentor.Uniform((1.1,1.6)),
+        'Brightness': tormentor.Uniform((-0.25,0.25)),
+}
+
 
 """
 Unused transforms, for reference. (This project uses Tormentor instead.)
@@ -135,7 +145,7 @@ class RandomElasticGrid(v2.Transform):
         return grid_wave_t( inpt, grid_cols=params['grid_cols'], random_state=params['random_state'])
 
 
-def build_tormentor_augmentation_for_page_wide_training( dists ):
+def build_tormentor_augmentation_for_page_wide_training( dists=default_tormentor_dists ):
     """ Construct a Tormentor composite augmentation.
 
     Args:
@@ -154,7 +164,7 @@ def build_tormentor_augmentation_for_page_wide_training( dists ):
     return augChoice
     
 
-def build_tormentor_augmentation_for_crop_training( dists, crop_size=1024, crop_before=True ):
+def build_tormentor_augmentation_for_crop_training( dists=default_tormentor_dists, crop_size=1024, crop_before=True ):
     """ Construct a Tormentor composite augmentation.
 
     Args:
@@ -173,13 +183,13 @@ def build_tormentor_augmentation_for_crop_training( dists, crop_size=1024, crop_
     # ensure that margins are well represented
     augCropLeft = tormentor.RandomCropTo.new_size( crop_size, crop_size ).override_distributions( center_x=tormentor.Uniform((0, .6)))
     augCropRight = tormentor.RandomCropTo.new_size( crop_size, crop_size ).override_distributions( center_x=tormentor.Uniform((.4, 1)))
-    augCrop = (augCropCenter ^ augCropLeft ^ augCropRight).override_distributions(choice=tormentor.Categorical(probs=(.4,.3,.3)))
+    augCrop = (augCropCenter ^ augCropLeft ^ augCropRight).override_distributions(choice=tormentor.Categorical(probs=(.6,.2,.2)))
 
     if crop_before:
         # crop before wrap:
         #   Crop___Wrap__Zoom   (distort crop-wide, zoom to get rid of BG)
         #         |__ Identity
-        aug = augCrop | augBrightness | ( tormentor.RandomIdentity ^ (augWrap | augZoom) ^ (augRotate | augZoom)).override_distributions(choice=tormentor.Categorical(probs=(.7,.15,.15)))
+        aug = augCrop | (augBrightness^tormentor.RandomPlasmaBrightness^tormentor.RandomIdentity) | ( tormentor.RandomIdentity ^ (augWrap | augZoom) ^ (augRotate | augZoom)).override_distributions(choice=tormentor.Categorical(probs=(.7,.15,.15)))
 
     else:
         # transform page-wide, then crop:
@@ -190,7 +200,7 @@ def build_tormentor_augmentation_for_crop_training( dists, crop_size=1024, crop_
     return aug
 
 
-def build_tormentor_augmentation_from_list( dists, augmentation_list=[]):
+def build_tormentor_augmentation_from_list( dists=default_tormentor_dists, augmentation_list=[]):
     """
     Build a choice augmentation from the given list.
     """
