@@ -282,7 +282,7 @@ class CachedDataset( Dataset ):
         Args:
             cache (str): a directory path (created if it does not exist).
         """
-        for img_path in Path(cache).glob('*.img.plt'):
+        for img_path in Path(cache).glob('*.img.pt'):
             label_path = Path(str(img_path).replace('img.pt', 'lbl.pt'))
             assert label_path.exists()
             self._img_paths.append( img_path )
