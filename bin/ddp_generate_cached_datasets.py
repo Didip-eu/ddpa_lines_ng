@@ -23,7 +23,7 @@ import random
 sys.path.append( str(Path(__file__).parents[1] ))
 
 from libs import segviz, transforms as tsf
-from bin import ddp_lineseg as lsg
+from bin import ddp_lineseg_train as lsg
 from libs.train_utils import split_set
 
 

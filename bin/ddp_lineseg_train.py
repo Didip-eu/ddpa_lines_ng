@@ -14,14 +14,12 @@ import json
 from pathlib import Path
 from typing import Union, Any
 import random
-import math
 import logging
 import time
 import re
 
 # 3rd party
 from PIL import Image
-import skimage as ski
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm.auto import tqdm
@@ -310,134 +308,6 @@ class CachedDataset( Dataset ):
         
         self._img_paths.append( target['path'])
         self._label_paths.append( target_path )
-
-
-
-def post_process( preds: dict, box_threshold=.9, mask_threshold=.25, orig_size=()):
-    """
-    Compute lines from predictions, by merging box masks.
-
-    Args:
-        preds (dict[str,torch.Tensor]): predicted dictionary for the page:
-            - 'scores'(N) : box probs
-            - 'masks' (N1HW): line heatmaps
-            - 'orig_size': if provided, masks are rescaled to the respective size
-    Returns:
-         np.ndarray: binary map (1,H,W)
-    """
-    # select masks with best box scores
-    best_masks = [ m.detach().numpy() for m in preds['masks'][preds['scores']>=box_threshold]]
-    if len(best_masks) < preds['masks'].shape[0]:
-        logger.debug("Selecting masks {} out of {}".format( np.argwhere( preds['scores']>=box_threshold ).tolist(), len(preds['scores'])))
-    if not best_masks:
-        return None
-    # threshold masks
-    masks = [ m * (m >= mask_threshold) for m in best_masks ]
-    # merge masks 
-    page_wide_mask_1hw = np.sum( masks, axis=0 ).astype('bool')
-    # optional: scale up masks to the original size of the image
-    if orig_size:
-        page_wide_mask_1hw = ski.transform.resize( page_wide_mask_1hw, (1, orig_size[1], orig_size[0]))
-    return page_wide_mask_1hw
-
-
-def post_process_boxes( preds: dict, box_threshold=.9, mask_threshold=.1, orig_size=()):
-    """
-    Compute lines from predictions, by separate processing of box masks.
-
-    Args:
-        preds (dict[str,torch.Tensor]): predicted dictionary for the page:
-            - 'scores'(N) : box probs
-            - 'masks' (N1HW): line heatmaps
-            - 'orig_size': if provided, masks are rescaled to the respective size
-    Returns:
-        tuple[ np.ndarray, list[tuple[int, list, float, list]]]: a pair with
-            - binary map(1,H,W)
-            - a list of line attribute dicts (label, centroid pt, area, polygon coords, ...)
-    """
-    # select masks with best box scores
-    print("preds['scores'].shape =", preds['scores'].shape)
-    print("preds['masks'].shape =", preds['masks'].shape)
-    best_masks = [ m.detach().numpy() for m in preds['masks'][preds['scores']>box_threshold]]
-    # threshold masks
-    masks = [ (m * (m > mask_threshold)).astype('bool') for m in best_masks ]
-    # in each mask, keep the largest CC
-    clean_masks = []
-    for m_1hw in masks:
-        print("m_1hw.shape =", m_1hw.shape, "dtype =", m_1hw.dtype)
-        labeled_msk_1hw = ski.measure.label( m_1hw, connectivity=2 )
-        reg_props = ski.measure.regionprops( labeled_msk_1hw )
-        max_label, _ = max([ (reg.label, reg.area) for reg in reg_props ], key=lambda t: t[1])
-        clean_masks.append( m_1hw * (labeled_msk_1hw == max_label))
-
-    # merge masks 
-    page_wide_mask_1hw = np.sum( clean_masks, axis=0 ).astype('bool')
-    plt.imshow( np.squeeze(np.sum( clean_masks, axis=0)) )
-    plt.show()
-    # optional: scale up masks to the original size of the image
-    if orig_size:
-        page_wide_mask_1hw = ski.transform.resize( page_wide_mask_1hw, (1, orig_size[1], orig_size[0]))
-
-    return page_wide_mask_1w
-
-
-def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False):
-    """
-    From a page-wide line mask, extract a labeled map and a dictionary of features.
-    
-    Args:
-        page_wide_mask_1hw (np.ndarray): a binary line mask (1,H,W)
-    Returns:
-        tuple[ np.ndarray, list[tuple[int, list, float, list]]]: a pair with
-            - labeled map(1,H,W)
-            - a list of line attribute dicts (label, centroid pt, area, polygon coords, ...)
-    """
-    
-    # label components
-    labeled_msk_1hw = ski.measure.label( page_wide_mask_1hw, connectivity=2 )
-    logger.debug("Found {} connected components on 1HW binary map.".format( np.max( labeled_msk_1hw )))
-    # sort label from top to bottom (using centroids of labeled regions) # note: labels are [1,H,W]. Accordingly, centroids are 3-tuples.
-    line_region_properties = ski.measure.regionprops( labeled_msk_1hw )
-    logger.debug("Extracted {} region property records from labeled map.".format( len( line_region_properties )))
-    # list of line attribute tuples 
-    attributes = sorted([ (reg.label, reg.centroid, reg.area ) for reg in line_region_properties ], key=lambda attributes: (attributes[1][1], attributes[1][2]))
-    
-    max_label = np.max(labeled_msk_1hw[0]).item()
-    polygon_coords = []
-    line_heights = [-1] * max_label
-    skeleton_coords = [ [] for i in range(max_label) ]
-
-    for lbl in range( 1, max_label+1 ):
-        lbl_count = np.sum( labeled_msk_1hw[0] == lbl )
-        polygon_coords.append( ski.measure.find_contours( labeled_msk_1hw[0] == lbl )[0].astype('int') if lbl_count > 4 else np.array([]))
-
-    if centerlines: 
-        page_wide_skeleton_hw = ski.morphology.skeletonize( page_wide_mask_1hw[0] )
-        _ , distance = ski.morphology.medial_axis( page_wide_mask_1hw[0], return_distance=True )
-        labeled_skl = ski.measure.label( page_wide_skeleton_hw, connectivity=2)
-        logger.debug("Computed {} skeletons on 1HW binary map.".format( np.max( labeled_skl )))
-        skeleton_coords = [ reg.coords for reg in ski.measure.regionprops( labeled_skl ) ]
-        line_heights = []
-        logger.debug("Computing line heights...")
-        for lbl in range(1, np.max(labeled_skl)+1):
-            line_skeleton_dist = page_wide_skeleton_hw * ( labeled_skl == lbl ) * distance 
-            logger.debug("- labeled skeleton {} of length {}".format(lbl, np.sum(line_skeleton_dist != 0) ))
-            line_heights.append( (np.mean(line_skeleton_dist[ line_skeleton_dist != 0])*2).item() )
-        assert len(line_heights) == len( line_region_properties ) 
-
-    # CCs top-to-bottom ordering differ from BBs centroid ordering: usually hints
-    # at messy, non-standard line layout
-    if [ att[0] for att in attributes ] != list(range(1, np.max(labeled_msk_1hw)+1)):
-        logger.warning("Labels do not follow reading order")
-
-    return (labeled_msk_1hw, [{
-                'label': att[0], 
-                'centroid': att[1], 
-                'area': att[2], 
-                'polygon_coords': plgc,
-                'line_height': lh, 
-                'centerline': skc,
-            } for att, lh, skc, plgc in zip(attributes, line_heights, skeleton_coords, polygon_coords) ])
 
 def build_nn( backbone='resnet101'):
 
@@ -808,24 +678,6 @@ if __name__ == '__main__':
         mean_validation_loss = validate()
         print('Validation loss: {:.4f}'.format(mean_validation_loss))
 
-        # 2nd pass: metrics on post-processed lines
-        # use the same model
-        pms = []
-        for i,sample in enumerate(list(ds_val)[:args.validation_set_limit] if args.validation_set_limit else ds_val):
-            img, target = sample
-            logger.debug(f'{i}: computing gt_map...', end='')
-            gt_map = seglib.gt_masks_to_labeled_map( target['masks'] )
-            logger.debug(f'computing pred_map...', end='')
-            imgs, preds, _ = predict( [img], live_model=model ) 
-            pred_map = np.squeeze(post_process( preds[0], mask_threshold=.2, box_threshold=.75 )[0]) 
-            logger.debug(f'computing pixel_metrics')
-            pms.append( seglib.polygon_pixel_metrics_two_flat_maps( pred_map, gt_map ))
-        print(seglib.mAP( pms ))
-
-        tps, fps, fns = zip(*[ seglib.polygon_pixel_metrics_to_line_based_scores_icdar_2017( pm )[:3] for pm in pms ])
-        print("ICDAR 2017")
-        print("F1: {}".format( 2.0 * (sum(tps) / (2*sum(tps)+sum(fps)+sum(fns)))))
-        print("Jaccard: {}".format(  (sum(tps) / (sum(tps)+sum(fps)+sum(fns)))))
 
             
 
