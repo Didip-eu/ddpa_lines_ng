@@ -31,7 +31,10 @@ import sys
 import datetime
 import logging
 import itertools
+import shutil
 import math
+import gzip
+from hashlib import md5
 
 # 3rd party
 import torch
@@ -55,7 +58,7 @@ logging.basicConfig( level=logging.DEBUG, format="%(asctime)s - %(levelname)s: %
 logger = logging.getLogger(__name__)
 
 # tone down unwanted logging
-logging.getLogger('PIL').setLevel(logging.INFO)
+logging.getLogger('PIL').setLevel(logging.DEBUG)
 
 
 p = {
@@ -68,10 +71,14 @@ p = {
         "region_segmentation_suffix": [".seals.pred.json", "Regions are given by segmentation file that is <img name stem>.<suffix>."],
         "centerlines": [0, "If True, compute centerlines (default is False)."],
         "output_format": [("json", "xml", "npy", "stdout"), "Segmentation output: json=<JSON file>, xml=<PageXML file>, npy=label map (HW), stdout=JSON on standard output."],
-        'mask_threshold': [.25, "In the post-processing phase, threshold to use for line soft masks."],
-        'box_threshold': [0.8, "Threshold used for line bounding boxes."],
+        'mask_threshold': [.6, "In the post-processing phase, threshold to use for line soft masks."],
+        'box_threshold': [0.75, "Threshold used for line bounding boxes."],
         'patch_row_count': [ 0, "Process the image in <patch_row_count> rows."],
         'patch_col_count': [ 0, "Process the image in <patch_col_count> cols."],
+        'patch_size': [0, "Process the image by <patch_size>*<patch_size> patches"],
+        'cache_predictions': [1, "Cache prediction tensors for faster, repeated calls with various post-processing optiosn."],
+        'cached_prediction_root_dir': ['/tmp', "Where to save the cached predictions."],
+
 }
 
 
@@ -93,7 +100,7 @@ def is_unusual_size( height, width ):
     return (0,0)
 
 
-def binary_mask_from_patches( img: Image.Image, row_count=1, col_count=1, overlap=100, model=None, mask_threshold=mask_threshold, box_threshold=box_threshold):
+def binary_mask_from_patches( img: Image.Image, row_count=1, col_count=1, overlap=100, model=None, box_threshold=.75, mask_threshold=.6):
     """
     Construct a single label map from predictions on <row_count>x<col_count> patches.
 
@@ -102,8 +109,8 @@ def binary_mask_from_patches( img: Image.Image, row_count=1, col_count=1, overla
         row_count (int): number of rows.
         col_count (int): number of cols.
         overlap (int): overlap between patches (in pixels)
-        mask_threshold (float): confidence score threshold for soft line masks.
         box_threshold (float): confidence score threshold for line bounding boxes.
+        mask_threshold (float): confidence score threshold for soft line masks.
 
     Returns:
         np.ndarray: a (1,H,W) label map.
@@ -128,20 +135,24 @@ def binary_mask_from_patches( img: Image.Image, row_count=1, col_count=1, overla
 
 
 
-def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=50, model=None, mask_threshold=mask_threshold, box_threshold=box_threshold):
+def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=100, model=None, box_threshold=.75, mask_threshold=.6,  cached_prediction_prefix='', cached_prediction_path=Path('/tmp')) -> np.ndarray:
     """
     Construct a single label map from predictions on patches of size <patch_size> x <patch_size>.
+    Predictions for each patch can be stored/read from a cached pickle file, whose name is the image's MD5.
 
     Args:
         img (Image.Image): a PIL image.
         patch_size (int): size of the square patch.
         overlap (int): minimum overlap between patches (in pixels)
-        mask_threshold (float): confidence score threshold for soft line masks.
         box_threshold (float): confidence score threshold for line bounding boxes.
+        mask_threshold (float): confidence score threshold for soft line masks.
+        cached_prediction_prefix (str): a MD5 string for this image, to indicate that a prediction pickle should be checked for.
+        cached_prediction_path (Path): where to save the cached predictions.
 
     Returns:
-        np.ndarray: a (1,H,W) label map.
+        np.ndarray: a (1,H,W) binary map.
     """
+    logger.debug("binary_mask_from_fixed_patches()")
     assert model is not None
     img_hwc = np.array( img )
     height, width = img_hwc.shape[:2]
@@ -152,23 +163,50 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=5
     rescaled = False
     if new_height != img_hwc.shape[0] or new_width != img_hwc.shape[1]:
         img_hwc = ski.transform.resize( img_hwc, (new_height, new_width ))
+        logger.debug("{} x {} image rescaled into {} x {}".format( width, height,new_width, new_height))
         rescaled = True
     
     # cut into tiles
-    tile_tls = seglib.tile_img( (new_width, new_height), overlap )
-    img_crops = [ torch.from_numpy(img_hwc[y:y+patch_size,x:x+patch_size]).permute(2,0,1) for (y,x) in tile_tls ]
-    _, crop_preds, _ = lsg.predict( img_crops, live_model=model )
+    tile_tls = seglib.tile_img( (new_width, new_height), patch_size, constraint=overlap )
+    
+    # Safety valve :)
+    if  len(tile_tls) > 25:
+        logger.debug(f"Image sliced into {len(tile_tls)} patches: limit exceeded.")
+        return None
+
+    crop_preds = None
+    cached_prediction_file = cached_prediction_path.joinpath( '{}.pt.gz'.format( cached_prediction_prefix ))
+    ignore_cached_file = True
+    if cached_prediction_prefix and cached_prediction_file.exists():
+        logger.debug(f'Found cached prediction {cached_prediction_file}.')
+        ignore_cached_file = False
+        try:
+            uzpf = gzip.GzipFile( cached_prediction_file, 'r')
+            crop_preds = torch.load( uzpf, weights_only=False)
+        except RuntimeError as e:
+            logger.warning("Runtime error {}".format(e))
+            ignore_cached_file = True 
+        finally:
+            logger.debug(f"ignore_cached_file={ignore_cached_file}")
+    if ignore_cached_file:
+        img_crops = [ torch.from_numpy(img_hwc[y:y+patch_size,x:x+patch_size]).permute(2,0,1) for (y,x) in tile_tls ]
+        logger.debug([ c.shape for c in img_crops ])
+        
+        _, crop_preds, _ = lsg.predict( img_crops, live_model=model )
+        if cached_prediction_prefix:
+            zpf = gzip.GzipFile( cached_prediction_file, 'w')
+            torch.save(crop_preds, zpf)
+
     page_mask = np.zeros((img_hwc.shape[0],img_hwc.shape[1]), dtype='bool')
-    for (y,x) in tile_tls:
+    for i,(y,x) in enumerate(tile_tls):
         patch_mask = lsg.post_process( crop_preds[i], mask_threshold=mask_threshold, box_threshold=box_threshold )
         if patch_mask is None:
             continue
         page_mask[y:y+patch_size, x:x+patch_size] += patch_mask[0]
     # resize to orig. size, if needed
     if rescaled:
-        page_mask = ski.transform.resize( page_mask, (height, width))
+        page_mask = ski.transform.resize( page_mask, (height, width ))
     return page_mask[None,:]
-
 
 
 def build_segdict( img_metadata, segmentation_record, contour_tolerance=4.0 ):
@@ -252,9 +290,43 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, contour_
     return segdict
 
 
+def check_patch_size_against_model( live_model: dict, patch_size ):
+    if 'train_style' in live_model.hyper_parameters:
+        if live_model.hyper_parameters['train_style'] != 'patch':
+           logger.warning('The model being loaded was _not_ trained on fixed-size patches: expect suboptimal results.')
+        elif live_model.hyper_parameters['img_size'][0] != args.patch_size:
+           logger.warning('The model being loaded is trained on {}x{} patches, but the script uses a {} patch size argument: overriding patch_size value with model-stored size.'.format( *live_model.hyper_parameters['img_size'], args.patch_size))
+           return live_model.hyper_parameters['img_size'][0]
+    return patch_size
+
+
 if __name__ == "__main__":
 
     args, _ = fargv.fargv( p )
+
+
+    cached_prediction_root_path = Path(args.cached_prediction_root_dir)
+    cached_prediction_subdir_path = None
+    cache_subdir_path = None
+    with open( args.model_path, 'rb') as mf:
+        # computing MD5 of model file used
+        model_md5 = md5( mf.read() ).hexdigest()
+        # create output subdir for this model
+        cached_prediction_subdir_path = cached_prediction_root_path.joinpath( model_md5 )
+        print(cached_prediction_subdir_path)
+        cached_prediction_subdir_path.mkdir( exist_ok=True )
+        model_local_copy_path = cached_prediction_subdir_path.with_suffix('.mlmodel')
+        # copy model file into root folder, with MD5 identifier (make it easier to rerun eval loops later)
+        if not model_local_copy_path.exists():
+            shutil.copy2( args.model_path, model_local_copy_path )
+        if args.cache_predictions:
+            cache_subdir_path = cached_prediction_subdir_path.joinpath('cached') 
+            cache_subdir_path.mkdir( exist_ok=True )
+            logger.info( 'Using cache subdirectory {}.'.format( cache_subdir_path ))
+
+    if not Path( args.model_path ).exists():
+        raise FileNotFoundError("Could not find model file", args.model_path)
+    live_model = lsg.SegModel.load( args.model_path ) 
 
     all_img_paths = list(sorted(args.img_paths))
     for charter_dir in args.charter_dirs:
@@ -268,28 +340,30 @@ if __name__ == "__main__":
 
     logger.debug( args )
 
-    for path in list( args.img_paths ):
-        logger.debug( path )
-        path = Path(path)
+    for img_path in list( args.img_paths ):
+        logger.debug( img_path )
+        img_path = Path(img_path)
         #stem = Path( path ).stem
-        stem = re.sub(r'\..+', '', path.name )
+        stem = re.sub(r'\..+', '', img_path.name )
+
+        img_md5=''
+        if args.cache_predictions:
+            with open(img_path, 'rb') as imgf:
+                img_md5 = md5( imgf.read()).hexdigest()
 
         # only for segmentation on Seals-detected regions
-        region_segfile = re.sub(r'.img.jpg', args.region_segmentation_suffix, str(path) )
+        region_segfile = re.sub(r'.img.jpg', args.region_segmentation_suffix, str(img_path) )
 
-        with Image.open( path, 'r' ) as img:
+        with Image.open( img_path, 'r' ) as img:
             # keys from PageXML specs
-            img_metadata = { 'imagename': str(path.name), 'image_wh': list(img.size), }
+            img_metadata = { 'imagename': str(img_path.name), 'image_wh': list(img.size), }
 
             # ex. '1063063ceab07a6b9f146c598810529d.lines.pred'
-            output_file_path_wo_suffix = path.parent.joinpath( f'{stem}.{args.appname}.pred' )
+            output_file_path_wo_suffix = img_path.parent.joinpath( f'{stem}.{args.appname}.pred' )
 
             json_file_path = Path(f'{output_file_path_wo_suffix}.json')
             npy_file_path = Path(f'{output_file_path_wo_suffix}.npy')
 
-            if not Path( args.model_path ).exists():
-                raise FileNotFoundError("Could not find model file", args.model_path)
-            model = lsg.SegModel.load( args.model_path )
             binary_mask = None
             segdict = {}
 
@@ -304,19 +378,32 @@ if __name__ == "__main__":
                     crops_pil, boxes, classes = seglib.seals_regseg_to_crops( img, regseg, args.mask_classes )
 
                     binary_masks = []
-                    for crop_whc in crops_pil:
+                    for crop_idx, crop_whc in enumerate(crops_pil):
                         logger.debug("Crop size={})".format(crop_whc.size))
+                        binary_mask = None
 
-                        rows, cols = is_unusual_size( crop_whc.size[1], crop_whc.size[0] ) 
-                        if rows or cols:
-                            logger.debug("Unusual size detected: process {}x{} patches.".format(rows, cols))
-                        if rows > 1:
-                            binary_masks.append( binary_mask_from_patches( crop_whc, row_count=rows, model=model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold) )
-                        elif cols > 1:
-                            binary_masks.append( binary_mask_from_patches( crop_whc, col_count=cols, model=model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold) )
+                        # Style 1: inference from fixed-size squares
+                        if args.patch_size:
+                            patch_size = check_patch_size_against_model( live_model, args.patch_size )
+                            logger.debug('Patch size: {} x {}'.format( patch_size, patch_size))
+                            binary_mask = binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold, cached_prediction_prefix=img_md5, cached_prediction_path=cache_subdir_path )
+
+                        # Check for unusual size before choosing patch-based inference or not
                         else:
-                            imgs_t, preds, sizes = lsg.predict( [crop_whc], live_model=model )
-                            binary_masks.append( lsg.post_process( preds[0], orig_size=sizes[0], mask_threshold=args.mask_threshold, box_threshold=args.box_threshold ) )
+                            rows, cols = is_unusual_size( crop_whc.size[1], crop_whc.size[0] ) 
+                            if rows or cols:
+                                logger.debug("Unusual size detected: process {}x{} patches.".format(rows, cols))
+                            if rows > 1:
+                                binary_mask = binary_mask_from_patches( crop_whc, row_count=rows, model=model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold) 
+                            elif cols > 1:
+                                binary_mask = binary_mask_from_patches( crop_whc, col_count=cols, model=model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold) 
+                            else:
+                                imgs_t, preds, sizes = lsg.predict( [crop_whc], live_model=live_model )
+                                binary_mask = lsg.post_process( preds[0], orig_size=sizes[0], box_threshold=args.box_threshold, mask_threshold=args.mask_threshold ) 
+                        if binary_mask is None:
+                            logger.warning("No line mask found for {}, crop {}: skipping item.".format( img_path, crop_idx ))
+                            continue
+                        binary_masks.append( binary_mask )
 
                         # each segpage: label map, attribute, <image path or id>
                     segmentation_records = [ lsg.get_morphology( msk, centerlines=args.centerlines) for msk in binary_masks ]
@@ -327,16 +414,22 @@ if __name__ == "__main__":
             else:
                 logger.info("Starting segmentation")
                 binary_mask = None
-                # case 1: process image in patches
-                if args.patch_row_count and args.patch_col_count:
-                    logger.debug("Process {}x{} patches.".format(args.patch_row_count, args.patch_col_count))
-                    binary_mask = binary_mask_from_patches( img, args.patch_row_count, args.patch_col_count, model=model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold )
-                # case 2: process image as-is
+                if args.patch_size:
+                    # case 1: process image in fixed-size patches
+                    patch_size = check_patch_size_against_model( live_model, args.patch_size )
+                    logger.debug('Patch size: {} x {}'.format( patch_size, patch_size))
+                    binary_mask = binary_mask_from_fixed_patches( img, patch_size=patch_size, model=live_model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold, cached_prediction_prefix=img_md5, cached_prediction_path=cache_subdir_path )
                 else:
-                    logger.debug("Page-wide processing")
-                    imgs_t, preds, sizes = lsg.predict( [img], live_model=model )
-                    logger.info("Successful segmentation.")
-                    binary_mask = lsg.post_process( preds[0], orig_size=sizes[0], mask_threshold=args.mask_threshold, box_threshold=args.box_threshold )
+                    # case 2: process image in M x N patches
+                    if args.patch_row_count and args.patch_col_count:
+                        logger.debug("Process {}x{} patches.".format(args.patch_row_count, args.patch_col_count))
+                        binary_mask = binary_mask_from_patches( img, args.patch_row_count, args.patch_col_count, model=model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
+                    # case 3: process image as-is
+                    else:
+                        logger.debug("Page-wide processing")
+                        imgs_t, preds, sizes = lsg.predict( [img], live_model=live_model )
+                        logger.info("Successful segmentation.")
+                        binary_mask = lsg.post_process( preds[0], orig_size=sizes[0], box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
                 segmentation_record = lsg.get_morphology( binary_mask, centerlines=args.centerlines)
                 segdict = build_segdict( img_metadata, segmentation_record )
 

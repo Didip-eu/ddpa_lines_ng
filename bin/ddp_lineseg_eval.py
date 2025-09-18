@@ -250,9 +250,10 @@ if __name__ == '__main__':
 
         start = time.time()
 
+        # Step 1: stacks of binary masks (one for each detected boxes)
         if args.patch_size or args.patch_row_count or args.patch_col_count:
 
-            # Style 1: Inference fixed-size squares
+            # Style 1: inference from fixed-size squares
             if args.patch_size:
                 patch_size = args.patch_size
                 if 'train_style' in live_model.hyper_parameters:
@@ -272,8 +273,8 @@ if __name__ == '__main__':
 
             logger.debug("Inference time: {:.5f}s".format( time.time()-start))
 
-        # Default: Page-wide inference
         else:
+            # Default: Page-wide inference
             if 'train_style' in live_model.hyper_parameters and live_model.hyper_parameters['train_style'] == 'patch':
                 logger.warning('The model being loaded was trained on fixed-size patches: expect suboptimal results.')
             imgs_t, preds, sizes = lsg.predict( [img_path], live_model=live_model)
@@ -288,6 +289,8 @@ if __name__ == '__main__':
         if binary_mask is None:
             logger.warning("No line mask found for {}: skipping item.".format( img_path ))
             continue
+
+        # Step 2: flat map of integer labels
         label_map_hw = ski.measure.label( binary_mask, connectivity=2 ).squeeze()
         logger.debug("label_map.shape={}, label_map._dtype={}, max_label={}".format(label_map_hw.shape, label_map_hw.dtype, np.max(label_map_hw)))
         logger.debug("gt_map.shape={}, max_label={}".format(gt_map.shape, np.max(gt_map)))
@@ -299,9 +302,11 @@ if __name__ == '__main__':
             pixel_metrics = seglib.polygon_pixel_metrics_two_flat_maps_and_mask( label_map_hw, gt_map, img_fg_mask ) 
         else:
             pixel_metrics = seglib.polygon_pixel_metrics_two_flat_maps( label_map_hw, gt_map ) 
-        #np.save('pm.npy', pixel_metrics)
+            
+        # pms is a list of 6-tuples (Match-threshold, TP, FP, FN, Jaccard, F1)
         pms.append( pixel_metrics )
-    # pms is a list of 6-tuples (Match-threshold, TP, FP, FN, Jaccard, F1)
+
+    # Aggregating results from all img files
     eval_method = seglib.polygon_pixel_metrics_to_line_based_scores_icdar_2017 if args.method=='icdar2017' else seglib.polygon_pixel_metrics_to_line_based_scores
     raw_tuples = [ eval_method( pm, threshold=args.icdar_threshold ) for pm in pms ]
     iou_tp_fp_fn_prec_rec_jaccard_f1_8n = np.stack( [ rt for rt in raw_tuples if not np.sum(np.isnan( rt )) ], axis=1)
