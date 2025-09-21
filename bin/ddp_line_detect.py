@@ -119,6 +119,7 @@ def build_segdict( img_metadata, segmentation_record, contour_tolerance=4.0 ):
     line_id=0
     for att_dict in atts:
         label, polygon_coords, area, line_height, centerline = [ att_dict[k] for k in ('label','polygon_coords','area', 'line_height', 'centerline')]
+        logger.debug("polygon_coords.shape={}, polygon_coords".format(polygon_coords.shape))
         centerline = np.sort( ski.measure.approximate_polygon( centerline[:,::-1], tolerance=contour_tolerance), axis=0) if len(centerline) else np.array([])
         baseline = np.stack( [centerline[:,0], centerline[:,1]+int(line_height/2)], axis=1) if len(centerline) else np.array([])
         segdict['regions'][0]['lines'].append({ 

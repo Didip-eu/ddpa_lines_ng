@@ -60,6 +60,7 @@ def post_process( preds: dict, box_threshold=.75, mask_threshold=.6, orig_size=(
 def post_process_boxes( preds: dict, box_threshold=.9, mask_threshold=.1, orig_size=()):
     """
     Compute lines from predictions, by separate processing of box masks.
+    (UNUSED)
 
     Args:
         preds (dict[str,torch.Tensor]): predicted dictionary for the page:
@@ -94,39 +95,47 @@ def post_process_boxes( preds: dict, box_threshold=.9, mask_threshold=.1, orig_s
     return page_wide_mask_1w
 
 
-def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False):
+def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False, polygon_area_threshold=100):
     """
     From a page-wide line mask, extract a labeled map and a dictionary of features.
     
     Args:
         page_wide_mask_1hw (np.ndarray): a binary line mask (1,H,W)
+        centerlines (bool): compute the centerline and average height for each line.
+        polygon_area_threshold (int): minimum number of pixels for a polygon to survive.
     Returns:
         tuple[ np.ndarray, list[tuple[int, list, float, list]]]: a pair with
-            - labeled map(1,H,W)
+            - labeled map(H,W)
             - a list of line attribute dicts (label, centroid pt, area, polygon coords, ...)
     """
     
     # label components
-    labeled_msk_1hw = ski.measure.label( page_wide_mask_1hw, connectivity=2 )
-    logger.debug("Found {} connected components on 1HW binary map.".format( np.max( labeled_msk_1hw )))
-    # sort label from top to bottom (using centroids of labeled regions) # note: labels are [1,H,W]. Accordingly, centroids are 3-tuples.
-    line_region_properties = ski.measure.regionprops( labeled_msk_1hw )
+    labeled_msk_hw = ski.measure.label( page_wide_mask_1hw[0], connectivity=2 )
+    # remove components that do not pass threshold
+    for lbl in range(1, np.max(labeled_msk_hw) + 1):
+        if np.sum( labeled_msk_hw == lbl ) < polygon_area_threshold:
+            labeled_msk_hw *= ~(labeled_msk_hw==lbl)
+    labels = np.unique( labeled_msk_hw[ labeled_msk_hw > 0 ] )
+
+    logger.debug("Found {} connected components on 1HW binary map.".format( len(labels)))
+    # sort label from top to bottom (using centroids of labeled regions) 
+    line_region_properties = ski.measure.regionprops( labeled_msk_hw )
     logger.debug("Extracted {} region property records from labeled map.".format( len( line_region_properties )))
     # list of line attribute tuples 
-    attributes = sorted([ (reg.label, reg.centroid, reg.area ) for reg in line_region_properties ], key=lambda attributes: (attributes[1][1], attributes[1][2]))
+    attributes = sorted([ (reg.label, reg.centroid, reg.area ) for reg in line_region_properties ], key=lambda attributes: (attributes[1][0], attributes[1][1]))
     
-    max_label = np.max(labeled_msk_1hw[0]).item()
     polygon_coords = []
-    line_heights = [-1] * max_label
-    skeleton_coords = [ [] for i in range(max_label) ]
+    line_heights = [-1] * len(labels)
+    skeleton_coords = [ [] for i in labels ]
 
-    for lbl in range( 1, max_label+1 ):
-        lbl_count = np.sum( labeled_msk_1hw[0] == lbl )
-        polygon_coords.append( ski.measure.find_contours( labeled_msk_1hw[0] == lbl )[0].astype('int') if lbl_count > 4 else np.array([]))
+    for lbl in labels:
+        lbl_count = np.sum( labeled_msk_hw == lbl )
+        polygon_coords.append( ski.measure.find_contours( labeled_msk_hw == lbl )[0].astype('int'))
 
-    if centerlines: 
-        page_wide_skeleton_hw = ski.morphology.skeletonize( page_wide_mask_1hw[0] )
-        _ , distance = ski.morphology.medial_axis( page_wide_mask_1hw[0], return_distance=True )
+    if centerlines:
+        binary_msk_hw = ( labeled_msk_hw > 0  ).astype('int')
+        page_wide_skeleton_hw = ski.morphology.skeletonize( binary_msk_hw )
+        _ , distance = ski.morphology.medial_axis( page_wide_skeleton_hw, return_distance=True )
         labeled_skl = ski.measure.label( page_wide_skeleton_hw, connectivity=2)
         logger.debug("Computed {} skeletons on 1HW binary map.".format( np.max( labeled_skl )))
         skeleton_coords = [ reg.coords for reg in ski.measure.regionprops( labeled_skl ) ]
@@ -138,12 +147,12 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False):
             line_heights.append( (np.mean(line_skeleton_dist[ line_skeleton_dist != 0])*2).item() )
         assert len(line_heights) == len( line_region_properties ) 
 
-    # CCs top-to-bottom ordering differ from BBs centroid ordering: usually hints
-    # at messy, non-standard line layout
-    if [ att[0] for att in attributes ] != list(range(1, np.max(labeled_msk_1hw)+1)):
-        logger.warning("Labels do not follow reading order")
+    # BBs centroid ordering differs from CCs top-to-bottom ordering:
+    # usually hints at messy, non-standard line layout
+    if [ att[0] for att in attributes ] != sorted([att[0] for att in attributes]):
+        logger.warning("Labels may not follow reading order.")
 
-    return (labeled_msk_1hw, [{
+    entry = (labeled_msk_hw[None,:], [{
                 'label': att[0], 
                 'centroid': att[1], 
                 'area': att[2], 
@@ -151,6 +160,7 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False):
                 'line_height': lh, 
                 'centerline': skc,
             } for att, lh, skc, plgc in zip(attributes, line_heights, skeleton_coords, polygon_coords) ])
+    return entry
 
 
 def binary_mask_from_patches( img: Image.Image, row_count=2, col_count=1, overlap=100, model=None, mask_threshold=.25, box_threshold=.8):
@@ -188,7 +198,7 @@ def binary_mask_from_patches( img: Image.Image, row_count=2, col_count=1, overla
     return page_mask[None,:]
 
 
-def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=100, model=None, mask_threshold=.25, box_threshold=.8, cached_prediction_prefix='', cached_prediction_path=Path('/tmp')) -> np.ndarray:
+def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=100, model=None, mask_threshold=.25, box_threshold=.8, cached_prediction_prefix='', cached_prediction_path=Path('/tmp'), max_patches=25) -> np.ndarray:
     """
     Construct a single binary mask from predictions on patches of size <patch_size> x <patch_size>.
 
@@ -218,7 +228,8 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=1
     # cut into tiles
     tile_tls = seglib.tile_img( (new_width, new_height), patch_size, constraint=overlap )
     # Safety valve :)
-    if  len(tile_tls) > 25:
+    if  len(tile_tls) > max_patches:
+        logger.warning("Image slices into {} 1024-pixel patches: limit ({}) exceeded.".format(len(tile_tls), max_patches))
         return None
 
     crop_preds = None

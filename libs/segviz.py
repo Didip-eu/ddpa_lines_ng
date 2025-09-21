@@ -68,10 +68,10 @@ def display_batch_label_maps( inputs:list[Union[Tensor,dict,Path]], raw_maps: li
     elif isinstance(inputs[0], Path):
         imgs_chw,ids=zip(*[ (np.transpose(ski.io.imread(img),(2,0,1)).astype('float32')/255, str(img.name)) for img in inputs ])
     #print([ (Id,img.shape, img.dtype, np.ptp(img)) for img,Id in zip(imgs,ids) ])
-    assert all([ img_chw.shape[1:] == mp[0].shape[1:] for img_chw,mp in zip(imgs_chw,raw_maps) ])
+    assert all([ img_chw.shape[1:] == mp[0].shape[1:] for img_chw, mp in zip(imgs_chw, raw_maps) ])
 
     default_color = [0,0,1.0] # BLUE
-    for img_chw, mp in zip(imgs_chw,raw_maps):
+    for img_chw, mp in zip(imgs_chw, raw_maps):
         # generate labeled masks
         labeled_msk_1hw, attributes = mp
         labeled_msk_hw1 = np.transpose( labeled_msk_1hw, (1,2,0))

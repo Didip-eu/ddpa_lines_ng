@@ -134,6 +134,10 @@ if __name__ == '__main__':
                     patch_col_count = args.patch_col_count if args.patch_col_count else 1
                     logger.debug("Patches: {}x{}".format(patch_row_count, patch_col_count))
                     binary_mask = lb.binary_mask_from_patches( Image.open(img_path), patch_row_count, patch_col_count, model=live_model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
+                if binary_mask is None:
+                    logger.info("Invalid mask: skipping img {}".format( img_path))
+                    continue
+
                 logger.debug("Inference time: {:.5f}s".format( time.time()-start))
                 logger.debug("binary_mask.shape={}".format(binary_mask.shape))
                 segmentation_record = lb.get_morphology( binary_mask, centerlines=False)
