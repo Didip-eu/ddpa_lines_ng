@@ -28,6 +28,74 @@ logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(
 logger = logging.getLogger(__name__)
 
 
+def prune_skeleton( skeleton_hw: np.ndarray )->np.ndarray:
+    """
+    Given a binary skeleton, find a longest path, as a sequence of pixels.
+    (A crude way to prune a line skeleton.)
+
+    Args:
+        skeleton_hw (np.ndarray): a binary skeleton?
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray]: a pair with 
+            - (H,W) pruned skeleton (i.e. no branching)
+            - (N,X,Y) list of skeleton coordinates 
+    """
+
+    def neighborhood( pixel ):
+        offsets = np.array([[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]])
+        return [ nb for nb in pixel+offsets if skeleton_hw[nb[0], nb[1]] ] 
+
+    # Find left-most pixel with neighborhood 1 (root of the tree)
+    white_pixels = np.stack( np.where( skeleton_hw == True ), axis=1 )
+    min_leftx, leftmost = 2**10, None
+    for px in white_pixels:
+        if len(neighborhood( px )) > 1:
+            continue
+        if px[1] < min_leftx:
+            min_leftx = px[1]
+            leftmost = px
+    left_most = px.tolist()
+
+    visited = {leftmost[0].item(): {leftmost[1].item(): True}}
+    parent = {} # key: value = leaf: parent
+    max_depth = 0
+    deepest_leaf = leftmost
+
+    def dfs( px, depth ):
+        nonlocal max_depth, deepest_leaf
+        if depth > max_depth:
+            max_depth = depth
+            deepest_leaf = px
+        for nb in neighborhood( px ):
+            y,x = nb
+            if y in visited and x in visited[y]:
+                continue
+            if y not in visited:
+                visited[y] = {}
+            if y not in parent:
+                parent[y] = {}
+            visited[y][x]=True
+            parent[y][x]=px
+            dfs( nb, depth+1 )
+
+
+    # Depth-first search and depth labeling
+    dfs( leftmost, 0 )
+
+    # New skeleton is a longest path
+    longest_path = []
+    leaf = deepest_leaf
+    while(leaf is not leftmost):
+        longest_path.append( parent[leaf[0]][leaf[1]] )
+        leaf = longest_path[-1]
+    skeleton_coords = np.stack([ px for px in longest_path[::-1]], axis=0)
+    rr, cc = skeleton_coords.transpose()
+    pruned_skeleton = np.zeros( skeleton_hw.shape )
+    pruned_skeleton[rr,cc]=1
+    return ( pruned_skeleton, skeleton_coords )
+
+
 
 def post_process( preds: dict, box_threshold=.75, mask_threshold=.6, orig_size=()):
     """
@@ -95,7 +163,7 @@ def post_process_boxes( preds: dict, box_threshold=.9, mask_threshold=.1, orig_s
     return page_wide_mask_1w
 
 
-def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False, polygon_area_threshold=100):
+def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False, polygon_area_threshold=100, contour_tolerance=4.0):
     """
     From a page-wide line mask, extract a labeled map and a dictionary of features.
     
@@ -121,45 +189,43 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False, polygon_a
     # sort label from top to bottom (using centroids of labeled regions) 
     line_region_properties = ski.measure.regionprops( labeled_msk_hw )
     logger.debug("Extracted {} region property records from labeled map.".format( len( line_region_properties )))
-    # list of line attribute tuples 
-    attributes = sorted([ (reg.label, reg.centroid, reg.area ) for reg in line_region_properties ], key=lambda attributes: (attributes[1][0], attributes[1][1]))
     
     polygon_coords = []
-    line_heights = [-1] * len(labels)
     skeleton_coords = [ [] for i in labels ]
+    line_heights = [-1] * len(labels)
+    centroids = []
 
     for lbl in labels:
-        lbl_count = np.sum( labeled_msk_hw == lbl )
-        polygon_coords.append( ski.measure.find_contours( labeled_msk_hw == lbl )[0].astype('int'))
+        boundaries_nyx = ski.measure.find_contours( labeled_msk_hw == lbl )[0].astype('int')
+        # simplifying polygon
+        polygon_coords.append( ski.measure.approximate_polygon( boundaries_nyx, tolerance=countour_tolerance ))
 
-    if centerlines:
-        binary_msk_hw = ( labeled_msk_hw > 0  ).astype('int')
-        page_wide_skeleton_hw = ski.morphology.skeletonize( binary_msk_hw )
-        _ , distance = ski.morphology.medial_axis( page_wide_skeleton_hw, return_distance=True )
-        labeled_skl = ski.measure.label( page_wide_skeleton_hw, connectivity=2)
-        logger.debug("Computed {} skeletons on 1HW binary map.".format( np.max( labeled_skl )))
-        skeleton_coords = [ reg.coords for reg in ski.measure.regionprops( labeled_skl ) ]
-        line_heights = []
-        logger.debug("Computing line heights...")
-        for lbl in range(1, np.max(labeled_skl)+1):
-            line_skeleton_dist = page_wide_skeleton_hw * ( labeled_skl == lbl ) * distance 
-            logger.debug("- labeled skeleton {} of length {}".format(lbl, np.sum(line_skeleton_dist != 0) ))
-            line_heights.append( (np.mean(line_skeleton_dist[ line_skeleton_dist != 0])*2).item() )
-        assert len(line_heights) == len( line_region_properties ) 
+        if centerlines:
+            # 1. Create box with simplified polygon
+            min_y, min_x, max_y, max_x = np.min( poly,  axis=0), np.max( polygon_coords[-1], axis=0)
+            polygon_box = np.zeros((max_y-min_y+1, max_x-min_x+1)).astype('int8')
+            polyg_rr, polyg_cc = (polygon_coords[-1] - np.array([min_y, min_x])).transpose()
+            polygon_box[ polyg_rr, polyg_cc ] = 1
+            centroids.append( ski.measure.regionprops( polygon_box )[0].centroid )
+            # 2. Skeletonize and prune
+            cropped_skeleton, this_skeleton_coords = prune_skeleton( ski.morphology.skeletonize( polygon_box ))
+            skeleton_coords.append( this_skeleton_coords + np.array( [min_y, min_x] ))
+            # 3. Avg line height = area of polygon / length of skeleton
+            line_heights.append( np.sum((polygon_box) // len( this_skeleton_coords) )
 
     # BBs centroid ordering differs from CCs top-to-bottom ordering:
     # usually hints at messy, non-standard line layout
-    if [ att[0] for att in attributes ] != sorted([att[0] for att in attributes]):
-        logger.warning("Labels may not follow reading order.")
+    # TO DOUBLE-CHECK
+    #if [ att[0] for att in attributes ] != sorted([att[0] for att in attributes]):
+    #    logger.warning("Labels may not follow reading order.")
 
     entry = (labeled_msk_hw[None,:], [{
-                'label': att[0], 
-                'centroid': att[1], 
-                'area': att[2], 
+                'label': lbl,
+                'centroid': center,
                 'polygon_coords': plgc,
                 'line_height': lh, 
                 'centerline': skc,
-            } for att, lh, skc, plgc in zip(attributes, line_heights, skeleton_coords, polygon_coords) ])
+            } for lbl, lh, skc, plgc, center in zip(labels, line_heights, skeleton_coords, polygon_coords, centroids) ])
     return entry
 
 
