@@ -105,17 +105,19 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
     { 'regions': [ { 'boundary': [[x1,y1], ...,], 'lines': [ {'boundary': [[x1,y1], ...,] }, ... }]}
     ```
 
+    Optional, non-standard attributes for the line are handled: 'centerline', 'height'.
+
     Args:
         img_path (Path): image file
         segfile (Path): if not provided, look for a segmentation file that shares its prefix with the image.
-        show (dict): features to be shown. Default: `{'polygons': True, 'regions': True, 'baselines': False}`
+        show (dict): features to be shown. Default: `{'polygons': True, 'regions': True, 'baselines': False, 'centerlines': False}`
         alpha (float): overlay transparency.
         linewidth (int): box line width
         output_file_path (str): If path is a directory, save the plot in <output_file_path>/<img_name_stem>.png.; otherwise, save under the provided file path.
         crop (tuple[float,float]): ratio for zoom-in, for x and y respectively.
     """
     
-    features = {'polygons': True, 'regions': True, 'baselines': False}
+    features = {'polygons': True, 'regions': True, 'baselines': False, 'centerlines': False}
     if show: # because the calling program more likely to pass a list of features to be shown, rather than a dictionary
         features = {'polygons': False, 'regions': False, 'baselines': False}
         features.update( show )
@@ -155,6 +157,9 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
                 if features['baselines'] and 'baseline' in line:
                     baseline_arr = np.sort(np.array( line['baseline'] ), axis=0)
                     plt.plot( baseline_arr[:,0], baseline_arr[:,1], linewidth=1/np.mean(crop))
+                if features['centerlines'] and 'centerline' in line:
+                    centerline_arr = np.sort(np.array( line['centerline'] ), axis=0)
+                    plt.plot( centerline_arr[:,0], centerline_arr[:,1], linewidth=1/np.mean(crop))
             
             if features['regions'] and 'boundary' in reg:
                 reg_closed_boundary = np.array( reg['boundary']+[reg['boundary'][0]])
