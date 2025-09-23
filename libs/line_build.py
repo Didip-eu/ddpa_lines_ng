@@ -82,42 +82,61 @@ def prune_skeleton( skeleton_hw: np.ndarray )->np.ndarray:
 
     max_h, max_w = skeleton_hw.shape
     visited_matrix = [ [False] * max_w for i in range(max_h) ] 
-    depth_matrix = [ [-1] * max_w for i in range(max_h) ] 
+    parent_matrix = [ [ None ] * max_w for i in range(max_h) ]
+    depth_matrix = np.zeros( skeleton_hw.shape )
     def visit( px ):
         nonlocal max_depth, deepest_leaf
 
         current = leftmost
         while(1):
             neighbors = neighborhood( current )
-            if not neighbors or all( [ (nb[0] in visited and nb[1] in visited[nb[0]]) for nb in neighbors ] ):
+            if not neighbors or all( [ visited_matrix[ nb[0]][nb[1]] for nb in neighbors ] ):
                 if current is leftmost:
                     break
-                current = parent[ current[0] ][ current[1] ]
+                current = parent_matrix[ current[0] ][ current[1] ]
             for nb in neighbors:
                 y,x = nb
-                if y in visited and x in visited[y]:
+                if visited_matrix[y][x]:
                     continue
-                if y not in visited:
-                    visited[y] = {}
-                if y not in parent:
-                    parent[y] = {}
-                visited[y][x]=True
-                print("Visited: {}".format( nb ))
-                parent[y][x]=current
+                visited_matrix[y][x]=True
+                print("Visited -: {}".format( nb ))
+                parent_matrix[y][x]=current
+                depth_matrix[y][x]=depth_matrix[ current[0] ][ current[1] ]+1
                 current = nb
                 break
 
+#            neighbors = neighborhood( current )
+#            if not neighbors or all( [ (nb[0] in visited and nb[1] in visited[nb[0]]) for nb in neighbors ] ):
+#                if current is leftmost:
+#                    break
+#                current = parent[ current[0] ][ current[1] ]
+#            for nb in neighbors:
+#                y,x = nb
+#                if y in visited and x in visited[y]:
+#                    continue
+#                if y not in visited:
+#                    visited[y] = {}
+#                if y not in parent:
+#                    parent[y] = {}
+#                visited[y][x]=True
+#                print("Visited: {}".format( nb ))
+#                parent[y][x]=current
+#                current = nb
+#                break
 
 
     # Depth-first search and depth labeling
     #dfs( leftmost, 0 )
     visit( leftmost )
 
+    deepest_leaf = np.stack( np.unravel_index( np.argmax(depth_matrix), depth_matrix.shape ))
+    print(deepest_leaf)
+
     # New skeleton is a longest path
     longest_path = []
     leaf = deepest_leaf
     while(leaf is not leftmost):
-        longest_path.append( parent[leaf[0]][leaf[1]] )
+        longest_path.append( parent_matrix[leaf[0]][leaf[1]] )
         leaf = longest_path[-1]
     print(longest_path)
     skeleton_coords_n2 = np.stack([ px for px in longest_path[::-1]], axis=0)
