@@ -63,10 +63,10 @@ from libs import segviz, seglib, list_utils as lu, line_build as lb
 
 
 
-logging.basicConfig( level=logging.DEBUG, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
+logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
 logger = logging.getLogger(__name__)
 # tone down unwanted logging
-logging.getLogger('matplotlib.font_manager').disabled=True
+logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)#.disabled=True
 logging.getLogger('PIL').setLevel(logging.INFO)
 
 
@@ -84,7 +84,7 @@ p = {
     'patch_row_count': [ 0, "Process the image in <patch_row_count> rows."],
     'patch_col_count': [ 0, "Process the image in <patch_col_count> cols."],
     'patch_size': [0, "Process the image by <patch_size>*<patch_size> patches"],
-    'show': set(['polygons', 'regions', 'labels', 'title']),
+    'show': set(['polygons', 'centerlines', 'regions', 'labels', 'title']),
     'linewidth': 2,
     'output_file_path': ['', 'If path is a directory, save the plot in <output_file_path>/<img_name_stem>.png.; otherwise, save under the provided file path.'],
     'crop_x': [1.0, "crop-in ratio (x axis, centered)"],
@@ -140,9 +140,9 @@ if __name__ == '__main__':
 
                 logger.debug("Inference time: {:.5f}s".format( time.time()-start))
                 logger.debug("binary_mask.shape={}".format(binary_mask.shape))
-                segmentation_record = lb.get_morphology( binary_mask, centerlines=False)
+                segmentation_record = lb.get_morphology( binary_mask, centerlines=('centerlines' in args.show))
                 logger.debug("segmentation_record[0].shape={}".format(segmentation_record[0].shape))
-                mp, atts, path = segviz.display_batch_label_maps( [img_path], [segmentation_record], color_count=0 )[0]
+                mp, atts, path = segviz.batch_label_maps_to_img( [img_path], [segmentation_record], color_count=0 )[0]
 
             # Default: Page-wide inference
             else:
@@ -157,8 +157,8 @@ if __name__ == '__main__':
                         logger.warning("No line mask found for {}: skipping.".format( img_path ))
                         continue
                     logger.debug("binary_mask.shape={}".format(binary_mask.shape))
-                    segmentation_record = lb.get_morphology( binary_mask, centerlines=False)
-                    mp, atts, path = segviz.display_batch_label_maps( [img_path], [segmentation_record], color_count=0 )[0]
+                    segmentation_record = lb.get_morphology( binary_mask, centerlines=('centerlines' in args.show))
+                    mp, atts, path = segviz.batch_label_maps_to_img( [img_path], [segmentation_record], color_count=0 )[0]
                 else:
                     logger.debug("Square")
                     binary_mask = lb.post_process( preds[0], box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
@@ -166,7 +166,7 @@ if __name__ == '__main__':
                         logger.warning("No line mask found for {}: skipping.".format( img_path ))
                         continue
                     segmentation_records= lb.get_morphology( binary_mask )
-                    mp, atts, path = segviz.display_batch_label_maps( [ {'img':imgs_t[0], 'id':str(img_path)} ], [segmentation_records], color_count=0 )[0]
+                    mp, atts, path = segviz.batch_label_maps_to_img( [ {'img':imgs_t[0], 'id':str(img_path)} ], [segmentation_records], color_count=0 )[0]
             logger.debug("Rendering time: {:.5f}s".format( time.time()-start))
 
             height, width = mp.shape[:2]
@@ -178,10 +178,13 @@ if __name__ == '__main__':
             plt.ylim( height-delta_y, delta_y)
             if 'title' in args.show:
                 plt.title( path )
-            if 'labels' in args.show:
-                for att_dict in atts:
+            for att_dict in atts:
+                if 'labels' in args.show:
                     label, centroid = att_dict['label'], att_dict['centroid']
                     plt.text(*centroid[:0:-1], label, size=15)
+                if 'centerlines' in args.show:
+                    centerline = att_dict['centerline']
+                    plt.plot(*(centerline.transpose()[::-1]))
             if args.output_file_path:
                 #plt.subplots_adjust(0.2,0.075,0.90,0.95,0,0)
                 output_file_path = Path( args.output_file_path, img_path.stem).with_suffix('.png') if Path(args.output_file_path).is_dir() else Path(args.output_file_path)

@@ -39,7 +39,7 @@ def get_n_color_palette(n: int, s=.85, v=.95) -> list:
     return (ski.color.hsv2rgb( palette )*255).astype('uint8')[0].tolist()
 
 
-def display_batch_label_maps( inputs:list[Union[Tensor,dict,Path]], raw_maps: list[tuple[np.ndarray,dict]], color_count=-1, alpha=.4):
+def batch_label_maps_to_img( inputs:list[Union[Tensor,dict,Path]], raw_maps: list[tuple[np.ndarray,dict]], color_count=-1, alpha=.4):
     """
     Given a list of image tensors and a list of tuples (<labeled map>,<attributes>), returns page images
     with mask overlays, as well as attributes.
@@ -119,7 +119,7 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
     
     features = {'polygons': True, 'regions': True, 'baselines': False, 'centerlines': False}
     if show: # because the calling program more likely to pass a list of features to be shown, rather than a dictionary
-        features = {'polygons': False, 'regions': False, 'baselines': False}
+        features = {'polygons': False, 'regions': False, 'baselines': False, 'centerlines': False}
         features.update( show )
 
     if segfile is None:
@@ -155,11 +155,11 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
                     #plt.plot( cc,rr, linewidth=2 )
 
                 if features['baselines'] and 'baseline' in line:
-                    baseline_arr = np.sort(np.array( line['baseline'] ), axis=0)
-                    plt.plot( baseline_arr[:,0], baseline_arr[:,1], linewidth=1/np.mean(crop))
+                    baseline_arr = np.array( line['baseline'] )
+                    plt.plot( *baseline_arr.transpose(), linewidth=1/np.mean(crop))
                 if features['centerlines'] and 'centerline' in line:
-                    centerline_arr = np.sort(np.array( line['centerline'] ), axis=0)
-                    plt.plot( centerline_arr[:,0], centerline_arr[:,1], linewidth=1/np.mean(crop))
+                    centerline_arr = np.array( line['centerline'] )
+                    plt.plot( *centerline_arr.transpose(), linewidth=1/np.mean(crop))
             
             if features['regions'] and 'boundary' in reg:
                 reg_closed_boundary = np.array( reg['boundary']+[reg['boundary'][0]])

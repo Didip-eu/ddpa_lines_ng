@@ -58,35 +58,13 @@ def prune_skeleton( skeleton_hw: np.ndarray )->np.ndarray:
             min_x = px[1]
             leftmost = px
 
-    visited = {leftmost[0].item(): {leftmost[1].item(): True}}
-    parent = {} # key: value = leaf: parent
-    max_depth, deepest_leaf = 0, leftmost
-    
-    def dfs( px, depth ):
-        nonlocal max_depth, deepest_leaf
-        if depth > max_depth:
-            max_depth = depth
-            deepest_leaf = px
-            print(max_depth, deepest_leaf)
-        for nb in neighborhood( px ):
-            y,x = nb
-            if y in visited and x in visited[y]:
-                continue
-            if y not in visited:
-                visited[y] = {}
-            if y not in parent:
-                parent[y] = {}
-            visited[y][x]=True
-            parent[y][x]=px
-            dfs( nb, depth+1 )
-
     max_h, max_w = skeleton_hw.shape
-    visited_matrix = [ [False] * max_w for i in range(max_h) ] 
     parent_matrix = [ [ None ] * max_w for i in range(max_h) ]
     depth_matrix = np.zeros( skeleton_hw.shape )
-    def visit( px ):
-        nonlocal max_depth, deepest_leaf
 
+    def dfs_iterative( px ):
+        """ Iterative DFS, to circumvent recursion limits."""
+        visited_matrix = [ [False] * max_w for i in range(max_h) ] 
         current = leftmost
         while(1):
             neighbors = neighborhood( current )
@@ -99,46 +77,20 @@ def prune_skeleton( skeleton_hw: np.ndarray )->np.ndarray:
                 if visited_matrix[y][x]:
                     continue
                 visited_matrix[y][x]=True
-                print("Visited -: {}".format( nb ))
                 parent_matrix[y][x]=current
                 depth_matrix[y][x]=depth_matrix[ current[0] ][ current[1] ]+1
                 current = nb
                 break
 
-#            neighbors = neighborhood( current )
-#            if not neighbors or all( [ (nb[0] in visited and nb[1] in visited[nb[0]]) for nb in neighbors ] ):
-#                if current is leftmost:
-#                    break
-#                current = parent[ current[0] ][ current[1] ]
-#            for nb in neighbors:
-#                y,x = nb
-#                if y in visited and x in visited[y]:
-#                    continue
-#                if y not in visited:
-#                    visited[y] = {}
-#                if y not in parent:
-#                    parent[y] = {}
-#                visited[y][x]=True
-#                print("Visited: {}".format( nb ))
-#                parent[y][x]=current
-#                current = nb
-#                break
-
-
-    # Depth-first search and depth labeling
-    #dfs( leftmost, 0 )
-    visit( leftmost )
-
+    dfs_iterative( leftmost )
     deepest_leaf = np.stack( np.unravel_index( np.argmax(depth_matrix), depth_matrix.shape ))
-    print(deepest_leaf)
 
     # New skeleton is a longest path
     longest_path = []
-    leaf = deepest_leaf
-    while(leaf is not leftmost):
-        longest_path.append( parent_matrix[leaf[0]][leaf[1]] )
-        leaf = longest_path[-1]
-    print(longest_path)
+    current = deepest_leaf
+    while ( current is not leftmost ):
+        longest_path.append( parent_matrix[current[0]][current[1]] )
+        current = longest_path[-1]
     skeleton_coords_n2 = np.stack([ px for px in longest_path[::-1]], axis=0)
     rr, cc = skeleton_coords_n2.transpose()
     pruned_skeleton = np.zeros( skeleton_hw.shape )
@@ -226,7 +178,6 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False, polygon_a
             - labeled map(H,W)
             - a list of line attribute dicts (label, centroid pt, area, polygon coords, ...)
     """
-    
     # label components
     labeled_msk_hw = ski.measure.label( page_wide_mask_1hw[0], connectivity=2 )
     # remove components that do not pass threshold
@@ -240,17 +191,14 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False, polygon_a
     #plt.show()
     
     polygon_coords = []
-    skeleton_coords = [ [] for i in labels ]
-    line_heights = [-1] * len(labels)
+    skeleton_coords = [] # a list of ndarrays
+    line_heights = [] # a list of integers
     centroids = []
 
     for lbl in labels:
-        print("Label = {}".format(lbl))
         boundaries_nyx = ski.measure.find_contours( labeled_msk_hw == lbl )[0].astype('int')
-        print(boundaries_nyx)
         # simplifying polygon
         polygon_coords.append( ski.measure.approximate_polygon( boundaries_nyx, tolerance=contour_tolerance ))
-        print(polygon_coords[-1])
 
         if centerlines:
             # 1. Create box with simplified polygon
@@ -259,18 +207,13 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False, polygon_a
             polygon_box = np.zeros((max_y-min_y+1, max_x-min_x+1)).astype('int8')
             polyg_rr, polyg_cc = ski.draw.polygon( *(polygon_coords[-1] - np.array([min_y, min_x])).transpose())
             polygon_box[ polyg_rr, polyg_cc ] = 1
-            if lbl==38:
-                plt.imshow( labeled_msk_hw == lbl )
-                plt.show()
             centroids.append( ski.measure.regionprops( polygon_box )[0].centroid )
             # 2. Skeletonize and prune
             cropped_skeleton, this_skeleton_coords = prune_skeleton( ski.morphology.skeletonize( polygon_box ))
-            if lbl==38:
-                plt.imshow( cropped_skeleton )
-                plt.show()
-            skeleton_coords.append( this_skeleton_coords + np.array( [min_y, min_x] ))
+            skeleton_coords.append( ski.measure.approximate_polygon(this_skeleton_coords, tolerance=2) + np.array( [min_y, min_x] ))
             # 3. Avg line height = area of polygon / length of skeleton
-            line_heights.append( np.sum((polygon_box) // len( this_skeleton_coords) ))
+            line_heights.append( (np.sum(polygon_box) // len( this_skeleton_coords)).item() )
+            
 
     # BBs centroid ordering differs from CCs top-to-bottom ordering:
     # usually hints at messy, non-standard line layout
@@ -278,6 +221,7 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False, polygon_a
     #if [ att[0] for att in attributes ] != sorted([att[0] for att in attributes]):
     #    logger.warning("Labels may not follow reading order.")
 
+    
     entry = (labeled_msk_hw[None,:], [{
                 'label': lbl,
                 'centroid': center,

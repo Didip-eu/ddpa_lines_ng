@@ -118,16 +118,15 @@ def build_segdict( img_metadata, segmentation_record, contour_tolerance=4.0 ):
     mp, atts = segmentation_record
     line_id=0
     for att_dict in atts:
-        label, polygon_coords, area, line_height, centerline = [ att_dict[k] for k in ('label','polygon_coords','area', 'line_height', 'centerline')]
+        label, centroid, polygon_coords, line_height, centerline = [ att_dict[k] for k in ('label','centroid', 'polygon_coords', 'line_height', 'centerline')]
         logger.debug("polygon_coords.shape={}, polygon_coords".format(polygon_coords.shape))
-        centerline = np.sort( ski.measure.approximate_polygon( centerline[:,::-1], tolerance=contour_tolerance), axis=0) if len(centerline) else np.array([])
-        baseline = np.stack( [centerline[:,0], centerline[:,1]+int(line_height/2)], axis=1) if len(centerline) else np.array([])
+        baseline = np.stack( [centerline[:,0]+int(line_height/2), centerline[:,1]], axis=1) if len(centerline) else np.array([])
         segdict['regions'][0]['lines'].append({ 
                 'id': f'l{line_id}', 
-                'boundary': ski.measure.approximate_polygon( polygon_coords[:,::-1], tolerance=contour_tolerance).tolist(),
+                'boundary': polygon_coords[:,::-1].tolist(),
                 'height': int(line_height),
-                'centerline': centerline.tolist(),
-                'baseline': baseline.tolist(),
+                'centerline': centerline[:,::-1].tolist(), # yx to xy
+                'baseline': baseline[:,::-1].tolist(),
                 })
         line_id += 1
     # boundary of the dummy region
@@ -170,8 +169,8 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, contour_
                 'id': f'r{region_id}l{line_id}',
                 'boundary': ski.measure.approximate_polygon( polygon_coords[:,::-1] + box[:2], tolerance=contour_tolerance).tolist(),
                 'height': int(line_height),
-                'centerline': centerline.tolist(),
-                'baseline': baseline.tolist()
+                'centerline': centerline[:,::-1].tolist(), # yx to xy
+                'baseline': baseline[:,::-1].tolist()
             })
             line_id += 1
         segdict['regions'].append( { 'id': f'r{region_id}', 'type': 'text_region', 'boundary': [[box[0],box[1]],[box[2],box[1]],[box[2],box[3]],[box[0],box[3]]], 'lines': this_region_lines } )
