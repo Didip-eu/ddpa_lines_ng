@@ -23,6 +23,8 @@ import torch
 from bin import ddp_lineseg_train as lsg
 from libs import seglib
 
+import matplotlib.pyplot as plt
+
 
 logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
 logger = logging.getLogger(__name__)
@@ -30,43 +32,42 @@ logger = logging.getLogger(__name__)
 
 def prune_skeleton( skeleton_hw: np.ndarray )->np.ndarray:
     """
-    Given a binary skeleton, find a longest path, as a sequence of pixels.
-    (A crude way to prune a line skeleton.)
+    Given a binary skeleton tree, find a longest path, as a sequence of pixels.
+    (A crude way to prune a skeleton.)
 
     Args:
-        skeleton_hw (np.ndarray): a binary skeleton?
+        skeleton_hw (np.ndarray): a binary skeleton.
 
     Returns:
         Tuple[np.ndarray, np.ndarray]: a pair with 
             - (H,W) pruned skeleton (i.e. no branching)
-            - (N,X,Y) list of skeleton coordinates 
+            - (N,2) list of skeleton coordinates 
     """
 
     def neighborhood( pixel ):
+        max_h, max_w = skeleton_hw.shape
         offsets = np.array([[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]])
-        return [ nb for nb in pixel+offsets if skeleton_hw[nb[0], nb[1]] ] 
+        return [ nb for nb in pixel+offsets if (nb[0]>=0 and nb[0]<max_h and nb[1]>=0 and nb[1]<max_w and skeleton_hw[nb[0], nb[1]]) ] 
 
     # Find left-most pixel with neighborhood 1 (root of the tree)
-    white_pixels = np.stack( np.where( skeleton_hw == True ), axis=1 )
-    min_leftx, leftmost = 2**10, None
-    for px in white_pixels:
+    min_x, leftmost = 2**10, None
+    for px in np.stack( np.where( skeleton_hw == True ), axis=1 ):
         if len(neighborhood( px )) > 1:
             continue
-        if px[1] < min_leftx:
-            min_leftx = px[1]
+        if px[1] < min_x:
+            min_x = px[1]
             leftmost = px
-    left_most = px.tolist()
 
     visited = {leftmost[0].item(): {leftmost[1].item(): True}}
     parent = {} # key: value = leaf: parent
-    max_depth = 0
-    deepest_leaf = leftmost
+    max_depth, deepest_leaf = 0, leftmost
 
     def dfs( px, depth ):
         nonlocal max_depth, deepest_leaf
         if depth > max_depth:
             max_depth = depth
             deepest_leaf = px
+            print(max_depth, deepest_leaf)
         for nb in neighborhood( px ):
             y,x = nb
             if y in visited and x in visited[y]:
@@ -79,6 +80,20 @@ def prune_skeleton( skeleton_hw: np.ndarray )->np.ndarray:
             parent[y][x]=px
             dfs( nb, depth+1 )
 
+    def visit( px ):
+        nonlocal max_depth, deepest_leaf
+        depth = 0
+        if depth > max_depth:
+            max_depth = depth
+            deepest_leaf = px
+            print(max_depth, deepest_leaf)
+
+        while(1):
+            while(1):
+                for each unvisited neighbor nb
+                    current_leaf = nb
+            current_leaf = current_leaf.parent
+
 
     # Depth-first search and depth labeling
     dfs( leftmost, 0 )
@@ -89,11 +104,12 @@ def prune_skeleton( skeleton_hw: np.ndarray )->np.ndarray:
     while(leaf is not leftmost):
         longest_path.append( parent[leaf[0]][leaf[1]] )
         leaf = longest_path[-1]
-    skeleton_coords = np.stack([ px for px in longest_path[::-1]], axis=0)
-    rr, cc = skeleton_coords.transpose()
+    print(longest_path)
+    skeleton_coords_n2 = np.stack([ px for px in longest_path[::-1]], axis=0)
+    rr, cc = skeleton_coords_n2.transpose()
     pruned_skeleton = np.zeros( skeleton_hw.shape )
     pruned_skeleton[rr,cc]=1
-    return ( pruned_skeleton, skeleton_coords )
+    return ( pruned_skeleton, skeleton_coords_n2 )
 
 
 
@@ -184,11 +200,10 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False, polygon_a
         if np.sum( labeled_msk_hw == lbl ) < polygon_area_threshold:
             labeled_msk_hw *= ~(labeled_msk_hw==lbl)
     labels = np.unique( labeled_msk_hw[ labeled_msk_hw > 0 ] )
+    logger.debug("Found {} connected components on 1HW binary map ({}).".format( len(labels), labels))
 
-    logger.debug("Found {} connected components on 1HW binary map.".format( len(labels)))
-    # sort label from top to bottom (using centroids of labeled regions) 
-    line_region_properties = ski.measure.regionprops( labeled_msk_hw )
-    logger.debug("Extracted {} region property records from labeled map.".format( len( line_region_properties )))
+    #plt.imshow( labeled_msk_hw > 0)
+    #plt.show()
     
     polygon_coords = []
     skeleton_coords = [ [] for i in labels ]
@@ -196,22 +211,32 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False, polygon_a
     centroids = []
 
     for lbl in labels:
+        print("Label = {}".format(lbl))
         boundaries_nyx = ski.measure.find_contours( labeled_msk_hw == lbl )[0].astype('int')
+        print(boundaries_nyx)
         # simplifying polygon
-        polygon_coords.append( ski.measure.approximate_polygon( boundaries_nyx, tolerance=countour_tolerance ))
+        polygon_coords.append( ski.measure.approximate_polygon( boundaries_nyx, tolerance=contour_tolerance ))
+        print(polygon_coords[-1])
 
         if centerlines:
             # 1. Create box with simplified polygon
-            min_y, min_x, max_y, max_x = np.min( poly,  axis=0), np.max( polygon_coords[-1], axis=0)
+            min_y, min_x = np.min( polygon_coords[-1], axis=0)
+            max_y, max_x = np.max( polygon_coords[-1], axis=0)
             polygon_box = np.zeros((max_y-min_y+1, max_x-min_x+1)).astype('int8')
-            polyg_rr, polyg_cc = (polygon_coords[-1] - np.array([min_y, min_x])).transpose()
+            polyg_rr, polyg_cc = ski.draw.polygon( *(polygon_coords[-1] - np.array([min_y, min_x])).transpose())
             polygon_box[ polyg_rr, polyg_cc ] = 1
+            if lbl==38:
+                plt.imshow( labeled_msk_hw == lbl )
+                plt.show()
             centroids.append( ski.measure.regionprops( polygon_box )[0].centroid )
             # 2. Skeletonize and prune
             cropped_skeleton, this_skeleton_coords = prune_skeleton( ski.morphology.skeletonize( polygon_box ))
+            if lbl==38:
+                plt.imshow( cropped_skeleton )
+                plt.show()
             skeleton_coords.append( this_skeleton_coords + np.array( [min_y, min_x] ))
             # 3. Avg line height = area of polygon / length of skeleton
-            line_heights.append( np.sum((polygon_box) // len( this_skeleton_coords) )
+            line_heights.append( np.sum((polygon_box) // len( this_skeleton_coords) ))
 
     # BBs centroid ordering differs from CCs top-to-bottom ordering:
     # usually hints at messy, non-standard line layout
