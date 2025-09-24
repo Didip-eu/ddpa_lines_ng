@@ -99,6 +99,7 @@ def prune_skeleton( skeleton_hw: np.ndarray )->np.ndarray:
 
 
 
+
 def post_process( preds: dict, box_threshold=.75, mask_threshold=.6, orig_size=()):
     """
     Compute lines from predictions, by merging box masks.
@@ -209,11 +210,26 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False, polygon_a
             polygon_box[ polyg_rr, polyg_cc ] = 1
             centroids.append( ski.measure.regionprops( polygon_box )[0].centroid )
             # 2. Skeletonize and prune
-            cropped_skeleton, this_skeleton_coords = prune_skeleton( ski.morphology.skeletonize( polygon_box ))
-            skeleton_coords.append( ski.measure.approximate_polygon(this_skeleton_coords, tolerance=2) + np.array( [min_y, min_x] ))
+            _, this_skeleton_yx = prune_skeleton( ski.morphology.skeletonize( polygon_box ))
+            approximate_pagewide_skl_yx = ski.measure.approximate_polygon(this_skeleton_yx, tolerance=2) + np.array( [min_y, min_x] ))
+            skeleton_coords.append( approximate_pagewide_skl_yx )
             # 3. Avg line height = area of polygon / length of skeleton
             line_heights.append( (np.sum(polygon_box) // len( this_skeleton_coords)).item() )
             
+            # 
+            margin=5
+            avg_weights=np.log(np.arange(1,margin+1)*2)
+            height_avg_left = np.average( approximate_pagewide_skl_yx[:margin], weights=avg_weights)
+            height_avg_right = np.average( approximate_pagewide_skl_yx[:-margin::-1], weights=avg_weights)
+            touched_up_skeleton = approximate_pagewide_skl_yx[margin-1:-mzt
+
+
+    # possible improvement 
+    # (a) better polygons
+    # Extend polygons slightly L and R
+    # (b) better ends for centerlines
+    # 1. compute weighted average height avg_h of last 4-5 points of final skeleton (with lesser weights at the ends)
+    # 2. replace points above with innermost one of the initial sequence and one point in leftmost (rightmost) position and height=avg_h
 
     # BBs centroid ordering differs from CCs top-to-bottom ordering:
     # usually hints at messy, non-standard line layout
