@@ -166,18 +166,25 @@ def post_process_boxes( preds: dict, box_threshold=.9, mask_threshold=.1, orig_s
     return page_wide_mask_1w
 
 
-def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False, polygon_area_threshold=100, contour_tolerance=4.0):
+def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, contour_tolerance=4.0):
     """
     From a page-wide line mask, extract a labeled map and a dictionary of features.
     
     Args:
         page_wide_mask_1hw (np.ndarray): a binary line mask (1,H,W)
-        centerlines (bool): compute the centerline and average height for each line.
         polygon_area_threshold (int): minimum number of pixels for a polygon to survive.
+        contour_tolerance (int): max. distance constraint for line/polygon approximations.
+        export_ready: if True, export a reconstructed version of the polygon (baseline+height); otherwise (default), export the raw polygon.
+
     Returns:
         tuple[ np.ndarray, list[tuple[int, list, float, list]]]: a pair with
-            - labeled map(H,W)
+            - labeled map (H,W), with a choice of 2 flavors:
+              + raw: as obtained by merging the line masks computed by the network
+              + export-ready: a regularized version, constructed from the morphological features of the raw maps;
+                it matches the polygon that is ultimately exported in the dictionary.
             - a list of line attribute dicts (label, centroid pt, area, polygon coords, ...)
+
+    TODO: return the page-wide of reconstructed polygons
     """
     # label components
     labeled_msk_hw = ski.measure.label( page_wide_mask_1hw[0], connectivity=2 )
@@ -197,15 +204,29 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False, polygon_a
     centroids = []
 
 
-    def fix_ends( skl_yx, margin=5):
+    def fix_ends( skl_yx: np.array, line_height: int, box_width: tuple[int,int]):
+        """
+        After pruning, skeleton's very ends may deviate markedly from the main axis: this a crude,
+        but adequate fix: both ends are truncated (proper length determined from line height) and replaced by a single 
+        point at same height of the left(right)most point of the truncated skeleton. Option
+        """
         x_leftmost, x_rightmost = np.min(skl_yx[:,1]), np.max(skl_yx[:,1])
-        avg_weights=np.log(np.arange(1,margin+1)*2).transpose()
-        print(avg_weights.shape, skl_yx[:margin,0].shape, skl_yx[:-(margin+1):-1,0].shape)
-        y_avg_left = np.average( skl_yx[:margin,0], weights=avg_weights)
-        y_avg_right = np.average( skl_yx[:-(margin+1):-1,0], weights=avg_weights)
-        skl_yx_reduced = skl_yx[margin-1:-margin+1]
-        skl_yx_reduced[[0,-1]]=[[skl_yx[margin,0], x_leftmost],[ skl_yx[-(margin+1), 0], x_rightmost]]
+        end_segment_length = int(np.ceil(line_height/(2*np.tan(np.pi/6))))
+        skl_yx_reduced = skl_yx[end_segment_length-1:-end_segment_length+1]
+        skl_yx_reduced[[0,-1]]=[[skl_yx[end_segment_length,0], x_leftmost],[ skl_yx[-(end_segment_length+1), 0], x_rightmost]]
+        if skl_yx_reduced[0,1]>0:
+            #skl_yx_reduced = np.concat( [ [[skl_yx_reduced[0,0], 0]], skl_yx_reduced ])
+            skl_yx_reduced[0,1] =  0
+        if skl_yx_reduced[-1,1]<box_width-1:
+            #skl_yx_reduced = np.concat( [ skl_yx_reduced, [[skl_yx_reduced[-1,0], box_width-1]]] )
+            skl_yx_reduced[-1,1] = box_width-1
         return skl_yx_reduced
+
+    def regularize_polygon( centerline: np.ndarray, line_height: int ):
+        """
+        Crude way: concatenate baseline to translated and reverted version of itself
+        """
+        return np.concat( [ centerline+[line_height//2,0], (centerline-[line_height//2,0])[::-1] ] )
 
 
     for lbl in labels:
@@ -213,45 +234,38 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False, polygon_a
         # simplifying polygon
         polygon_coords.append( ski.measure.approximate_polygon( boundaries_nyx, tolerance=contour_tolerance ))
 
-        if centerlines:
-            # 1. Create box with simplified polygon
-            min_y, min_x = np.min( polygon_coords[-1], axis=0)
-            max_y, max_x = np.max( polygon_coords[-1], axis=0)
-            polygon_box = np.zeros((max_y-min_y+1, max_x-min_x+1)).astype('int8')
-            polyg_rr, polyg_cc = ski.draw.polygon( *(polygon_coords[-1] - np.array([min_y, min_x])).transpose())
-            polygon_box[ polyg_rr, polyg_cc ] = 1
-            centroids.append( ski.measure.regionprops( polygon_box )[0].centroid )
-            # 2. Skeletonize and prune
-            _, this_skeleton_yx = prune_skeleton( ski.morphology.skeletonize( polygon_box ))
-            approximate_pagewide_skl_yx = ski.measure.approximate_polygon(this_skeleton_yx, tolerance=2) + np.array( [min_y, min_x] )
-            approximate_pagewide_skl_yx = fix_ends( approximate_pagewide_skl_yx, 1 )
-            skeleton_coords.append( approximate_pagewide_skl_yx )
-            # 3. Avg line height = area of polygon / length of skeleton
-            line_heights.append( (np.sum(polygon_box) // len( this_skeleton_yx)).item() )
+        # 1. Create box with simplified polygon
+        min_y, min_x = np.min( polygon_coords[-1], axis=0)
+        max_y, max_x = np.max( polygon_coords[-1], axis=0)
+        polygon_box = np.zeros((max_y-min_y+1, max_x-min_x+1)).astype('int8')
+        polyg_rr, polyg_cc = ski.draw.polygon( *(polygon_coords[-1] - np.array([min_y, min_x])).transpose())
+        polygon_box[ polyg_rr, polyg_cc ] = 1
+        centroids.append( ski.measure.regionprops( polygon_box )[0].centroid )
+        # 2. Skeletonize and prune
+        _, this_skeleton_yx = prune_skeleton( ski.morphology.skeletonize( polygon_box ))
+        # 3. Avg line height = area of polygon / length of skeleton
+        line_heights.append( (np.sum(polygon_box) // len( this_skeleton_yx)).item() )
+        this_skeleton_yx = fix_ends( this_skeleton_yx, line_heights[-1], polygon_box.shape[1] )
+        approximate_pagewide_skl_yx = ski.measure.approximate_polygon(this_skeleton_yx, tolerance=2) + np.array( [min_y, min_x] )
+        skeleton_coords.append( approximate_pagewide_skl_yx )
             
-
-
-    # possible improvement 
-    # (a) better polygons
-    # Extend polygons slightly L and R
-    # (b) better ends for centerlines
-    # 1. compute weighted average height avg_h of last 4-5 points of final skeleton (with lesser weights at the ends)
-    # 2. replace points above with innermost one of the initial sequence and one point in leftmost (rightmost) position and height=avg_h
 
     # BBs centroid ordering differs from CCs top-to-bottom ordering:
     # usually hints at messy, non-standard line layout
     # TO DOUBLE-CHECK
     #if [ att[0] for att in attributes ] != sorted([att[0] for att in attributes]):
     #    logger.warning("Labels may not follow reading order.")
-
+    
     
     entry = (labeled_msk_hw[None,:], [{
                 'label': lbl,
                 'centroid': center,
-                'polygon_coords': plgc,
+                'polygon_coords': regularize_polygon( skc, lh ) if export_ready else plgc,
                 'line_height': lh, 
                 'centerline': skc,
-            } for lbl, lh, skc, plgc, center in zip(labels, line_heights, skeleton_coords, polygon_coords, centroids) ])
+                'baseline': skc + [lh/2,0],
+    } for lbl, lh, skc, plgc, center in zip(labels, line_heights, skeleton_coords, polygon_coords, centroids) ])
+
     return entry
 
 

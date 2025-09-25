@@ -140,7 +140,7 @@ if __name__ == '__main__':
 
                 logger.debug("Inference time: {:.5f}s".format( time.time()-start))
                 logger.debug("binary_mask.shape={}".format(binary_mask.shape))
-                segmentation_record = lb.get_morphology( binary_mask, centerlines=('centerlines' in args.show))
+                segmentation_record = lb.get_morphology( binary_mask )
                 logger.debug("segmentation_record[0].shape={}".format(segmentation_record[0].shape))
                 mp, atts, path = segviz.batch_label_maps_to_img( [img_path], [segmentation_record], color_count=0 )[0]
 
@@ -157,7 +157,7 @@ if __name__ == '__main__':
                         logger.warning("No line mask found for {}: skipping.".format( img_path ))
                         continue
                     logger.debug("binary_mask.shape={}".format(binary_mask.shape))
-                    segmentation_record = lb.get_morphology( binary_mask, centerlines=('centerlines' in args.show))
+                    segmentation_record = lb.get_morphology( binary_mask )
                     mp, atts, path = segviz.batch_label_maps_to_img( [img_path], [segmentation_record], color_count=0 )[0]
                 else:
                     logger.debug("Square")
@@ -185,6 +185,9 @@ if __name__ == '__main__':
                 if 'centerlines' in args.show:
                     centerline = att_dict['centerline']
                     plt.plot(*(centerline.transpose()[::-1]))
+                if 'baselines' in args.show:
+                    baseline = att_dict['baseline']
+                    plt.plot(*(baseline.transpose()[::-1]))
             if args.output_file_path:
                 #plt.subplots_adjust(0.2,0.075,0.90,0.95,0,0)
                 output_file_path = Path( args.output_file_path, img_path.stem).with_suffix('.png') if Path(args.output_file_path).is_dir() else Path(args.output_file_path)

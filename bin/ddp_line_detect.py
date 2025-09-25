@@ -67,7 +67,7 @@ p = {
         "charter_dirs": set(["./"]),
         "mask_classes": [set([]), "Names of the seals-app regions on which lines are to be detected. Eg. '[Wr:OldText']. If empty (default), detection is run on the entire page."],
         "region_segmentation_suffix": [".seals.pred.json", "Regions are given by segmentation file that is <img name stem>.<suffix>."],
-        "centerlines": [0, "If True, compute centerlines (default is False)."],
+        "line_attributes": [set(["centerline", "height"]), "Non-standard line properties to be included in the dictionary."],
         "output_format": [("json", "xml", "npy", "stdout"), "Segmentation output: json=<JSON file>, xml=<PageXML file>, npy=label map (HW), stdout=JSON on standard output."],
         'mask_threshold': [.6, "In the post-processing phase, threshold to use for line soft masks."],
         'box_threshold': [0.75, "Threshold used for line bounding boxes."],
@@ -98,7 +98,7 @@ def is_unusual_size( height, width ):
     return (0,0)
 
 
-def build_segdict( img_metadata, segmentation_record, contour_tolerance=4.0 ):
+def build_segdict( img_metadata, segmentation_record, line_attributes, contour_tolerance=4.0 ):
     """
     Construct the line segmentation dictionary (single-region file).
 
@@ -118,16 +118,16 @@ def build_segdict( img_metadata, segmentation_record, contour_tolerance=4.0 ):
     mp, atts = segmentation_record
     line_id=0
     for att_dict in atts:
-        label, centroid, polygon_coords, line_height, centerline = [ att_dict[k] for k in ('label','centroid', 'polygon_coords', 'line_height', 'centerline')]
+        label, centroid, polygon_coords, line_height, centerline, baseline = [ att_dict[k] for k in ('label','centroid', 'polygon_coords', 'line_height', 'centerline', 'baseline')]
         logger.debug("polygon_coords.shape={}, polygon_coords".format(polygon_coords.shape))
-        baseline = np.stack( [centerline[:,0]+int(line_height/2), centerline[:,1]], axis=1) if len(centerline) else np.array([])
-        segdict['regions'][0]['lines'].append({ 
-                'id': f'l{line_id}', 
-                'boundary': polygon_coords[:,::-1].tolist(),
-                'height': int(line_height),
-                'centerline': centerline[:,::-1].tolist(), # yx to xy
-                'baseline': baseline[:,::-1].tolist(),
-                })
+        dict_line_entry = {'id': f'l{line_id}', 'boundary': polygon_coords[:,::-1].tolist(), 'baseline': baseline[:,::-1].tolist() }
+        if 'height' in args.line_attributes:
+            dict_line_entry['height']=int(line_height)
+        if 'centerline' in args.line_attributes:
+            dict_line_entry['centerline']=centerline[:,::-1].tolist() # yx to xy
+        if 'baseline' in args.line_attributes:
+            dict_line_entry['baseline']=baseline[:,::-1].tolist()
+        segdict['regions'][0]['lines'].append( dict_line_entry )
         line_id += 1
     # boundary of the dummy region
     all_points = np.array(list(itertools.chain.from_iterable([ l['boundary'] for reg in segdict['regions'] for l in reg['lines'] ])))
@@ -162,16 +162,15 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, contour_
         line_id = 0
         _, atts = record
         for att_dict in atts:
-            label, polygon_coords, area, line_height, centerline = [ att_dict[k] for k in ('label','polygon_coords','area','line_height', 'centerline')]
-            centerline = ski.measure.approximate_polygon( centerline[:,::-1], tolerance=contour_tolerance) if len(centerline) else np.array([])
-            baseline = np.stack( [centerline[:,0], centerline[:,1]+int(line_height/2)], axis=1) if len(centerline) else np.array([])
-            this_region_lines.append({
-                'id': f'r{region_id}l{line_id}',
-                'boundary': ski.measure.approximate_polygon( polygon_coords[:,::-1] + box[:2], tolerance=contour_tolerance).tolist(),
-                'height': int(line_height),
-                'centerline': centerline[:,::-1].tolist(), # yx to xy
-                'baseline': baseline[:,::-1].tolist()
-            })
+            label, polygon_coords, area, line_height, centerline, baseline = [ att_dict[k] for k in ('label','polygon_coords','area','line_height', 'centerline', 'baseline')]
+            dict_line_entry = {'id': f'l{line_id}', 'boundary': polygon_coords[:,::-1].tolist(), 'baseline': baseline[:,::-1].tolist() }
+            if 'height' in args.line_attributes:
+                dict_line_entry['height']=int(line_height)
+            if 'centerline' in args.line_attributes:
+                dict_line_entry['centerline']=centerline[:,::-1].tolist() # yx to xy
+            if 'baseline' in args.line_attributes:
+                dict_line_entry['baseline']=baseline[:,::-1].tolist()
+            this_region_lines.append( dict_line_entry )
             line_id += 1
         segdict['regions'].append( { 'id': f'r{region_id}', 'type': 'text_region', 'boundary': [[box[0],box[1]],[box[2],box[1]],[box[2],box[3]],[box[0],box[3]]], 'lines': this_region_lines } )
         region_id += 1
@@ -192,7 +191,6 @@ def check_patch_size_against_model( live_model: dict, patch_size ):
 if __name__ == "__main__":
 
     args, _ = fargv.fargv( p )
-
 
     cached_prediction_root_path = Path(args.cached_prediction_root_dir)
     cached_prediction_subdir_path = None
@@ -295,9 +293,9 @@ if __name__ == "__main__":
                         binary_masks.append( binary_mask )
 
                         # each segpage: label map, attribute, <image path or id>
-                    segmentation_records = [ lb.get_morphology( msk, centerlines=args.centerlines) for msk in binary_masks ]
+                    segmentation_records = [ lb.get_morphology( msk ) for msk in binary_masks ]
                     #binary_mask = np.squeeze( segmentation_records[0][0] )
-                    segdict = build_segdict_composite( img_metadata, boxes, segmentation_records ) 
+                    segdict = build_segdict_composite( img_metadata, boxes, segmentation_records, args.line_attributes ) 
 
             # Option 2: single-file segmentation (an Wr:OldText crop, supposedly)
             else:
@@ -319,8 +317,8 @@ if __name__ == "__main__":
                         imgs_t, preds, sizes = lsg.predict( [img], live_model=live_model )
                         logger.info("Successful segmentation.")
                         binary_mask = lb.post_process( preds[0], orig_size=sizes[0], box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
-                segmentation_record = lb.get_morphology( binary_mask, centerlines=args.centerlines)
-                segdict = build_segdict( img_metadata, segmentation_record )
+                segmentation_record = lb.get_morphology( binary_mask )
+                segdict = build_segdict( img_metadata, segmentation_record, args.line_attributes )
 
             ############ 3. Handing the output #################
             output_file_path = Path(f'{output_file_path_wo_suffix}.{args.output_format}')
