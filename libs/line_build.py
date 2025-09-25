@@ -196,6 +196,18 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False, polygon_a
     line_heights = [] # a list of integers
     centroids = []
 
+
+    def fix_ends( skl_yx, margin=5):
+        x_leftmost, x_rightmost = np.min(skl_yx[:,1]), np.max(skl_yx[:,1])
+        avg_weights=np.log(np.arange(1,margin+1)*2).transpose()
+        print(avg_weights.shape, skl_yx[:margin,0].shape, skl_yx[:-(margin+1):-1,0].shape)
+        y_avg_left = np.average( skl_yx[:margin,0], weights=avg_weights)
+        y_avg_right = np.average( skl_yx[:-(margin+1):-1,0], weights=avg_weights)
+        skl_yx_reduced = skl_yx[margin-1:-margin+1]
+        skl_yx_reduced[[0,-1]]=[[skl_yx[margin,0], x_leftmost],[ skl_yx[-(margin+1), 0], x_rightmost]]
+        return skl_yx_reduced
+
+
     for lbl in labels:
         boundaries_nyx = ski.measure.find_contours( labeled_msk_hw == lbl )[0].astype('int')
         # simplifying polygon
@@ -211,17 +223,12 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, centerlines=False, polygon_a
             centroids.append( ski.measure.regionprops( polygon_box )[0].centroid )
             # 2. Skeletonize and prune
             _, this_skeleton_yx = prune_skeleton( ski.morphology.skeletonize( polygon_box ))
-            approximate_pagewide_skl_yx = ski.measure.approximate_polygon(this_skeleton_yx, tolerance=2) + np.array( [min_y, min_x] ))
+            approximate_pagewide_skl_yx = ski.measure.approximate_polygon(this_skeleton_yx, tolerance=2) + np.array( [min_y, min_x] )
+            approximate_pagewide_skl_yx = fix_ends( approximate_pagewide_skl_yx, 1 )
             skeleton_coords.append( approximate_pagewide_skl_yx )
             # 3. Avg line height = area of polygon / length of skeleton
-            line_heights.append( (np.sum(polygon_box) // len( this_skeleton_coords)).item() )
+            line_heights.append( (np.sum(polygon_box) // len( this_skeleton_yx)).item() )
             
-            # 
-            margin=5
-            avg_weights=np.log(np.arange(1,margin+1)*2)
-            height_avg_left = np.average( approximate_pagewide_skl_yx[:margin], weights=avg_weights)
-            height_avg_right = np.average( approximate_pagewide_skl_yx[:-margin::-1], weights=avg_weights)
-            touched_up_skeleton = approximate_pagewide_skl_yx[margin-1:-mzt
 
 
     # possible improvement 
