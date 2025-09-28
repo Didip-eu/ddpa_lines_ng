@@ -17,12 +17,12 @@ from typing import Union, Any
 
 p = {
     'file_paths': set([]),
-    'polygon_key': 'boundary',
+    'polygon_key': 'coords',
     'output_format': ('xml', 'stdout'),
     "comment": ['',"A text string to be added to the <Comments> elt."],
 }
 
-def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_key='boundary'):
+def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_key='coords'):
     """Serialize a JSON dictionary describing the lines into a PageXML file.
     Caution: this is a crude function, with no regard for validation.
 
@@ -33,8 +33,8 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
             or
             {"text_direction": ..., "type": "baselines", "regions": [ {"id": "r0", "lines": [{"tags": ..., "baseline": [ ... ]}]}, ... ]}
         pagexml_filename (str): if provided, output is saved in a PageXML file (standard output is the default).
-        polygon_key (str): if the segmentation dictionary contain alternative polygons (f.i. 'extBoundary'),
-            use them, instead of the usual line 'boundary'.
+        polygon_key (str): if the segmentation dictionary contain alternative polygons (f.i. 'ext_coords'),
+            use them, instead of the usual line 'coords'.
     """
     def boundary_to_point_string( list_of_pts ):
         return ' '.join([ f"{pair[0]:.0f},{pair[1]:.0f}" for pair in list_of_pts ] )
@@ -45,7 +45,7 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
         "xsi:schemaLocation": "http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15 http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15/pagecontent.xsd"})
     metadataElt = ET.SubElement(rootElt, 'MetaData')
     creatorElt = ET.SubElement( metadataElt, 'Creator')
-    creatorElt.text='prov=Universität Graz/ZIM/nprenet@uni-graz.at' 
+    creatorElt.text=seg_dict['metadata']['creator'] if ('metadata' in seg_dict and 'creator' in seg_dict['metadata']) else 'prov=Universität Graz/DH/nprenet@uni-graz.at'
     createdElt = ET.SubElement( metadataElt, 'Created')
     createdElt.text=datetime.now().isoformat()
     lastChangeElt = ET.SubElement( metadataElt, 'LastChange')
@@ -56,16 +56,16 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
     elif args.comment:
         commentElt.text = args.comment
 
-    img_name = Path(seg_dict['imagename']).name
-    img_width, img_height = seg_dict['image_wh']    
-    pageElt = ET.SubElement(rootElt, 'Page', attrib={'imageFilename': img_name, 'imageWidth': f"{img_width}", 'imageHeight': f"{img_height}"})
+    img_name = Path(seg_dict['image_filename']).name
+    img_width, img_height = seg_dict['image_width'], seg_dict['image_height']    
+    pageElt = ET.SubElement(rootElt, 'Page', attrib={'ImageFilename': img_name, 'ImageWidth': f"{img_width}", 'ImageHeight': f"{img_height}"})
     # if no region in segmentation dict, create one (image-wide)
     if 'regions' not in seg_dict:
-        seg_dict['regions']=[{'id': 'r0', 'boundary': [[0,0],[img_width-1,0],[img_width-1,img_height-1],[0,img_height-1]]}, ]
+        seg_dict['regions']=[{'id': 'r0', 'coords': [[0,0],[img_width-1,0],[img_width-1,img_height-1],[0,img_height-1]]}, ]
     for reg in seg_dict['regions']:
         reg_xml_id = f"r{reg['id']}" if type(reg['id']) is int else f"{reg['id']}"
         regElt = ET.SubElement( pageElt, 'TextRegion', attrib={'id': reg_xml_id})
-        ET.SubElement(regElt, 'Coords', attrib={'points': boundary_to_point_string(reg['boundary'])})
+        ET.SubElement(regElt, 'Coords', attrib={'points': boundary_to_point_string(reg['coords'])})
         # 3 cases: 
         # - top-level list of lines with region ref
         # - top-level list of lines with no regions

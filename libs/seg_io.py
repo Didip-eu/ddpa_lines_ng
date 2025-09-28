@@ -34,7 +34,7 @@ def display_polygon_lines_from_img_and_xml_files( img_file: str, page_xml: str, 
         colors = [ tuple(c) for c in colors ]
         draw = ImageDraw.Draw( input_img_hw )
         segmentation_dict = seglib.segmentation_dict_from_xml( page_xml )
-        polygon_boundaries = [ [ tuple(xy) for xy in line['boundary']] for line in segmentation_dict['lines']]
+        polygon_boundaries = [ [ tuple(xy) for xy in line['coords']] for line in segmentation_dict['lines']]
         for p, polyg in enumerate(polygon_boundaries, start=1):
             draw.polygon( polyg, fill=colors[ p%len(colors) ], width=5 )
         return np.array( input_img_hw )
@@ -56,7 +56,7 @@ def display_polygon_lines_from_img_and_json_files( img_file: str, seg_json: str,
         colors = [ tuple(c) for c in colors ]
         draw = ImageDraw.Draw( input_img_hw )
         segmentation_dict = json.load( seg_json_file )
-        polygon_boundaries = [ [ tuple(xy) for xy in line['boundary']] for line in segmentation_dict['lines']]
+        polygon_boundaries = [ [ tuple(xy) for xy in line['coords']] for line in segmentation_dict['lines']]
         for p, polyg in enumerate(polygon_boundaries, start=1):
             draw.polygon( polyg, fill=colors[ p%len(colors) ], width=5 )
         return np.array( input_img_hw )
@@ -79,7 +79,7 @@ def display_polygon_lines_from_img_and_dict( img_file: str, segdict: dict, color
         colors = get_n_color_palette( color_count ) if color_count else get_n_color_palette(int( polygon_count ))
         colors = [ tuple(c) for c in colors ]
         draw = ImageDraw.Draw( input_img_hw )
-        polygon_boundaries = [ [ tuple(xy) for xy in line['boundary']] for line in segdict['lines']]
+        polygon_boundaries = [ [ tuple(xy) for xy in line['coords']] for line in segdict['lines']]
         print(polygon_boundaries)
         for p, polyg in enumerate(polygon_boundaries, start=1):
             print("draw_line()", polygon_boundaries)

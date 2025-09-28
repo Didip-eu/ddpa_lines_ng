@@ -166,7 +166,7 @@ def post_process_boxes( preds: dict, box_threshold=.9, mask_threshold=.1, orig_s
     return page_wide_mask_1w
 
 
-def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, contour_tolerance=4.0):
+def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, contour_tolerance=4.0, raw_polygons=False, height_factor=1.0):
     """
     From a page-wide line mask, extract a labeled map and a dictionary of features.
     
@@ -174,7 +174,9 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
         page_wide_mask_1hw (np.ndarray): a binary line mask (1,H,W)
         polygon_area_threshold (int): minimum number of pixels for a polygon to survive.
         contour_tolerance (int): max. distance constraint for line/polygon approximations.
-        export_ready: if True, export a reconstructed version of the polygon (baseline+height); otherwise (default), export the raw polygon.
+        raw_polygons (bool): if True, return the (approximated) polygon obtained from the page mask; otherwise (default),
+            return a reconstructed version of the polygon (baseline+height).
+        height_factor (float): factor (∈  ]0,1]) to be applied to the polygon height-unused if 'raw_polygons' set.
 
     Returns:
         tuple[ np.ndarray, list[tuple[int, list, float, list]]]: a pair with
@@ -183,8 +185,6 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
               + export-ready: a regularized version, constructed from the morphological features of the raw maps;
                 it matches the polygon that is ultimately exported in the dictionary.
             - a list of line attribute dicts (label, centroid pt, area, polygon coords, ...)
-
-    TODO: return the page-wide of reconstructed polygons
     """
     # label components
     labeled_msk_hw = ski.measure.label( page_wide_mask_1hw[0], connectivity=2 )
@@ -222,12 +222,14 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
             skl_yx_reduced[-1,1] = box_width-1
         return skl_yx_reduced
 
-    def regularize_polygon( centerline: np.ndarray, line_height: int ):
+    def regularize_polygon( centerline: np.ndarray, line_height: int, hf: float ):
         """
         Crude way: concatenate baseline to translated and reverted version of itself
         """
-        return np.concat( [ centerline+[line_height//2,0], (centerline-[line_height//2,0])[::-1] ] )
+        return np.concatenate( [ centerline+[(line_height*hf)//2,0], (centerline-[(line_height*hf)//2,0])[::-1] ] )
 
+
+    labeled_msk_regular_hw = None if raw_polygons else np.zeros(labeled_msk_hw.shape, dtype=labeled_msk_hw.dtype)
 
     for lbl in labels:
         boundaries_nyx = ski.measure.find_contours( labeled_msk_hw == lbl )[0].astype('int')
@@ -248,6 +250,11 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
         this_skeleton_yx = fix_ends( this_skeleton_yx, line_heights[-1], polygon_box.shape[1] )
         approximate_pagewide_skl_yx = ski.measure.approximate_polygon(this_skeleton_yx, tolerance=2) + np.array( [min_y, min_x] )
         skeleton_coords.append( approximate_pagewide_skl_yx )
+
+        if not raw_polygons:
+            polygon_coords[-1] = regularize_polygon( skeleton_coords[-1], line_heights[-1], height_factor )
+            polyg_rr, polyg_cc = ski.draw.polygon( *(polygon_coords[-1]).transpose())
+            labeled_msk_regular_hw[ polyg_rr, polyg_cc ]=lbl
             
 
     # BBs centroid ordering differs from CCs top-to-bottom ordering:
@@ -257,10 +264,10 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
     #    logger.warning("Labels may not follow reading order.")
     
     
-    entry = (labeled_msk_hw[None,:], [{
+    entry = (labeled_msk_hw[None,:] if raw_polygons else labeled_msk_regular_hw[None,:], [{
                 'label': lbl,
                 'centroid': center,
-                'polygon_coords': regularize_polygon( skc, lh ) if export_ready else plgc,
+                'polygon_coords': plgc,
                 'line_height': lh, 
                 'centerline': skc,
                 'baseline': skc + [lh/2,0],

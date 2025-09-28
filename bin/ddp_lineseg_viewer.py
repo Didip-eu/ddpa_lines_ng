@@ -89,6 +89,8 @@ p = {
     'output_file_path': ['', 'If path is a directory, save the plot in <output_file_path>/<img_name_stem>.png.; otherwise, save under the provided file path.'],
     'crop_x': [1.0, "crop-in ratio (x axis, centered)"],
     'crop_y': [1.0, "crop-in ratio (y axis, centered)"],
+    'raw_polygons': [1, "Show polygons as resulting from the NN (default); otherwise, show the abstract polygons constructed from centerlines."],
+    'line_height_factor': [1.0, "Factor (within ]0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"],
 
 }
 
@@ -100,6 +102,9 @@ if __name__ == '__main__':
     logger.debug( args )
 
     live_model = lsg.SegModel.load( args.model_path ) if (not args.segfile_suffix and not args.segfile) else None
+
+    if args.raw_polygons and args.line_height_factor != 1.0:
+        logger.warning("'-raw_polygons' option set: ignoring the line height factor ({}).".format( args.line_height_factor))
 
     files = []
     if args.random:
@@ -140,7 +145,7 @@ if __name__ == '__main__':
 
                 logger.debug("Inference time: {:.5f}s".format( time.time()-start))
                 logger.debug("binary_mask.shape={}".format(binary_mask.shape))
-                segmentation_record = lb.get_morphology( binary_mask )
+                segmentation_record = lb.get_morphology( binary_mask, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor )
                 logger.debug("segmentation_record[0].shape={}".format(segmentation_record[0].shape))
                 mp, atts, path = segviz.batch_label_maps_to_img( [img_path], [segmentation_record], color_count=0 )[0]
 
@@ -157,7 +162,7 @@ if __name__ == '__main__':
                         logger.warning("No line mask found for {}: skipping.".format( img_path ))
                         continue
                     logger.debug("binary_mask.shape={}".format(binary_mask.shape))
-                    segmentation_record = lb.get_morphology( binary_mask )
+                    segmentation_record = lb.get_morphology( binary_mask, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor )
                     mp, atts, path = segviz.batch_label_maps_to_img( [img_path], [segmentation_record], color_count=0 )[0]
                 else:
                     logger.debug("Square")
@@ -165,7 +170,7 @@ if __name__ == '__main__':
                     if binary_mask is None:
                         logger.warning("No line mask found for {}: skipping.".format( img_path ))
                         continue
-                    segmentation_records= lb.get_morphology( binary_mask )
+                    segmentation_records= lb.get_morphology( binary_mask, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor )
                     mp, atts, path = segviz.batch_label_maps_to_img( [ {'img':imgs_t[0], 'id':str(img_path)} ], [segmentation_records], color_count=0 )[0]
             logger.debug("Rendering time: {:.5f}s".format( time.time()-start))
 

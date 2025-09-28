@@ -66,18 +66,19 @@ def polygon_map_from_xml_file( page_xml: str ) -> Tensor:
     segmentation_dict = segmentation_dict_from_xml( page_xml )
     return polygon_map_from_segmentation_dict( segmentation_dict)
 
-def polygon_map_from_segmentation_dict( segmentation_dict: dict, polygon_key='boundary' ) -> Tensor:
+def polygon_map_from_segmentation_dict( segmentation_dict: dict, polygon_key='coords' ) -> Tensor:
     """Store line polygons into a tensor, as pixel maps.
 
     Args:
         segmentation_dict (dict): kraken's segmentation output, i.e. a dictionary of the form::
 
                  {
-                 'image_wh': [w, h],
+                 'image_width': w, 
+                 'image_height': h,
                  'text_direction': '$dir',
                  'type': 'baseline',
                  'lines': [
-                   {'baseline': [[x0, y0], [x1, y1], ...], 'boundary': [[x0, y0], [x1, y1], ... [x_m, y_m]]},
+                   {'baseline': [[x0, y0], [x1, y1], ...], 'coords': [[x0, y0], [x1, y1], ... [x_m, y_m]]},
                    ...
                  ]
                  'regions': [ ... ] }
@@ -90,7 +91,7 @@ def polygon_map_from_segmentation_dict( segmentation_dict: dict, polygon_key='bo
 
     # create 2D matrix of 32-bit integers
     # (fillPoly() only accepts signed integers - risk of overflow is non-existent)
-    mask_size = segmentation_dict['image_wh'][::-1]
+    mask_size = segmentation_dict['image_height'], segmentation_dict['image_width']
 
     label_map = np.zeros( mask_size, dtype='int32' )
 
@@ -109,7 +110,7 @@ def polygon_map_from_segmentation_dict( segmentation_dict: dict, polygon_key='bo
     return polygon_img
 
 
-def line_binary_mask_from_json_file( segmentation_json: str, polygon_key='boundary' ) -> Tensor:
+def line_binary_mask_from_json_file( segmentation_json: str, polygon_key='coords' ) -> Tensor:
     """From a JSON segmentation file,  return a boolean mask where any pixel belonging
     to a polygon is 1 and the other pixels 0.
 
@@ -137,7 +138,7 @@ def line_binary_mask_from_xml_file( page_xml: str ) -> Tensor:
     return line_binary_mask_from_segmentation_dict( segmentation_dict )
 
 
-def line_binary_mask_from_segmentation_dict( segmentation_dict: dict, polygon_key='boundary' ) -> Tensor:
+def line_binary_mask_from_segmentation_dict( segmentation_dict: dict, polygon_key='coords' ) -> Tensor:
     """From a segmentation dictionary describing polygons, return a boolean mask where any pixel belonging
     to a polygon is 1 and the other pixels 0.
 
@@ -153,7 +154,7 @@ def line_binary_mask_from_segmentation_dict( segmentation_dict: dict, polygon_ke
     mask_size = segmentation_dict['image_wh']
     return torch.tensor( np.sum( [ ski.draw.polygon2mask( mask_size, polyg ).transpose(1,0) for polyg in polygon_boundaries ], axis=0))
 
-def line_binary_mask_stack_from_json_file( segmentation_json: str, polygon_key='boundary' ) -> Tensor:
+def line_binary_mask_stack_from_json_file( segmentation_json: str, polygon_key='coords' ) -> Tensor:
     """From a JSON file describing polygons, return a stack of boolean masks where any pixel belonging
     to a polygon is 1 and the other pixels 0.
 
@@ -167,7 +168,7 @@ def line_binary_mask_stack_from_json_file( segmentation_json: str, polygon_key='
     with open( segmentation_json, 'r' ) as json_file:
         return line_binary_mask_stack_from_segmentation_dict( json.load( json_file ), polygon_key=polygon_key)
 
-def line_binary_mask_stack_from_segmentation_dict( segmentation_dict: dict, polygon_key='boundary' ) -> Tensor:
+def line_binary_mask_stack_from_segmentation_dict( segmentation_dict: dict, polygon_key='coords' ) -> Tensor:
     """From a segmentation dictionary describing polygons, return a stack of boolean masks where any pixel belonging
     to a polygon is 1 and the other pixels 0.
 
@@ -183,7 +184,7 @@ def line_binary_mask_stack_from_segmentation_dict( segmentation_dict: dict, poly
     mask_size = segmentation_dict['image_wh']
     return torch.tensor( np.stack( [ ski.draw.polygon2mask( mask_size, polyg ).transpose(1,0) for polyg in polygon_boundaries ]))
 
-def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='boundary' ) -> list[list[int]]:
+def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='coords' ) -> list[list[int]]:
     """From a segmentation dictionary describing polygons, return a list of polygon boundaries, i.e. lists of points.
 
     Args:
@@ -235,7 +236,7 @@ def line_images_from_img_json_files( img: str, segmentation_json: str ) -> list[
     with Image.open(img, 'r') as img_wh, open( segmentation_json, 'r' ) as json_file:
         return line_images_from_img_segmentation_dict( img_wh, json.load( json_file ))
 
-def line_images_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dict: dict, polygon_key='boundary' ) -> list[tuple[np.ndarray, np.ndarray]]:
+def line_images_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dict: dict, polygon_key='coords' ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From a segmentation dictionary describing polygons, return 
     a list of pairs (<line cropped BB>, <polygon mask>).
 
@@ -316,7 +317,7 @@ def line_masks_from_img_xml_files(img: str, page_xml: str ) -> list[tuple[np.nda
         return line_masks_from_img_segmentation_dict( img_wh, segmentation_dict )
 
 
-def line_masks_from_img_json_files( img: str, segmentation_json: str, key='boundary' ) -> list[tuple[np.ndarray, np.ndarray]]:
+def line_masks_from_img_json_files( img: str, segmentation_json: str, key='coords' ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From an image file path and a segmentation JSON file describing polygons, return
     the bounding box coordinates and the boolean masks.
 
@@ -331,7 +332,7 @@ def line_masks_from_img_json_files( img: str, segmentation_json: str, key='bound
     with Image.open(img, 'r') as img_wh, open( segmentation_json, 'r' ) as json_file:
         return line_masks_from_img_segmentation_dict( img_wh, json.load( json_file ), key=key)
 
-def line_masks_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dict: dict, polygon_key='boundary' ) -> list[tuple[np.ndarray, np.ndarray]]:
+def line_masks_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dict: dict, polygon_key='coords' ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From a segmentation dictionary describing polygons, return 
     the bounding box coordinates and the boolean masks.
 
@@ -378,7 +379,7 @@ def expand_flat_tensor_to_n_channels( t_hw: Tensor, n: int ) -> np.ndarray:
     return t_hwc.numpy()
 
 
-def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_key='boundary'):
+def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_key='coords'):
     """Serialize a JSON dictionary describing the lines into a PageXML file.
     Caution: this is a crude function, with no regard for validation.
 
@@ -390,7 +391,7 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
             {"text_direction": ..., "type": "baselines", "regions": [ {"id": "r0", "lines": [{"tags": ..., "baseline": [ ... ]}]}, ... ]}
         pagexml_filename (str): if provided, output is saved in a PageXML file (standard output is the default).
         polygon_key (str): if the segmentation dictionary contain alternative polygons (f.i. 'extBoundary'),
-            use them, instead of the usual line 'boundary'.
+            use them, instead of the usual line 'coords'.
     """
     def boundary_to_point_string( list_of_pts ):
         return ' '.join([ f"{pair[0]:.0f},{pair[1]:.0f}" for pair in list_of_pts ] )
@@ -401,7 +402,7 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
         "xsi:schemaLocation": "http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15 http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15/pagecontent.xsd"})
     metadataElt = ET.SubElement(rootElt, 'MetaData')
     creatorElt = ET.SubElement( metadataElt, 'Creator')
-    creatorElt.text='prov=Universität Graz/ZIM/nprenet@uni-graz.at' 
+    creatorElt.text=seg_dict['metadata']['creator'] if ('metadata' in seg_dict and 'creator' in seg_dict['metadata']) else 'Universität Graz/DH/nprenet@uni-graz.at'
     createdElt = ET.SubElement( metadataElt, 'Created')
     createdElt.text=datetime.now().isoformat()
     lastChangeElt = ET.SubElement( metadataElt, 'LastChange')
@@ -410,16 +411,16 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
     if 'comments' in seg_dict:
         commentElt.text = seg_dict['comments']
 
-    img_name = Path(seg_dict['imagename']).name
-    img_width, img_height = seg_dict['image_wh']    
-    pageElt = ET.SubElement(rootElt, 'Page', attrib={'imageFilename': image_name, 'imageWidth': f"{img_width}", 'imageHeight': f"{img_height}"})
+    img_name = Path(seg_dict['image_filename']).name
+    img_width, img_height = seg_dict['image_width'], seg_dict['image_height']    
+    pageElt = ET.SubElement(rootElt, 'Page', attrib={'ImageFilename': img_name, 'ImageWidth': f"{img_width}", 'ImageHeight': f"{img_height}"})
     # if no region in segmentation dict, create one (image-wide)
     if 'regions' not in seg_dict:
-        seg_dict['regions']=[{'id': 'r0', 'boundary': [[0,0],[img_width-1,0],[img_width-1,img_height-1],[0,img_height-1]]}, ]
+        seg_dict['regions']=[{'id': 'r0', 'coords': [[0,0],[img_width-1,0],[img_width-1,img_height-1],[0,img_height-1]]}, ]
     for reg in seg_dict['regions']:
         reg_xml_id = f"r{reg['id']}" if type(reg['id']) is int else f"{reg['id']}"
         regElt = ET.SubElement( pageElt, 'TextRegion', attrib={'id': reg_xml_id})
-        ET.SubElement(regElt, 'Coords', attrib={'points': boundary_to_point_string(reg['boundary'])})
+        ET.SubElement(regElt, 'Coords', attrib={'points': boundary_to_point_string(reg['coords'])})
         # 3 cases: 
         # - top-level list of lines with region ref
         # - top-level list of lines with no regions
@@ -452,10 +453,6 @@ def segmentation_dict_from_xml(page: str) -> dict[str,Union[str,list[Any]]]:
             {"text_direction": ..., "type": "baselines", "lines": [{"tags": ..., "baseline": [ ... ]}]}
 
     """
-    direction = {'0.0': 'horizontal-lr', '0.1': 'horizontal-rl', '1.0': 'vertical-td', '1.1': 'vertical-bu'}
-
-    page_dict: dict[str, Union['str', list[Any]]] = { 'type': 'baselines', 'text_direction': 'horizontal-lr' }
-
     def construct_line_entry(line: ET.Element, regions: list = [] ) -> dict:
             #print(regions)
             line_id = line.get('id')
@@ -475,7 +472,7 @@ def segmentation_dict_from_xml(page: str) -> dict[str,Union[str,list[Any]]]:
             polygon_points = [ [ int(p) for p in pt.split(',') ] for pt in c_points.split(' ') ]
 
             return {'line_id': line_id, 'baseline': baseline_points, 
-                    'boundary': polygon_points, 'regions': regions} 
+                    'coords': polygon_points, 'regions': regions} 
 
     def process_region( region: ET.Element, line_accum: list, regions:list ):
         regions = regions + [ region.get('id') ]
@@ -502,14 +499,33 @@ def segmentation_dict_from_xml(page: str) -> dict[str,Union[str,list[Any]]]:
             raise ValueError(f"Could not find a name space in file {page}. Parsing aborted.")
 
         lines = []
+        page_dict = {}
 
         page_tree = ET.parse( page_file )
         page_root = page_tree.getroot()
 
+        metadata_elt = page_root.find('./pc:Metadata', ns)
+        if metadata_elt is None:
+            page_dict = { 'metadata': { 'created': str(datetime.now()), 'creator': __file__, } }
+        else:
+            created_elt = metadata_elt.find('./pc:Created', ns)
+            creator_elt = metadata_elt.find('./pc:Creator', ns)
+            comments_elt = metadata_elt.find('./pc:Comments', ns)
+            page_dict: {
+                    'metadata': {
+                        'created': created_elt.text if created_elt else str(datetime.datetime.now()),
+                        'creator': creator_elt.text if creator_elt else __filename__,
+                        'comments': comments_elt.text if comments_elt else "",
+                    }
+            }
+
+        page_dict['type']='baselines'
+        page_dict['text_direction']='horizontal-lr'
+
         pageElement = page_root.find('./pc:Page', ns)
         
-        page_dict['imagename']=pageElement.get('imageFilename')
-        page_dict['image_wh']=[ int(pageElement.get('imageWidth')), int(pageElement.get('imageHeight'))]
+        page_dict['image_filename']=pageElement.get('ImageFilename')
+        page_dict['image_width'], page_dict['image_height']=[ int(pageElement.get('ImageWidth')), int(pageElement.get('ImageHeight'))]
         
         for textRegionElement in pageElement.findall('./pc:TextRegion', ns):
             process_region( textRegionElement, lines, [] )
@@ -531,7 +547,7 @@ def merge_seals_regseg_lineseg( regseg: dict, region_labels: list[str], *lineseg
         *linesegs (list[str]): a number of local line segmentations for the region defined in the
             first file, of the form::
 
-                {"type": "baseline", "imagename": ..., lines: [ {"id": "... }, ... ] }
+                {"type": "baseline", "image_filename": ..., lines: [ {"id": "... }, ... ] }
 
         region_labels (list[str]): in the region segmentation, labels of those regions
             that have been line-segmented.
@@ -549,7 +565,7 @@ def merge_seals_regseg_lineseg( regseg: dict, region_labels: list[str], *lineseg
         for line in dictionary['lines']:
             new_line = copy.deepcopy( line )
             #print("Before:", line['baseline'])
-            for k in ('baseline', 'boundary'):
+            for k in ('baseline', 'coords'):
                 new_line[k] = [ [int(x+translation[0]),int(y+translation[1])] for (x,y) in line[k]]
             new_lines.append( new_line )
             #print("After:", new_line['baseline'])
@@ -568,7 +584,7 @@ def merge_seals_regseg_lineseg( regseg: dict, region_labels: list[str], *lineseg
     # go through local line segmentations (and corresponding rectangle in regseg),
     # and translate every x,y coordinates by value of the rectangle's origin (left,top)
     lines = []
-    #img_name = str(Path(linesegs[0]['imagename']).parents[1].joinpath( regseg['img_md5'] ).with_suffix( charter_img_suffix ))
+    #img_name = str(Path(linesegs[0]['image_filename']).parents[1].joinpath( regseg['img_md5'] ).with_suffix( charter_img_suffix ))
     img_name = "TODO (ANGULAS)"
 
     for (lineseg, coords) in zip( linesegs, [ c for (index, c) in enumerate( regseg['rect_LTRB'] ) if index in to_keep ]):
@@ -576,7 +592,7 @@ def merge_seals_regseg_lineseg( regseg: dict, region_labels: list[str], *lineseg
         #print("merged lines have now", len(lines))
 
     merged_seg = { "type": "baselines", 
-                   "imagename": img_name,
+                   "image_filename": img_name,
                    "text_direction": 'horizontal-lr',
                    "script_detection": False,
                    "lines": lines,

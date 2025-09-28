@@ -102,7 +102,7 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
     The segmentation dictionary is expected to have the following structure:
     
     ```
-    { 'regions': [ { 'boundary': [[x1,y1], ...,], 'lines': [ {'boundary': [[x1,y1], ...,] }, ... }]}
+    { 'regions': [ { 'coords': [[x1,y1], ...,], 'lines': [ {'coords': [[x1,y1], ...,] }, ... }]}
     ```
 
     Optional, non-standard attributes for the line are handled: 'centerline', 'height'.
@@ -135,8 +135,8 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
     with open( segfile, 'r' ) as segfile_in:
         segdict = json.load( segfile_in )
         
-        if 'imageFilename' in segdict and 'imageHeight' in segdict and 'imageWidth' in segdict and (img_hwc.shape[0] != segdict['imageHeight'] or img_hwc.shape[1] != segdict['imageWidth']):
-            print("The size of the provided image ({}) does not match the image properties defined in the segmentation file for {}: aborting.".format(Path(img_path).name, segdict['imageFilename']))
+        if 'image_filename' in segdict and 'image_height' in segdict and 'image_width' in segdict and (img_hwc.shape[0] != segdict['image_height'] or img_hwc.shape[1] != segdict['image_width']):
+            print("The size of the provided image ({}) does not match the image properties defined in the segmentation file for {}: aborting.".format(Path(img_path).name, segdict['image_filename']))
             return
 
         col_msk_hwc = np.zeros( img_hwc.shape, dtype=img_hwc.dtype )
@@ -148,7 +148,7 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
             for l,line in enumerate(reg['lines']):
                 col = np.array(colors[l % len(colors) ])
                 if features['polygons']:
-                    rr,cc = (np.array(line['boundary']).T)[::-1]
+                    rr,cc = (np.array(line['coords']).T)[::-1]
                     coords = ski.draw.polygon( rr, cc )
                     col_msk_hwc[ coords ] = (col/255.0)
                     bm_hw[ coords ] = True
@@ -161,8 +161,8 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
                     centerline_arr = np.array( line['centerline'] )
                     plt.plot( *centerline_arr.transpose(), linewidth=1/np.mean(crop))
             
-            if features['regions'] and 'boundary' in reg:
-                reg_closed_boundary = np.array( reg['boundary']+[reg['boundary'][0]])
+            if features['regions'] and 'coords' in reg:
+                reg_closed_boundary = np.array( reg['coords']+[reg['coords'][0]])
                 plt.plot( reg_closed_boundary[:,0], reg_closed_boundary[:,1], linewidth=linewidth*1/np.mean(crop))
         col_msk_hwc *= alpha
         bm_hw1 = bm_hw[:,:,None]

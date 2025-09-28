@@ -16,9 +16,13 @@ Output formats:
     + JSON: custom format, including features that are in the PageXML spec: centerline, line height, extended boundaries.
     + npy (2D-label map only)
 
-Example call::
+Example calls::
+    
     export FSDB_ROOT=~/tmp/data/1000CV
     PYTHONPATH=. python3 ./bin/ddp_line_detect -img_paths "${FSDB_ROOT}"/*/*/d9ae9ea49832ed79a2238c2d87cd0765/*seals.crops/*OldText*.jpg -model_path best.mlmodel -mask_classes Wr:OldText
+
+    # patch-trained model, exporting raw polygons (instead of abstract reconstructions)
+    PYTHONPATH=. python3 ./bin/ddp_line_detect -img_paths "${FSDB_ROOT}"/*/*/d9ae9ea49832ed79a2238c2d87cd0765/*seals.crops/*OldText*.jpg -model_path best.mlmodel -mask_classes Wr:OldText -raw_polygons 1
 
 TODO:
 """
@@ -28,7 +32,7 @@ from pathlib import Path
 import json
 import re
 import sys
-import datetime
+from datetime import datetime
 import logging
 import itertools
 import shutil
@@ -76,7 +80,8 @@ p = {
         'patch_size': [0, "Process the image by <patch_size>*<patch_size> patches"],
         'cache_predictions': [1, "Cache prediction tensors for faster, repeated calls with various post-processing options."],
         'cached_prediction_root_dir': ['/tmp', "Where to save the cached predictions."],
-
+        'raw_polygons': [1, "Show polygons as resulting from the NN (default); otherwise, show the abstract polygons constructed from centerlines."],
+        'line_height_factor': [1.0, "Factor (within ]0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"],
 }
 
 
@@ -111,32 +116,32 @@ def build_segdict( img_metadata, segmentation_record, line_attributes, contour_t
     Return:
         dict: a segmentation dictionary
     """
-    segdict = { 'created': str(datetime.datetime.now()), 'creator': __file__, }
+    segdict = { 'created': str(datetime.now()), 'creator': __file__, }
     segdict.update( img_metadata )
-    segdict['regions']=[ { 'id': 'r0', 'type': 'text_region', 'boundary': [], 'lines': [] } ]
+    segdict['regions']=[ { 'id': 'r0', 'type': 'text_region', 'coords': [], 'lines': [] } ]
 
     mp, atts = segmentation_record
     line_id=0
     for att_dict in atts:
         label, centroid, polygon_coords, line_height, centerline, baseline = [ att_dict[k] for k in ('label','centroid', 'polygon_coords', 'line_height', 'centerline', 'baseline')]
         logger.debug("polygon_coords.shape={}, polygon_coords".format(polygon_coords.shape))
-        dict_line_entry = {'id': f'l{line_id}', 'boundary': polygon_coords[:,::-1].tolist(), 'baseline': baseline[:,::-1].tolist() }
-        if 'height' in args.line_attributes:
+        dict_line_entry = {'id': f'l{line_id}', 'coords': polygon_coords[:,::-1].tolist(), 'baseline': baseline[:,::-1].tolist() }
+        if 'height' in line_attributes:
             dict_line_entry['height']=int(line_height)
-        if 'centerline' in args.line_attributes:
+        if 'centerline' in line_attributes:
             dict_line_entry['centerline']=centerline[:,::-1].tolist() # yx to xy
-        if 'baseline' in args.line_attributes:
+        if 'baseline' in line_attributes:
             dict_line_entry['baseline']=baseline[:,::-1].tolist()
         segdict['regions'][0]['lines'].append( dict_line_entry )
         line_id += 1
     # boundary of the dummy region
-    all_points = np.array(list(itertools.chain.from_iterable([ l['boundary'] for reg in segdict['regions'] for l in reg['lines'] ])))
+    all_points = np.array(list(itertools.chain.from_iterable([ l['coords'] for reg in segdict['regions'] for l in reg['lines'] ])))
     l, t, r, b = [ int(p) for p in ( min( all_points[:,0]), min( all_points[:,1]), max( all_points[:,0]), max( all_points[:,1]))]
-    segdict['regions'][-1]['boundary']=[[l,t],[r,t],[r,b],[l,b]]
+    segdict['regions'][-1]['coords']=[[l,t],[r,t],[r,b],[l,b]]
     return segdict
 
 
-def build_segdict_composite( img_metadata, boxes, segmentation_records, contour_tolerance=4.0):
+def build_segdict_composite( img_metadata, boxes, segmentation_records, line_attributes, contour_tolerance=4.0):
     """
     Construct the region + line segmentation dictionary.
 
@@ -152,7 +157,7 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, contour_
     Return:
         dict: a segmentation dictionary
     """
-    segdict = { 'created': str(datetime.datetime.now()), 'creator': __file__, }
+    segdict = { 'created': str(datetime.now()), 'creator': __file__, }
     segdict.update( img_metadata )
     segdict['regions']=[]
 
@@ -163,16 +168,16 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, contour_
         _, atts = record
         for att_dict in atts:
             label, polygon_coords, area, line_height, centerline, baseline = [ att_dict[k] for k in ('label','polygon_coords','area','line_height', 'centerline', 'baseline')]
-            dict_line_entry = {'id': f'l{line_id}', 'boundary': polygon_coords[:,::-1].tolist(), 'baseline': baseline[:,::-1].tolist() }
-            if 'height' in args.line_attributes:
+            dict_line_entry = {'id': f'l{line_id}', 'coords': polygon_coords[:,::-1].tolist(), 'baseline': baseline[:,::-1].tolist() }
+            if 'height' in line_attributes:
                 dict_line_entry['height']=int(line_height)
-            if 'centerline' in args.line_attributes:
+            if 'centerline' in line_attributes:
                 dict_line_entry['centerline']=centerline[:,::-1].tolist() # yx to xy
-            if 'baseline' in args.line_attributes:
+            if 'baseline' in line_attributes:
                 dict_line_entry['baseline']=baseline[:,::-1].tolist()
             this_region_lines.append( dict_line_entry )
             line_id += 1
-        segdict['regions'].append( { 'id': f'r{region_id}', 'type': 'text_region', 'boundary': [[box[0],box[1]],[box[2],box[1]],[box[2],box[3]],[box[0],box[3]]], 'lines': this_region_lines } )
+        segdict['regions'].append( { 'id': f'r{region_id}', 'type': 'text_region', 'coords': [[box[0],box[1]],[box[2],box[1]],[box[2],box[3]],[box[0],box[3]]], 'lines': this_region_lines } )
         region_id += 1
 
     return segdict
@@ -215,6 +220,9 @@ if __name__ == "__main__":
         raise FileNotFoundError("Could not find model file", args.model_path)
     live_model = lsg.SegModel.load( args.model_path ) 
 
+    if args.raw_polygons and args.line_height_factor != 1.0:
+        logger.warning("'-raw_polygons' option set: ignoring the line height factor ({}).".format( args.line_height_factor))
+
     all_img_paths = list(sorted(args.img_paths))
     for charter_dir in args.charter_dirs:
         charter_dir_path = Path( charter_dir )
@@ -243,7 +251,7 @@ if __name__ == "__main__":
 
         with Image.open( img_path, 'r' ) as img:
             # keys from PageXML specs
-            img_metadata = { 'imagename': str(img_path.name), 'image_wh': list(img.size), }
+            img_metadata = { 'image_filename': str(img_path.name), 'image_width': img.size[0], 'image_height': img.size[1] }
 
             # ex. '1063063ceab07a6b9f146c598810529d.lines.pred'
             output_file_path_wo_suffix = img_path.parent.joinpath( f'{stem}.{args.appname}.pred' )
@@ -293,7 +301,7 @@ if __name__ == "__main__":
                         binary_masks.append( binary_mask )
 
                         # each segpage: label map, attribute, <image path or id>
-                    segmentation_records = [ lb.get_morphology( msk ) for msk in binary_masks ]
+                    segmentation_records = [ lb.get_morphology( msk, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor ) for msk in binary_masks ]
                     #binary_mask = np.squeeze( segmentation_records[0][0] )
                     segdict = build_segdict_composite( img_metadata, boxes, segmentation_records, args.line_attributes ) 
 
@@ -317,7 +325,7 @@ if __name__ == "__main__":
                         imgs_t, preds, sizes = lsg.predict( [img], live_model=live_model )
                         logger.info("Successful segmentation.")
                         binary_mask = lb.post_process( preds[0], orig_size=sizes[0], box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
-                segmentation_record = lb.get_morphology( binary_mask )
+                segmentation_record = lb.get_morphology( binary_mask, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor )
                 segdict = build_segdict( img_metadata, segmentation_record, args.line_attributes )
 
             ############ 3. Handing the output #################
@@ -329,10 +337,10 @@ if __name__ == "__main__":
                 sys.exit()
             if args.output_format == 'json':
                 with open(output_file_path, 'w') as of:
-                    segdict['image_wh']=img.size
+                    #segdict['image_wh']=img.size
                     json.dump( segdict, of )
             elif args.output_format == 'xml':
-                segdict['image_wh']=img.size
+                #segdict['image_wh']=img.size
                 seglib.xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
             elif args.output_format == 'npy':
                 np.save( output_file_path, binary_mask )

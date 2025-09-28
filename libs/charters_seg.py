@@ -92,7 +92,7 @@ class ChartersDataset(VisionDataset):
                 count: int = 0,
                 resume_task: bool = False,
                 gt_suffix:str = 'lines.gt.json',
-                polygon_key:str = 'boundary',
+                polygon_key:str = 'coords',
                 ) -> None:
         """Initialize a dataset instance.
 
@@ -130,7 +130,7 @@ class ChartersDataset(VisionDataset):
             gt_suffix (str): 'xml' for PageXML (default) or valid, unique suffix of JSON file.
                 Ex. 'htr.gt.json'
             polygon_key (str): in the input segmentation dictionary, key for the polygon boundaries:
-                'boundary' (default)
+                'coords' (default)
         """
 
         # A dataset resource dictionary needed, unless we build from existing files

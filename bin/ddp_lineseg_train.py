@@ -64,7 +64,7 @@ p = {
     'train_set_limit': [0, "If positive, train on a random sampling of the train set."],
     'validation_set_limit': [0, "If positive, validate on a random sampling of the validation set."],
     'line_segmentation_suffix': ".lines.gt.json",
-    'polygon_key': 'boundary',
+    'polygon_key': 'coords',
     'backbone': ('resnet101','resnet50'),
     'lr': 2e-4,
     'img_size': [1024, "Resize the input images to <img_size> * <img_size>; if 'img_height non-null, this determines the width."],
@@ -101,14 +101,14 @@ class LineDetectionDataset(Dataset):
     + image
     + target dictionary: LHW segmentation mask tensor (1 mask for each of the L lines), L4 bounding box tensor, L label tensor.
     """
-    def __init__(self, img_paths, label_paths, polygon_key='boundary', transforms=None, img_size=(1024,1024), min_size=0):
+    def __init__(self, img_paths, label_paths, polygon_key='coords', transforms=None, img_size=(1024,1024), min_size=0):
         """
         Constructor for the Dataset class.
 
         Parameters:
             img_paths (list): List of unique identifiers for images.
             label_paths (list): List of label paths.
-            polygon_key (str): type of polygon in the segmentation dictionary ('boundary' or 'extBoundary').
+            polygon_key (str): type of polygon in the segmentation dictionary ('coords' or 'ext_coords').
             transforms (callable, optional): Optional transform to be applied on a sample.
             img_size (tuple[int]): when default (pre-tormentor) transform resizes the input to a fixed size.
             min_size (int): if non-zero, ensure that image is at least <size_min> on its smaller dimension - used when later augmentations use fixed crops.
