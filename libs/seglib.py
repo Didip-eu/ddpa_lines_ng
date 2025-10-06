@@ -413,7 +413,7 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
 
     img_name = Path(seg_dict['image_filename']).name
     img_width, img_height = seg_dict['image_width'], seg_dict['image_height']    
-    pageElt = ET.SubElement(rootElt, 'Page', attrib={'ImageFilename': img_name, 'ImageWidth': f"{img_width}", 'ImageHeight': f"{img_height}"})
+    pageElt = ET.SubElement(rootElt, 'Page', attrib={'imageFilename': img_name, 'imageWidth': f"{img_width}", 'imageHeight': f"{img_height}"})
     # if no region in segmentation dict, create one (image-wide)
     if 'regions' not in seg_dict:
         seg_dict['regions']=[{'id': 'r0', 'coords': [[0,0],[img_width-1,0],[img_width-1,img_height-1],[0,img_height-1]]}, ]
@@ -524,8 +524,8 @@ def segmentation_dict_from_xml(page: str) -> dict[str,Union[str,list[Any]]]:
 
         pageElement = page_root.find('./pc:Page', ns)
         
-        page_dict['image_filename']=pageElement.get('ImageFilename')
-        page_dict['image_width'], page_dict['image_height']=[ int(pageElement.get('ImageWidth')), int(pageElement.get('ImageHeight'))]
+        page_dict['image_filename']=pageElement.get('imageFilename')
+        page_dict['image_width'], page_dict['image_height']=[ int(pageElement.get('imageWidth')), int(pageElement.get('imageHeight'))]
         
         for textRegionElement in pageElement.findall('./pc:TextRegion', ns):
             process_region( textRegionElement, lines, [] )

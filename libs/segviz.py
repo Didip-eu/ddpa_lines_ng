@@ -6,6 +6,7 @@ import random
 from typing import Union,Callable
 from pathlib import Path
 import json
+import logging
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -13,6 +14,12 @@ from torch import Tensor
 from torchvision.tv_tensors import BoundingBoxes, Mask
 import skimage as ski
 from PIL import Image, ImageDraw
+
+from . import seglib
+
+
+logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
+logger = logging.getLogger(__name__)
 
 
 def get_n_color_palette(n: int, s=.85, v=.95) -> list:
@@ -132,58 +139,67 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
 
     img_hwc = ski.io.imread( img_path )/255.0
     bm_hw = np.zeros( img_hwc.shape[:2], dtype='bool' )
-    with open( segfile, 'r' ) as segfile_in:
-        segdict = json.load( segfile_in )
+
+    segdict = None
+    if segfile[-3:]=='xml' or segfile_suffix[-3:]=='xml':
+        segdict = seglib.segmentation_dict_from_xml( segfile )
+    elif segfile[-4:]=='json' or segfile_suffix[-3:]=='json':
+        with open( segfile, 'r' ) as segfile_in:
+            segdict = json.load( segfile_in )
+    if segdict is None:
+        logger.info("Could not parse a valid segmentation dictionary from {}: aborting.".format( segfile ))
+        return
         
-        if 'image_filename' in segdict and 'image_height' in segdict and 'image_width' in segdict and (img_hwc.shape[0] != segdict['image_height'] or img_hwc.shape[1] != segdict['image_width']):
-            print("The size of the provided image ({}) does not match the image properties defined in the segmentation file for {}: aborting.".format(Path(img_path).name, segdict['image_filename']))
+    if 'image_filename' in segdict and 'image_height' in segdict and 'image_width' in segdict:
+        if (img_hwc.shape[0] != segdict['image_height'] or img_hwc.shape[1] != segdict['image_width']):
+            logger.info("The size of the provided image ({}) does not match the image properties defined in the segmentation file for {}: aborting.".format(Path(img_path).name, segdict['image_filename']))
             return
 
-        col_msk_hwc = np.zeros( img_hwc.shape, dtype=img_hwc.dtype )
-        # for (older) JSON segmentation dictionaries, that have top-level 'lines' list.
-        regions = [segdict] if 'lines' in segdict else segdict['regions'] 
-        for reg in regions:
-            color_count = len(reg['lines'])
-            colors = get_n_color_palette( color_count )
-            for l,line in enumerate(reg['lines']):
-                col = np.array(colors[l % len(colors) ])
-                if features['polygons']:
-                    rr,cc = (np.array(line['coords']).T)[::-1]
-                    coords = ski.draw.polygon( rr, cc )
-                    col_msk_hwc[ coords ] = (col/255.0)
-                    bm_hw[ coords ] = True
-                    #plt.plot( cc,rr, linewidth=2 )
+    col_msk_hwc = np.zeros( img_hwc.shape, dtype=img_hwc.dtype )
+    # for (older) JSON segmentation dictionaries, that have top-level 'lines' list.
+    regions = [segdict] if 'lines' in segdict else segdict['regions'] 
+    for reg in regions:
+        color_count = len(reg['lines'])
+        colors = get_n_color_palette( color_count )
+        for l,line in enumerate(reg['lines']):
+            col = np.array(colors[l % len(colors) ])
+            if features['polygons']:
+                rr,cc = (np.array(line['coords']).T)[::-1]
+                coords = ski.draw.polygon( rr, cc )
+                col_msk_hwc[ coords ] = (col/255.0)
+                bm_hw[ coords ] = True
+                #plt.plot( cc,rr, linewidth=2 )
 
-                if features['baselines'] and 'baseline' in line:
-                    baseline_arr = np.array( line['baseline'] )
-                    plt.plot( *baseline_arr.transpose(), linewidth=1/np.mean(crop))
-                if features['centerlines'] and 'centerline' in line:
-                    centerline_arr = np.array( line['centerline'] )
-                    plt.plot( *centerline_arr.transpose(), linewidth=1/np.mean(crop))
-            
-            if features['regions'] and 'coords' in reg:
-                reg_closed_boundary = np.array( reg['coords']+[reg['coords'][0]])
-                plt.plot( reg_closed_boundary[:,0], reg_closed_boundary[:,1], linewidth=linewidth*1/np.mean(crop))
-        col_msk_hwc *= alpha
-        bm_hw1 = bm_hw[:,:,None]
-        img_complementary_hwc = img_hwc * ( ~bm_hw1 + bm_hw1 * (1-alpha))
+            if features['baselines'] and 'baseline' in line:
+                baseline_arr = np.array( line['baseline'] )
+                plt.plot( *baseline_arr.transpose(), linewidth=1/np.mean(crop))
+            if features['centerlines'] and 'centerline' in line:
+                centerline_arr = np.array( line['centerline'] )
+                plt.plot( *centerline_arr.transpose(), linewidth=1/np.mean(crop))
+        
+        if features['regions'] and 'coords' in reg:
+            reg_closed_boundary = np.array( reg['coords']+[reg['coords'][0]])
+            plt.plot( reg_closed_boundary[:,0], reg_closed_boundary[:,1], linewidth=linewidth*1/np.mean(crop))
+    col_msk_hwc *= alpha
+    bm_hw1 = bm_hw[:,:,None]
+    img_complementary_hwc = img_hwc * ( ~bm_hw1 + bm_hw1 * (1-alpha))
 
-        composed_img_array_hwc = img_complementary_hwc + col_msk_hwc
+    composed_img_array_hwc = img_complementary_hwc + col_msk_hwc
 
-        #with plt.rc_context({'lines.linewidth': .2}):
-        plt.imshow( composed_img_array_hwc )
-        height, width = img_hwc.shape[:2]
-        delta_x, delta_y = (1-crop[0])*width/2, (1-crop[1])*height/2 
-        plt.xlim(delta_x, width-delta_x)
-        plt.ylim(height-delta_y, delta_y)
-        if 'title' in show:
-            plt.title( Path(img_path).name )
+    #with plt.rc_context({'lines.linewidth': .2}):
+    plt.imshow( composed_img_array_hwc )
+    height, width = img_hwc.shape[:2]
+    delta_x, delta_y = (1-crop[0])*width/2, (1-crop[1])*height/2 
+    plt.xlim(delta_x, width-delta_x)
+    plt.ylim(height-delta_y, delta_y)
+    if 'title' in show:
+        plt.title( Path(img_path).name )
 
-        if output_file_path:
-            output_file_path = Path( output_file_path, img_path.stem).with_suffix('.pdf') if Path(output_file_path).is_dir() else Path(output_file_path)
-            plt.savefig( output_file_path, bbox_inches='tight', dpi=fig.dpi )
-        else:
-            plt.show()
+    if output_file_path:
+        output_file_path = Path( output_file_path, img_path.stem).with_suffix('.pdf') if Path(output_file_path).is_dir() else Path(output_file_path)
+        plt.savefig( output_file_path, bbox_inches='tight', dpi=fig.dpi )
+    else:
+        plt.show()
 
 
 def display_tensor_and_target( img_chw: Tensor, target: dict, alpha=.4, color='g'):

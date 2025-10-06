@@ -166,8 +166,13 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, line_att
         this_region_lines = []
         line_id = 0
         _, atts = record
+        offset = np.array([box[1],box[0]])
         for att_dict in atts:
-            label, polygon_coords, area, line_height, centerline, baseline = [ att_dict[k] for k in ('label','polygon_coords','area','line_height', 'centerline', 'baseline')]
+            label, polygon_coords, line_height, centerline, baseline = [ att_dict[k] for k in ('label','polygon_coords','line_height', 'centerline', 'baseline')]
+            # adding box offsets
+            polygon_coords += offset.astype(polygon_coords.dtype)
+            baseline += offset.astype(baseline.dtype)
+            centerline += offset.astype(centerline.dtype)
             dict_line_entry = {'id': f'l{line_id}', 'coords': polygon_coords[:,::-1].tolist(), 'baseline': baseline[:,::-1].tolist() }
             if 'height' in line_attributes:
                 dict_line_entry['height']=int(line_height)
@@ -205,7 +210,7 @@ if __name__ == "__main__":
         model_md5 = md5( mf.read() ).hexdigest()
         # create output subdir for this model
         cached_prediction_subdir_path = cached_prediction_root_path.joinpath( model_md5 )
-        print(cached_prediction_subdir_path)
+        print("cached_prediction_subdir_path={}".format(cached_prediction_subdir_path))
         cached_prediction_subdir_path.mkdir( exist_ok=True )
         model_local_copy_path = cached_prediction_subdir_path.with_suffix('.mlmodel')
         # copy model file into root folder, with MD5 identifier (make it easier to rerun eval loops later)
@@ -248,6 +253,7 @@ if __name__ == "__main__":
 
         # only for segmentation on Seals-detected regions
         region_segfile = re.sub(r'.img.jpg', args.region_segmentation_suffix, str(img_path) )
+        logger.debug("region_segfile={}".format(region_segfile))
 
         with Image.open( img_path, 'r' ) as img:
             # keys from PageXML specs
@@ -264,9 +270,10 @@ if __name__ == "__main__":
 
             # Option 1: segment the region crops (from seals), and construct a page-wide file
             if len(args.mask_classes):
-                logger.debug(f"Run segmentation on masked regions '{args.mask_classes}', instead of whole page.")
+                logger.debug(f"Run segmentation on masked regions '{args.mask_classes} from layout file {region_segfile}, instead of whole page.")
+                
                 # parse segmentation file, and extract and concatenate the WritableArea crops
-                with open(region_segfile) as regseg_if:
+                with open(region_segfile, 'r') as regseg_if:
                     regseg = json.load( regseg_if )
                    
                     # iterate over seals crops and segment

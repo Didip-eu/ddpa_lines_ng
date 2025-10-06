@@ -247,12 +247,18 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
         line_heights.append( (np.sum(polygon_box) // len( this_skeleton_yx)).item() )
         this_skeleton_yx = fix_ends( this_skeleton_yx, line_heights[-1], polygon_box.shape[1] )
         centroids.append( this_skeleton_yx[int(len(this_skeleton_yx)/2)] + np.array( [min_y, min_x] ))
-        approximate_pagewide_skl_yx = ski.measure.approximate_polygon(this_skeleton_yx, tolerance=2) + np.array( [min_y, min_x] )
+        approximate_pagewide_skl_yx = ski.measure.approximate_polygon(this_skeleton_yx, tolerance=3) + np.array( [min_y, min_x] )
         skeleton_coords.append( approximate_pagewide_skl_yx )
 
         if not raw_polygons:
             polygon_coords[-1] = regularize_polygon( skeleton_coords[-1], line_heights[-1], height_factor )
             polyg_rr, polyg_cc = ski.draw.polygon( *(polygon_coords[-1]).transpose())
+            # remove points that are out of bounds # should be done in the polyg. construction!
+            max_h, max_w = labeled_msk_hw.shape
+            keep = np.logical_and( polyg_rr < max_h, polyg_cc < max_w )
+            polyg_rr, polyg_cc = polyg_rr[keep], polyg_cc[keep]
+            #pgincd = pgincd[ np.logical_and(pgincd[:,0] < max_h, pgincd[:,1] < max_w) ]
+            #polyg_rr, polyg_cc = pgincd.transpose()
             labeled_msk_regular_hw[ polyg_rr, polyg_cc ]=lbl
             
 
@@ -320,7 +326,7 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=1
         overlap (int): minimum overlap between patches (in pixels)
         mask_threshold (float): confidence score threshold for soft line masks.
         box_threshold (float): confidence score threshold for line bounding boxes.
-        cached_prediction_prefix (str): a MD5 string for this image, to indicate that a prediction pickle should be checked for.
+        cached_prediction_prefix (str): a MD5 string for this image, to indicate that a prediction pickle should be checked for; a pickled prediction stores a list with one dictionary for each image crop.
         cached_prediction_path (Path): where to save the cached predictions.
 
     Returns:
@@ -345,9 +351,9 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=1
         return None
 
     crop_preds = None
-    cached_prediction_file = cached_prediction_path.joinpath( '{}.pt.gz'.format( cached_prediction_prefix ))
+    cached_prediction_file = Path(cached_prediction_path).joinpath( '{}.pt.gz'.format( cached_prediction_prefix )) if cached_prediction_path is not None else None
     ignore_cached_file = True
-    if cached_prediction_prefix and cached_prediction_file.exists():
+    if cached_prediction_prefix and cached_prediction_file is not None and cached_prediction_file.exists():
         ignore_cached_file = False
         try:
             uzpf = gzip.GzipFile( cached_prediction_file, 'r')
@@ -355,11 +361,16 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=1
         except RuntimeError as e:
             logger.warning("Runtime error {}".format(e))
             ignore_cached_file = True 
+        if len(crop_preds) != tile_tls:
+            logger.warning("The number of cached predictions and the number of tiles differ; this typically happens when text crops (as provided by the layout analyzer) or the tile size have changed: ignoring the cache. You may want to purge the cache ({}) before the next run.".format(cached_prediction_file))
+            ignore_cached_tile = True
     if ignore_cached_file:
+        logger.debug('Ignoring cached files.')
         img_crops = [ torch.from_numpy(img_hwc[y:y+patch_size,x:x+patch_size]).permute(2,0,1) for (y,x) in tile_tls ]
         logger.debug([ c.shape for c in img_crops ])
         
         _, crop_preds, _ = lsg.predict( img_crops, live_model=model )
+        logger.debug("Computed {} tile predictions".format(len(crop_preds)))
         if cached_prediction_prefix:
             zpf = gzip.GzipFile( cached_prediction_file, 'w')
             torch.save(crop_preds, zpf)
