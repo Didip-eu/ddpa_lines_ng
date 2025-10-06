@@ -170,8 +170,8 @@ if __name__ == '__main__':
                     if binary_mask is None:
                         logger.warning("No line mask found for {}: skipping.".format( img_path ))
                         continue
-                    segmentation_records= lb.get_morphology( binary_mask, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor )
-                    mp, atts, path = segviz.batch_label_maps_to_img( [ {'img':imgs_t[0], 'id':str(img_path)} ], [segmentation_records], color_count=0 )[0]
+                    segmentation_record= lb.get_morphology( binary_mask, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor )
+                    mp, atts, path = segviz.batch_label_maps_to_img( [ {'img':imgs_t[0], 'id':str(img_path)} ], [segmentation_record], color_count=0 )[0]
             logger.debug("Rendering time: {:.5f}s".format( time.time()-start))
 
             height, width = mp.shape[:2]
@@ -186,7 +186,8 @@ if __name__ == '__main__':
             for att_dict in atts:
                 if 'labels' in args.show:
                     label, centroid = att_dict['label'], att_dict['centroid']
-                    plt.text(*centroid[:0:-1], label, size=15)
+                    print('label={}, centroid={}'.format(label, centroid))
+                    plt.text(*centroid[::-1], label, size=15)
                 if 'centerlines' in args.show:
                     centerline = att_dict['centerline']
                     plt.plot(*(centerline.transpose()[::-1]))

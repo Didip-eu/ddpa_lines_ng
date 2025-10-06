@@ -43,7 +43,6 @@ def prune_skeleton( skeleton_hw: np.ndarray )->np.ndarray:
             - (H,W) pruned skeleton (i.e. no branching)
             - (N,2) list of skeleton coordinates 
     """
-
     def neighborhood( pixel ):
         max_h, max_w = skeleton_hw.shape
         offsets = np.array([[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]])
@@ -88,7 +87,7 @@ def prune_skeleton( skeleton_hw: np.ndarray )->np.ndarray:
     # New skeleton is a longest path
     longest_path = []
     current = deepest_leaf
-    while ( current is not leftmost ):
+    while ( not np.array_equal(current, leftmost )):
         longest_path.append( parent_matrix[current[0]][current[1]] )
         current = longest_path[-1]
     skeleton_coords_n2 = np.stack([ px for px in longest_path[::-1]], axis=0)
@@ -166,7 +165,7 @@ def post_process_boxes( preds: dict, box_threshold=.9, mask_threshold=.1, orig_s
     return page_wide_mask_1w
 
 
-def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, contour_tolerance=4.0, raw_polygons=False, height_factor=1.0):
+def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, contour_tolerance=4, raw_polygons=False, height_factor=1.0):
     """
     From a page-wide line mask, extract a labeled map and a dictionary of features.
     
@@ -195,9 +194,6 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
     labels = np.unique( labeled_msk_hw[ labeled_msk_hw > 0 ] )
     logger.debug("Found {} connected components on 1HW binary map ({}).".format( len(labels), labels))
 
-    #plt.imshow( labeled_msk_hw > 0)
-    #plt.show()
-    
     polygon_coords = []
     skeleton_coords = [] # a list of ndarrays
     line_heights = [] # a list of integers
@@ -234,7 +230,8 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
     for lbl in labels:
         boundaries_nyx = ski.measure.find_contours( labeled_msk_hw == lbl )[0].astype('int')
         # simplifying polygon
-        polygon_coords.append( ski.measure.approximate_polygon( boundaries_nyx, tolerance=contour_tolerance ))
+        approximate_coords = ski.measure.approximate_polygon( boundaries_nyx, tolerance=contour_tolerance )
+        polygon_coords.append( approximate_coords if len(approximate_coords) > 10 else boundaries_nyx )
 
         # 1. Create box with simplified polygon
         min_y, min_x = np.min( polygon_coords[-1], axis=0)
@@ -242,12 +239,14 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
         polygon_box = np.zeros((max_y-min_y+1, max_x-min_x+1)).astype('int8')
         polyg_rr, polyg_cc = ski.draw.polygon( *(polygon_coords[-1] - np.array([min_y, min_x])).transpose())
         polygon_box[ polyg_rr, polyg_cc ] = 1
-        centroids.append( ski.measure.regionprops( polygon_box )[0].centroid )
+        
         # 2. Skeletonize and prune
+        skeleton=ski.morphology.skeletonize( polygon_box )
         _, this_skeleton_yx = prune_skeleton( ski.morphology.skeletonize( polygon_box ))
         # 3. Avg line height = area of polygon / length of skeleton
         line_heights.append( (np.sum(polygon_box) // len( this_skeleton_yx)).item() )
         this_skeleton_yx = fix_ends( this_skeleton_yx, line_heights[-1], polygon_box.shape[1] )
+        centroids.append( this_skeleton_yx[int(len(this_skeleton_yx)/2)] + np.array( [min_y, min_x] ))
         approximate_pagewide_skl_yx = ski.measure.approximate_polygon(this_skeleton_yx, tolerance=2) + np.array( [min_y, min_x] )
         skeleton_coords.append( approximate_pagewide_skl_yx )
 
