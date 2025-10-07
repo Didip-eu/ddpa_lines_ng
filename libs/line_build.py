@@ -279,7 +279,7 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
     return entry
 
 
-def binary_mask_from_patches( img: Image.Image, row_count=2, col_count=1, overlap=100, model=None, mask_threshold=.25, box_threshold=.8):
+def binary_mask_from_patches( img: Image.Image, row_count=2, col_count=1, overlap=.04, model=None, mask_threshold=.25, box_threshold=.8):
     """
     Construct a single binary mask from predictions on <row_count>x<col_count> patches.
 
@@ -287,7 +287,7 @@ def binary_mask_from_patches( img: Image.Image, row_count=2, col_count=1, overla
         img (Image.Image): a PIL image.
         row_count (int): number of rows.
         col_count (int): number of cols.
-        overlap (int): overlap between patches (in pixels)
+        overlap (float): minimum overlap between patches (a ratio to be applied to the image's largest dimension).
         mask_threshold (float): confidence score threshold for soft line masks.
         box_threshold (float): confidence score threshold for line bounding boxes.
 
@@ -297,7 +297,8 @@ def binary_mask_from_patches( img: Image.Image, row_count=2, col_count=1, overla
     assert model is not None
     logger.debug("row_count={}, col_count={}".format(row_count, col_count))
     row_cuts_exact, col_cuts_exact  = [ list(int(f) for f in np.linspace(0, dim, d)) for dim, d in ((img.height, row_count+1), (img.width, col_count+1)) ]
-    row_cuts, col_cuts = [[[ c+overlap, c-overlap] if c and c<cuts[-1] else c for c in cuts ] for cuts in ( row_cuts_exact, col_cuts_exact ) ]
+    overlap_pixels = int(overlap * max(img.height, img.width))
+    row_cuts, col_cuts = [[[ c+overlap_pixels, c-overlap_pixels] if c and c<cuts[-1] else c for c in cuts ] for cuts in ( row_cuts_exact, col_cuts_exact ) ]
     rows, cols = [ lu.group( lu.flatten( cut ), gs=2) for cut in (row_cuts, col_cuts) ]
     crops_yyxx=[ lu.flatten(lst) for lst in itertools.product( rows, cols ) ]
     logger.debug(crops_yyxx)
@@ -314,14 +315,14 @@ def binary_mask_from_patches( img: Image.Image, row_count=2, col_count=1, overla
     return page_mask[None,:]
 
 
-def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=100, model=None, mask_threshold=.25, box_threshold=.8, cached_prediction_prefix='', cached_prediction_path=Path('/tmp'), max_patches=25) -> np.ndarray:
+def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.04, model=None, mask_threshold=.25, box_threshold=.8, cached_prediction_prefix='', cached_prediction_path=Path('/tmp'), max_patches=25) -> np.ndarray:
     """
     Construct a single binary mask from predictions on patches of size <patch_size> x <patch_size>.
 
     Args:
         img (Image.Image): a PIL image.
         patch_size (int): size of the square patch.
-        overlap (int): minimum overlap between patches (in pixels)
+        overlap (float): minimum overlap between patches (a ratio to be applied to the image's largest dimension).
         mask_threshold (float): confidence score threshold for soft line masks.
         box_threshold (float): confidence score threshold for line bounding boxes.
         cached_prediction_prefix (str): a MD5 string for this image, to indicate that a prediction pickle should be checked for; a pickled prediction stores a list with one dictionary for each image crop.
@@ -342,7 +343,7 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=1
         img_hwc = ski.transform.resize( img_hwc, (new_height, new_width ))
         rescaled = True
     # cut into tiles
-    tile_tls = seglib.tile_img( (new_width, new_height), patch_size, constraint=overlap )
+    tile_tls = seglib.tile_img( (new_width, new_height), patch_size, constraint=int(overlap*max(width,height)) )
     # Safety valve :)
     if  len(tile_tls) > max_patches:
         logger.warning("Image slices into {} 1024-pixel patches: limit ({}) exceeded.".format(len(tile_tls), max_patches))
@@ -361,7 +362,7 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=1
             ignore_cached_file = True 
         if len(crop_preds) != tile_tls:
             logger.warning("The number of cached predictions and the number of tiles differ; this typically happens when text crops (as provided by the layout analyzer) or the tile size have changed: ignoring the cache. You may want to purge the cache ({}) before the next run.".format(cached_prediction_file))
-            ignore_cached_tile = True
+            ignore_cached_file = True
     if ignore_cached_file:
         logger.debug('Ignoring cached files.')
         img_crops = [ torch.from_numpy(img_hwc[y:y+patch_size,x:x+patch_size]).permute(2,0,1) for (y,x) in tile_tls ]
