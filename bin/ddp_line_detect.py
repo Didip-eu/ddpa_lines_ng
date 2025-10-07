@@ -210,7 +210,6 @@ if __name__ == "__main__":
         model_md5 = md5( mf.read() ).hexdigest()
         # create output subdir for this model
         cached_prediction_subdir_path = cached_prediction_root_path.joinpath( model_md5 )
-        print("cached_prediction_subdir_path={}".format(cached_prediction_subdir_path))
         cached_prediction_subdir_path.mkdir( exist_ok=True )
         model_local_copy_path = cached_prediction_subdir_path.with_suffix('.mlmodel')
         # copy model file into root folder, with MD5 identifier (make it easier to rerun eval loops later)

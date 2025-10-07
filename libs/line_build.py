@@ -218,17 +218,22 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
             skl_yx_reduced[-1,1] = box_width-1
         return skl_yx_reduced
 
+    def constrain_polygon( pg: np.ndarray, height: int, width: int):
+        """ Move a set of coordinates to fit the given size constraints"""
+        pg = np.copy( pg )
+        pg[ np.where( pg[:,0] < 0 ), 0 ] = 0
+        pg[ np.where( pg[:,1] < 0 ), 1 ] = 0
+        pg[ np.where( pg[:,0] >= height ), 0 ] = height-1
+        pg[ np.where( pg[:,1] >= width ), 1 ] = width-1
+        return pg
+
     def regularize_polygon( centerline: np.ndarray, line_height: int, hf: float ):
         """
         Crude way: concatenate baseline to translated and reverted version of itself
         """
         pg = np.concatenate( [ centerline+[(line_height*hf)//2,0], (centerline-[(line_height*hf)//2,0])[::-1] ] )
         # move points that are out of bounds
-        pg[ np.where( pg[:,0] < 0 ), 0 ] = 0
-        pg[ np.where( pg[:,1] < 0 ), 1 ] = 0
-        pg[ np.where( pg[:,0] >= labeled_msk_hw.shape[0] ), 0 ] = labeled_msk_hw.shape[0]-1
-        pg[ np.where( pg[:,1] >= labeled_msk_hw.shape[1] ), 1 ] = labeled_msk_hw.shape[1]-1
-        return pg
+        return constrain_polygon( pg, *labeled_msk_hw.shape )
 
     labeled_msk_regular_hw = None if raw_polygons else np.zeros(labeled_msk_hw.shape, dtype=labeled_msk_hw.dtype)
 
@@ -350,9 +355,9 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
         return None
 
     crop_preds = None
-    cached_prediction_file = Path(cached_prediction_path).joinpath( '{}.pt.gz'.format( cached_prediction_prefix )) if cached_prediction_path is not None else None
+    cached_prediction_file = Path(cached_prediction_path).joinpath( '{}.pt.gz'.format( cached_prediction_prefix )) if (cached_prediction_path and cached_prediction_prefix) else None
     ignore_cached_file = True
-    if cached_prediction_prefix and cached_prediction_file is not None and cached_prediction_file.exists():
+    if cached_prediction_file is not None and cached_prediction_file.exists():
         ignore_cached_file = False
         try:
             uzpf = gzip.GzipFile( cached_prediction_file, 'r')
@@ -360,8 +365,8 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
         except RuntimeError as e:
             logger.warning("Runtime error {}".format(e))
             ignore_cached_file = True 
-        if len(crop_preds) != tile_tls:
-            logger.warning("The number of cached predictions and the number of tiles differ; this typically happens when text crops (as provided by the layout analyzer) or the tile size have changed: ignoring the cache. You may want to purge the cache ({}) before the next run.".format(cached_prediction_file))
+        if len(crop_preds) != len(tile_tls):
+            logger.warning("The number of cached predictions and the number of tiles differ; this typically happens when text crops (as provided by the layout analyzer) or the tile size have changed: refreshing the cached file ({}) instead.".format(cached_prediction_file))
             ignore_cached_file = True
     if ignore_cached_file:
         logger.debug('Ignoring cached files.')
