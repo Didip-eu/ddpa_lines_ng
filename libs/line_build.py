@@ -222,8 +222,13 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
         """
         Crude way: concatenate baseline to translated and reverted version of itself
         """
-        return np.concatenate( [ centerline+[(line_height*hf)//2,0], (centerline-[(line_height*hf)//2,0])[::-1] ] )
-
+        pg = np.concatenate( [ centerline+[(line_height*hf)//2,0], (centerline-[(line_height*hf)//2,0])[::-1] ] )
+        # move points that are out of bounds
+        pg[ np.where( pg[:,0] < 0 ), 0 ] = 0
+        pg[ np.where( pg[:,1] < 0 ), 1 ] = 0
+        pg[ np.where( pg[:,0] >= labeled_msk_hw.shape[0] ), 0 ] = labeled_msk_hw.shape[0]-1
+        pg[ np.where( pg[:,1] >= labeled_msk_hw.shape[1] ), 1 ] = labeled_msk_hw.shape[1]-1
+        return pg
 
     labeled_msk_regular_hw = None if raw_polygons else np.zeros(labeled_msk_hw.shape, dtype=labeled_msk_hw.dtype)
 
@@ -253,12 +258,6 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
         if not raw_polygons:
             polygon_coords[-1] = regularize_polygon( skeleton_coords[-1], line_heights[-1], height_factor )
             polyg_rr, polyg_cc = ski.draw.polygon( *(polygon_coords[-1]).transpose())
-            # remove points that are out of bounds # should be done in the polyg. construction!
-            max_h, max_w = labeled_msk_hw.shape
-            keep = np.logical_and( polyg_rr < max_h, polyg_cc < max_w )
-            polyg_rr, polyg_cc = polyg_rr[keep], polyg_cc[keep]
-            #pgincd = pgincd[ np.logical_and(pgincd[:,0] < max_h, pgincd[:,1] < max_w) ]
-            #polyg_rr, polyg_cc = pgincd.transpose()
             labeled_msk_regular_hw[ polyg_rr, polyg_cc ]=lbl
             
 
@@ -267,7 +266,6 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
     # TO DOUBLE-CHECK
     #if [ att[0] for att in attributes ] != sorted([att[0] for att in attributes]):
     #    logger.warning("Labels may not follow reading order.")
-    
     
     entry = (labeled_msk_hw[None,:] if raw_polygons else labeled_msk_regular_hw[None,:], [{
                 'label': lbl,
