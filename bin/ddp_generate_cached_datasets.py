@@ -38,6 +38,7 @@ p = {
         'dummy': 0,
         'img_suffix': '.img.jpg',
         'lbl_suffix': '.lines.gt.json',
+        'visual_check': (0, "Dry-run: no serialization + visual check of transformed samples."),
 }
 
 
@@ -66,16 +67,17 @@ ds_train = lsgds.LineDetectionDataset( imgs_train, lbls_train, min_size=args.img
 aug = tsf.build_tormentor_augmentation_for_crop_training( crop_size=args.img_size, crop_before=False )
 ds_aug = tormentor.AugmentedDs( ds_train, aug, computation_device='cpu', augment_sample_function=lsgds.LineDetectionDataset.augment_with_bboxes )
 
-for i in range(10):
-    fig, (ax0, ax1, ax2, ax3) = plt.subplots(ncols=4, figsize=(15, 4)) 
-    ax0.imshow( ds_train[i][0].permute(1,2,0))
-    ax1.imshow( torch.sum( ds_train[i][1]['masks'], axis=0) )
-    tsf_sample = ds_aug[i]
-    ax2.imshow( tsf_sample[0].permute(1,2,0))
-    ax3.imshow( torch.sum( tsf_sample[1]['masks'], axis=0) )
-    plt.show()
+if args.visual_check:
+    for i in range(10):
+        fig, (ax0, ax1, ax2, ax3) = plt.subplots(ncols=4, figsize=(15, 4)) 
+        ax0.imshow( ds_train[i][0].permute(1,2,0))
+        ax1.imshow( torch.sum( ds_train[i][1]['masks'], axis=0) )
+        tsf_sample = ds_aug[i]
+        ax2.imshow( tsf_sample[0].permute(1,2,0))
+        ax3.imshow( torch.sum( tsf_sample[1]['masks'], axis=0) )
+        plt.show()
 
-sys.exit()
+    sys.exit()
 
 if 'train' in args.subsets:
     ds_train_cached = lsg.CachedDataset( data_source = ds_train )
