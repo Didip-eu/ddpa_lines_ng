@@ -19,11 +19,13 @@ from pathlib import Path
 import sys
 import fargv
 import random
+import torch
+import matplotlib.pyplot as plt
 
 sys.path.append( str(Path(__file__).parents[1] ))
 
 from libs import segviz, transforms as tsf
-from bin import ddp_lineseg_train as lsg
+from libs import lineseg_datasets as lsgds
 from libs.train_utils import split_set
 
 
@@ -60,16 +62,30 @@ if args.dummy:
     sys.exit()
 
 # for training, Torment at will
-ds_train = lsg.LineDetectionDataset( imgs_train, lbls_train, min_size=args.img_size, polygon_key='coords')
+ds_train = lsgds.LineDetectionDataset( imgs_train, lbls_train, min_size=args.img_size, polygon_key='coords')
 aug = tsf.build_tormentor_augmentation_for_crop_training( crop_size=args.img_size, crop_before=False )
-ds_train = tormentor.AugmentedDs( ds_train, aug, computation_device='cpu', augment_sample_function=lsg.LineDetectionDataset.augment_with_bboxes )
+ds_aug = tormentor.AugmentedDs( ds_train, aug, computation_device='cpu', augment_sample_function=lsgds.LineDetectionDataset.augment_with_bboxes )
+
+for i in range(4):
+    fig, (ax0, ax1, ax2, ax3) = plt.subplots(ncols=4, figsize=(15, 4)) 
+    ax0.imshow( ds_train[i][0].permute(1,2,0))
+    ax1.imshow( torch.sum( ds_train[i][1]['masks'], axis=0) )
+    ax2.imshow( ds_aug[i][0].permute(1,2,0))
+    ax3.imshow( torch.sum( ds_aug[i][1]['masks'], axis=0) )
+    plt.imshow( torch.sum( ds_aug[i][1]['masks'], axis=0) )
+    plt.show()
+
+
+
+
+sys.exit()
 
 if 'train' in args.subsets:
     ds_train_cached = lsg.CachedDataset( data_source = ds_train )
     ds_train_cached.serialize( subdir='cached_train', repeat=args.repeat)
 
 # for validation and test, only crops
-ds_val = lsg.LineDetectionDataset( imgs_val, lbls_val, min_size=args.img_size, polygon_key='coords')
+ds_val = lsgds.LineDetectionDataset( imgs_val, lbls_val, min_size=args.img_size, polygon_key='coords')
 augCropCenter = tormentor.RandomCropTo.new_size( args.img_size, args.img_size )
 augCropLeft = tormentor.RandomCropTo.new_size( args.img_size, args.img_size ).override_distributions( center_x=tormentor.Uniform((0, .6)))
 augCropRight = tormentor.RandomCropTo.new_size( args.img_size, args.img_size ).override_distributions( center_x=tormentor.Uniform((.4, 1)))

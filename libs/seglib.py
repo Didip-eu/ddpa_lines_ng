@@ -151,7 +151,7 @@ def line_binary_mask_from_segmentation_dict( segmentation_dict: dict, polygon_ke
     """
     polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict, polygon_key=polygon_key)
     # create 2D boolean matrix
-    mask_size = segmentation_dict['image_wh']
+    mask_size = (segmentation_dict['image_width'], segmentation_dict['image_height'])
     return torch.tensor( np.sum( [ ski.draw.polygon2mask( mask_size, polyg ).transpose(1,0) for polyg in polygon_boundaries ], axis=0))
 
 def line_binary_mask_stack_from_json_file( segmentation_json: str, polygon_key='coords' ) -> Tensor:
@@ -181,7 +181,7 @@ def line_binary_mask_stack_from_segmentation_dict( segmentation_dict: dict, poly
     """
     polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict, polygon_key=polygon_key)
     # create 2D boolean matrix
-    mask_size = segmentation_dict['image_wh']
+    mask_size = (segmentation_dict['image_width'], segmentation_dict['image_height'])
     return torch.tensor( np.stack( [ ski.draw.polygon2mask( mask_size, polyg ).transpose(1,0) for polyg in polygon_boundaries ]))
 
 def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='coords' ) -> list[list[int]]:
@@ -441,11 +441,12 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
         tree.write( sys.stdout, encoding='unicode' )
 
 
-def segmentation_dict_from_xml(page: str) -> dict[str,Union[str,list[Any]]]:
+def segmentation_dict_from_xml(page: str, get_text=False) -> dict[str,Union[str,list[Any]]]:
     """Given a pageXML file name, return a JSON dictionary describing the lines.
 
     Args:
-        page (str): path of a PageXML file
+        page (str): path of a PageXML file.
+        get_text (bool): extract line text content, if present (default: False).
 
     Returns:
         dict[str,Union[str,list[Any]]]: a dictionary of the form::
@@ -471,8 +472,21 @@ def segmentation_dict_from_xml(page: str) -> dict[str,Union[str,list[Any]]]:
                 return None
             polygon_points = [ [ int(p) for p in pt.split(',') ] for pt in c_points.split(' ') ]
 
-            return {'line_id': line_id, 'baseline': baseline_points, 
-                    'coords': polygon_points, 'regions': regions} 
+            line_text, line_custom_attribute = '', ''
+            if get_text:
+                text_elt = line.find('./pc:TextEquiv', ns) 
+                if text_elt is not None:
+                    line_custom_attribute = text_elt.get('custom') if 'custom' in text_elt.keys() else ''
+                unicode_elt = text_elt.find('./pc:Unicode', ns)
+                if unicode_elt is not None:
+                    line_text = unicode_elt.text 
+            line_dict = {'line_id': line_id, 'baseline': baseline_points, 
+                        'coords': polygon_points, 'regions': regions}
+            if not re.match(r'\s*$', line_text):
+                line_dict['text'] = line_text 
+                if line_custom_attribute:
+                    line_dict['custom']=line_custom_attribute
+            return line_dict
 
     def process_region( region: ET.Element, line_accum: list, regions:list ):
         regions = regions + [ region.get('id') ]
