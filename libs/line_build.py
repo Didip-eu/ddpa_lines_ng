@@ -202,7 +202,7 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
 
     def fix_ends( skl_yx: np.array, line_height: int, box_width: tuple[int,int]):
         """
-        After pruning, skeleton's very ends may deviate markedly from the main axis: this a crude,
+        After pruning, skeleton's very ends may deviate markedly from the main axis; what follows is a crude,
         but adequate fix: both ends are truncated (proper length determined from line height) and replaced by a single 
         point at same height of the left(right)most point of the truncated skeleton. Option
         """
