@@ -509,7 +509,7 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
                 unicode_elt = text_elt.find('./pc:Unicode', ns)
                 if unicode_elt is not None:
                     line_text = unicode_elt.text 
-            line_dict = {'id': line_id, 'baseline': baseline_points, 
+            line_dict = {'line_id': line_id, 'baseline': baseline_points, 
                         'coords': polygon_points, 'regions': region_ids}
             if line_text and not re.match(r'\s*$', line_text):
                 line_dict['text'] = line_text 
