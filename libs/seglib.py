@@ -204,7 +204,7 @@ def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='
     return []
 
 
-def line_images_from_img_xml_files(img: str, page_xml: str ) -> list[tuple[np.ndarray, np.ndarray]]:
+def line_images_from_img_xml_files(img: str, page_xml: str, as_dictionary=False ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From an image file path and a segmentation PageXML file describing polygons, return
     a list of pairs (<line cropped BB>, <polygon mask>).
 
@@ -212,6 +212,8 @@ def line_images_from_img_xml_files(img: str, page_xml: str ) -> list[tuple[np.nd
         img (str): the input image's file path
         page_xml: :type page_xml: str a Page XML file describing the
             lines.
+        as_dictionary (bool): return segmentation dict where each line is a tuple (<img>,<msk>,<line_dict>); useful
+            for keeping track of line ids when running inference.
 
     Returns:
         list: a list of pairs (<line image BB>: np.ndarray (HWC), mask:
@@ -219,22 +221,35 @@ def line_images_from_img_xml_files(img: str, page_xml: str ) -> list[tuple[np.nd
     """
     with Image.open(img, 'r') as img_wh:
         segmentation_dict = segmentation_dict_from_xml( page_xml )
-        return line_images_from_img_segmentation_dict( img_wh, segmentation_dict )
+        line_pairs = line_images_from_img_segmentation_dict( img_wh, segmentation_dict )
+        line_triplets = [ (*line_pair, line_dict) for line_pair, line_dict in zip( line_pairs, segmentation_dict['lines']) ]
+        if as_dictionary:
+            segmentation_dict['lines'] = line_triplets
+            return segmentation_dict
+        return line_pairs
 
 
-def line_images_from_img_json_files( img: str, segmentation_json: str ) -> list[tuple[np.ndarray, np.ndarray]]:
+def line_images_from_img_json_files( img: str, segmentation_json: str, as_dictionary=False ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From an image file path and a segmentation JSON file describing polygons, return
     a list of pairs (<line cropped BB>, <polygon mask>).
 
     Args:
         img (str): the input image's file path
         segmentation_json (str): path of a JSON file
+        as_dictionary (bool): return segmentation dict where each line is a tuple (<img>,<msk>,<line_dict>); useful
+            for keeping track of line ids when running inference.
 
     Returns:
-        list: a list of pairs (<line image BB>: np.ndarray (HWC), mask: np.ndarray (HW))
+        Union[list,dict]: a segmentation dictionary or a list of pairs (<line image BB>: np.ndarray (HWC), mask: np.ndarray (HW))
     """
     with Image.open(img, 'r') as img_wh, open( segmentation_json, 'r' ) as json_file:
-        return line_images_from_img_segmentation_dict( img_wh, json.load( json_file ))
+        segmentation_dict = json.load( json_file )
+        line_pairs = line_images_from_img_segmentation_dict( img_wh, segmentation_dict )
+        line_triplets = [ (*line_pair, line_dict) for line_pair, line_dict in zip( line_pairs, segmentation_dict['lines']) ]
+        if as_dictionary:
+            segmentation_dict['lines'] = line_triplets
+            return segmentation_dict
+        return line_pairs
 
 def line_images_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dict: dict, polygon_key='coords' ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From a segmentation dictionary describing polygons, return 
@@ -242,7 +257,7 @@ def line_images_from_img_segmentation_dict(img_whc: Image.Image, segmentation_di
 
     Args:
         img_whc (Image.Image): the input image (needed for the size information).
-        segmentation_dict: :type segmentation_dict: dict a dictionary, typically constructed from a JSON file.
+        segmentation_dict (dict) a dictionary, typically constructed from a JSON file.
 
     Returns:
         list[tuple[np.ndarray, np.ndarray]]: a list of pairs (<line
@@ -441,21 +456,35 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
         tree.write( sys.stdout, encoding='unicode' )
 
 
-def segmentation_dict_from_xml(page: str, get_text=False) -> dict[str,Union[str,list[Any]]]:
+def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True, strict=False) -> dict[str,Union[str,list[Any]]]:
     """Given a pageXML file name, return a JSON dictionary describing the lines.
 
     Args:
         page (str): path of a PageXML file.
-        get_text (bool): extract line text content, if present (default: False).
+        get_text (bool): extract line text content, if present (default: False); this
+            option causes line with no text to be yanked from the dictionary.
+        regions_as_boxes (bool): when regions have more than 4 points or are not rectangular,
+            store their bounding boxes instead; the boxe's boundary is determined
+            by its pertaining lines, not by its nominal coordinates(default: True).
+        strict (bool): if True, raise an exception if line coordinates are comprised within
+            their region's boundaries; otherwise (default), the region value is automatically
+            extended to encompass the line coordinates.
 
     Returns:
         dict[str,Union[str,list[Any]]]: a dictionary of the form::
 
-            {"text_direction": ..., "type": "baselines", "lines": [{"tags": ..., "baseline": [ ... ]}]}
+            {"metadata": { ... },
+             "text_direction": ..., "type": "baselines", 
+             "lines": [{"id": ..., "coords": [ ... ], "baseline": [ ... ]}, ... ],
+             "regions": [{"id": ..., "coords": [ ... ]}, ... ] }
+
+           Regions are stored as a top-element.
 
     """
-    def construct_line_entry(line: ET.Element, regions: list = [] ) -> dict:
-            #print(regions)
+    def parse_coordinates( pts ):
+        return [ [ int(p) for p in pt.split(',') ] for pt in pts.split(' ') ]
+
+    def construct_line_entry(line: ET.Element, region_ids: list = [] ) -> dict:
             line_id = line.get('id')
             baseline_elt = line.find('./pc:Baseline', ns)
             if baseline_elt is None:
@@ -463,14 +492,14 @@ def segmentation_dict_from_xml(page: str, get_text=False) -> dict[str,Union[str,
             bl_points = baseline_elt.get('points')
             if bl_points is None:
                 return None
-            baseline_points = [ [ int(p) for p in pt.split(',') ] for pt in bl_points.split(' ') ]
+            baseline_points = parse_coordinates( bl_points )
             coord_elt = line.find('./pc:Coords', ns)
             if coord_elt is None:
                 return None
             c_points = coord_elt.get('points')
             if c_points is None:
                 return None
-            polygon_points = [ [ int(p) for p in pt.split(',') ] for pt in c_points.split(' ') ]
+            polygon_points = parse_coordinates( c_points )
 
             line_text, line_custom_attribute = '', ''
             if get_text:
@@ -481,22 +510,63 @@ def segmentation_dict_from_xml(page: str, get_text=False) -> dict[str,Union[str,
                 if unicode_elt is not None:
                     line_text = unicode_elt.text 
             line_dict = {'line_id': line_id, 'baseline': baseline_points, 
-                        'coords': polygon_points, 'regions': regions}
-            if not re.match(r'\s*$', line_text):
+                        'coords': polygon_points, 'regions': region_ids}
+            if line_text and not re.match(r'\s*$', line_text):
                 line_dict['text'] = line_text 
                 if line_custom_attribute:
                     line_dict['custom']=line_custom_attribute
+            elif get_text:
+                return None
             return line_dict
 
-    def process_region( region: ET.Element, line_accum: list, regions:list ):
-        regions = regions + [ region.get('id') ]
-        for elt in list(region.iter())[1:]:
+    def check_line_entry(line_dict: dict, region_dict: dict):
+        """ Check whether line coords are within region boundaries."""
+        reg_l, reg_t, reg_r, reg_b = region_dict['coords']
+        return all([ (pt[0] >= reg_l[0] and pt[0] <= reg_r[0] and pt[1] >= reg_t[1] and pt[1] <= reg_b[1]) for pt in line_dict['coords']])
+
+    def extend_box( box_coords, inner_coords ):
+        """Extend box coordinates to encompass inner boundaries """
+        inner_xs, inner_ys = [ pt[0] for pt in inner_coords ], [ pt[1] for pt in inner_coords ]
+        inner_left, inner_right, inner_top, inner_bottom = min(inner_xs), max(inner_xs), min(inner_ys), max(inner_ys)
+        return [ [ inner_left if inner_left < box_coords[0][0] else box_coords[0][0],
+                 inner_top if inner_top < box_coords[0][1] else box_coords[0][1]],
+                [ inner_right if inner_right > box_coords[1][0] else box_coords[1][0],
+                 inner_top if inner_top < box_coords[1][1] else box_coords[1][1]],
+                [ inner_right if inner_right > box_coords[2][0] else box_coords[2][0],
+                 inner_bottom if inner_bottom > box_coords[2][1] else box_coords[2][1]],
+                [ inner_left if inner_left < box_coords[3][0] else box_coords[3][0],
+                 inner_bottom if inner_bottom > box_coords[3][1] else box_coords[3][1]],]
+
+    def process_region( region: ET.Element, region_accum: list, line_accum: list, region_ids:list ):
+        # order of regions: outer -> inner
+        region_ids = region_ids + [ region.get('id') ]
+        
+        region_coord_elt = region.find('./pc:Coords', ns)
+        if region_coord_elt is not None:
+            rg_points = region_coord_elt.get('points')
+            if rg_points is None:
+                raise ValueError("Region has no coordinates. Aborting.")
+            rg_points = parse_coordinates( rg_points )
+            if regions_as_boxes:
+                xs, ys = [ pt[0] for pt in rg_points ], [ pt[1] for pt in rg_points ] 
+                left, right, top, bottom = min(xs), max(xs), min(ys), max(ys)
+                rg_points = [[left,top], [right,top], [right,bottom], [left, bottom]]
+
+        region_accum.append( {'id': region.get('id'), 'coords': rg_points } )
+
+        for line_idx, elt in enumerate( list(region.iter())[1:] ):
             if elt.tag == "{{{}}}TextLine".format(ns['pc']):
-                line_entry = construct_line_entry( elt, regions )
-                if line_entry is not None:
-                    line_accum.append( construct_line_entry( elt, regions ))
+                line_entry = construct_line_entry( elt, region_ids )
+                if line_entry is None:
+                    continue
+                if not check_line_entry(line_entry, region_accum[-1] ):
+                    if strict:
+                        raise ValueError("Page {}, region {}, l. {}: boundaries are not contained within its region.".format(page, region_ids[-1], line_idx))
+                    else: # extend region's bounding box boundary
+                        region_accum[-1]['coords'] = extend_box( region_accum[-1]['coords'], line_entry['coords']+line_entry['baseline'] )
+                line_accum.append( line_entry )
             elif elt.tag == "{{{}}}TextRegion".format(ns['pc']):
-                process_region(elt, line_accum, regions)
+                process_region(elt, region_accum, line_accum, region_ids)
 
     with open( page, 'r' ) as page_file:
 
@@ -513,6 +583,7 @@ def segmentation_dict_from_xml(page: str, get_text=False) -> dict[str,Union[str,
             raise ValueError(f"Could not find a name space in file {page}. Parsing aborted.")
 
         lines = []
+        regions = []
         page_dict = {}
 
         page_tree = ET.parse( page_file )
@@ -540,11 +611,13 @@ def segmentation_dict_from_xml(page: str, get_text=False) -> dict[str,Union[str,
         
         page_dict['image_filename']=pageElement.get('imageFilename')
         page_dict['image_width'], page_dict['image_height']=[ int(pageElement.get('imageWidth')), int(pageElement.get('imageHeight'))]
+
         
         for textRegionElement in pageElement.findall('./pc:TextRegion', ns):
-            process_region( textRegionElement, lines, [] )
+            process_region( textRegionElement, regions, lines, [] )
 
         page_dict['lines'] = lines
+        page_dict['regions'] = regions
 
     return page_dict 
 
