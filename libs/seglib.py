@@ -20,6 +20,9 @@ from torchvision.tv_tensors import Mask
 import numpy as np
 import numpy.ma as ma
 
+# local
+from . import line_geometry as lgm
+
 
 __LABEL_SIZE__=8
 
@@ -184,12 +187,17 @@ def line_binary_mask_stack_from_segmentation_dict( segmentation_dict: dict, poly
     mask_size = (segmentation_dict['image_width'], segmentation_dict['image_height'])
     return torch.tensor( np.stack( [ ski.draw.polygon2mask( mask_size, polyg ).transpose(1,0) for polyg in polygon_boundaries ]))
 
-def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='coords' ) -> list[list[int]]:
+def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='coords', factor=1.0 ) -> list[list[int]]:
     """From a segmentation dictionary describing polygons, return a list of polygon boundaries, i.e. lists of points.
+    TODO: apply region box_in constraint.
 
     Args:
         segmentation_dict (dict): a dictionary, typically constructed from a JSON file. The 'lines' entry is either
-        top-level key, or nested as in 'regions > region > lists'.
+            top-level key, or nested as in 'regions > region > lists'.
+        polygon_key (str): the name of the polygon's entry in the dictionary.
+        factor (float): the factor applied to the strip's height; if 1.0, the polygons are extracted as they are
+            stored; otherwise, a new polygon is constructed from the baseline and the scaled height.
+
     Returns:
         list[list[int]]: a list of lists of coordinates.
     """
@@ -197,10 +205,14 @@ def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='
     # 
     # 1. Top-level list of lines  (no region or only region id as a line attribute)
     if 'lines' in segmentation_dict:
-        return [ line[polygon_key] for line in segmentation_dict['lines'] ]
+        if factor==1.0:
+            return [ line[polygon_key] for line in segmentation_dict['lines'] ]
+        return [ lgm.strip_from_baseline( line['baseline'], line['height']*factor ).tolist() for line in segmentation_dict['lines'] ]
     # 2. Text lines are nested into regions
     elif 'regions' in segmentation_dict:
-        return [ line[polygon_key] for reg in segmentation_dict['regions'] for line in reg['lines']] 
+        if factor==1.0:
+            return [ line[polygon_key] for reg in segmentation_dict['regions'] for line in reg['lines']] 
+        return [ lgm.strip_from_baseline( line['baseline'], line['height']*factor ).tolist() for reg in segmentation_dict['regions'] for line in reg['lines']]
     return []
 
 
@@ -229,7 +241,7 @@ def line_images_from_img_xml_files(img: str, page_xml: str, as_dictionary=False 
         return line_pairs
 
 
-def line_images_from_img_json_files( img: str, segmentation_json: str, as_dictionary=False ) -> list[tuple[np.ndarray, np.ndarray]]:
+def line_images_from_img_json_files( img: str, segmentation_json: str, as_dictionary=False, factor=1.0 ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From an image file path and a segmentation JSON file describing polygons, return
     a list of pairs (<line cropped BB>, <polygon mask>).
 
@@ -238,32 +250,35 @@ def line_images_from_img_json_files( img: str, segmentation_json: str, as_dictio
         segmentation_json (str): path of a JSON file
         as_dictionary (bool): return segmentation dict where each line is a tuple (<img>,<msk>,<line_dict>); useful
             for keeping track of line ids when running inference.
+        factor (float): scale line polygon height to <factor>.
 
     Returns:
         Union[list,dict]: a segmentation dictionary or a list of pairs (<line image BB>: np.ndarray (HWC), mask: np.ndarray (HW))
     """
     with Image.open(img, 'r') as img_wh, open( segmentation_json, 'r' ) as json_file:
         segmentation_dict = json.load( json_file )
-        line_pairs = line_images_from_img_segmentation_dict( img_wh, segmentation_dict )
+        line_pairs = line_images_from_img_segmentation_dict( img_wh, segmentation_dict, factor=factor )
         line_triplets = [ (*line_pair, line_dict) for line_pair, line_dict in zip( line_pairs, segmentation_dict['lines']) ]
         if as_dictionary:
             segmentation_dict['lines'] = line_triplets
             return segmentation_dict
         return line_pairs
 
-def line_images_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dict: dict, polygon_key='coords' ) -> list[tuple[np.ndarray, np.ndarray]]:
+def line_images_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dict: dict, polygon_key='coords', factor=1.0 ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From a segmentation dictionary describing polygons, return 
     a list of pairs (<line cropped BB>, <polygon mask>).
 
     Args:
         img_whc (Image.Image): the input image (needed for the size information).
         segmentation_dict (dict) a dictionary, typically constructed from a JSON file.
+        polygon_key (str): name of the line polygon's entry.
+        factor (float): scale line polygon height to <factor>.
 
     Returns:
         list[tuple[np.ndarray, np.ndarray]]: a list of pairs (<line
         image BB>: np.ndarray (HWC), mask: np.ndarray (HWC))
     """
-    polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict, polygon_key=polygon_key)
+    polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict, polygon_key=polygon_key, factor=factor)
     img_hwc = np.asarray( img_whc )
 
     pairs_line_bb_and_mask = []# [None] * len(polygon_boundaries)
@@ -374,6 +389,7 @@ def line_masks_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dic
         masks.append( page_polyg_mask )
 
     return (np.stack( bbs ), np.stack( masks ))
+
 
 
 

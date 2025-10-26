@@ -1,8 +1,10 @@
 """
-line_build.py
+line_geometry.py
 
-This module factors out functions that call the low-level line prediction routines on libs/ddp_lineseg_train.py 
-and process their outcomes, made of boxes and a matching stack of soft masks.
+This module factors out 
+
++ Functions that call the low-level line prediction routines on libs/ddp_lineseg_train.py and process their outcomes, made of boxes and a matching stack of soft masks.
++ More broadly, functions that handle conversions between pixels maps and polygons, or line-to-polygon and polygon-to-polygon transformations.
 
 Users:
 
@@ -386,4 +388,100 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
     return page_mask[None,:]
 
 
+
+def strip_from_baseline(baseline_n2: list[tuple[int,int]], height: float) -> list[tuple[int,int]]:
+    """
+    Given a baseline, construct the strip-shaped polygon with given height.
+
+    Args:
+        baseline_n2 (list[tuple[int,int]]): a sequence of 2D points (x_i, y_i).
+        height (float): the strip height.
+    Returns:
+        list[tuple[int,int]]: a (N,2) clockwise sequence of (x,y) points.
+    """
+    return strip_from_centerline( np.array( baseline_n2 )-[0,height/2], height ).tolist()
+
+def strip_from_centerline(centerline_n2: np.ndarray, height: float) -> np.ndarray:
+    """
+    Given a centerline, construct the strip-shaped polygon with given height.
+
+    Args:
+        centerline_n2 (np.ndarray): a (N,2) sequence of 2D points (x_i, y_i).
+        height (float): the strip height.
+    Returns:
+        np.ndarray: a (N,2) clockwise sequence of (x,y) points.
+    """
+    left_dummy_pt = np.array( [ 2*centerline_n2[0][0]-centerline_n2[1][0], 2*centerline_n2[0][1]-centerline_n2[1][1] ])
+    right_dummy_pt = np.array( [ 2*centerline_n2[-1][0]-centerline_n2[-2][0], 2*centerline_n2[-1][1]-centerline_n2[-2][1] ])
+    centerline_n2_augmented = np.concatenate( [ [left_dummy_pt], centerline_n2, [right_dummy_pt] ], dtype='float')
+
+    vertebras_n2xy = []
+    vertebra_north_south_2xy = np.array([[0,-height/2], [0,height/2]])
+    for ctr_idx in range(1,len(centerline_n2_augmented)-1):
+        left, mid, right = centerline_n2_augmented[ctr_idx-1:ctr_idx+2]
+        rotation_matrix = bisection_rotation_matrix( left-mid, right-mid )
+        rotated_vertebra_north_south_2xy=np.matmul( rotation_matrix, vertebra_north_south_2xy.T).T
+        vertebras_n2xy.append( rotated_vertebra_north_south_2xy + mid ) # shift to actual pos.
+    vertebras_n2xy = np.stack(vertebras_n2xy)
+
+    contour_pts_n2xy = np.concatenate( [vertebras_n2xy[:,0], vertebras_n2xy[::-1,1], vertebras_n2xy[0:1,0]])
+
+#    plt.close()
+#    plt.plot(*(centerline_n2_augmented[1:-1]).transpose())
+#    plt.plot( *contour_pts_n2xy.transpose() )
+#    ax=plt.gca()
+#    ax.set_aspect('equal', adjustable='box')
+#    plt.show()
+    
+    return contour_pts_n2xy.astype('int32')
+
+
+def boxed_in( sequence_n2xy: np.ndarray, ltrb: tuple[float,float,float,float] )->np.ndarray:
+    """
+    Given a sequence of points, shift its elements' coordinates  s.t. they are contained
+    within the given box.
+
+    Args: 
+        sequence_n2xy (np.ndarray) a (N,2) sequence of (x,y) points.
+        ltrb (tuple[float,float,float,float]): the left, top, right, and bottom coordinates.
+    Returns:
+        polyg_n2xy (np.ndarray): a (N,2) sequence of (x,y) points.
+    """
+    left, top, right, bottom = ltrb
+    shifted_pts = []
+    for pt in sequence_n2xy:
+        x, y = pt
+        if x < left:
+            x = left
+        elif x > right:
+            x = right
+        if y < top:
+            y = top
+        elif y > bottom:
+            y = bottom
+        shifted_pts.append( [x,y] )
+    return np.array( shifted_pts )
+
+
+
+def bisection_rotation_matrix(left, right):
+    """ Given 2 vectors <left> and <right>, return the matrix that rotates a vertical vector 
+    such that it bisects the angle formed by <left> and <right>.
+
+    left (float): a 2D vector/pt.
+    right (float): a 2D vector/pt.
+    """
+    # special case (1): vertical segment
+    if np.isclose(left[0], right[0]):
+        raise ValueError("Vertical segment: abort.")
+    # special case (2): colinear, horizontal vectors
+    if np.isclose(left[1], right[1]):
+        return np.identity(2)
+
+    alpha = np.arctan(left[1]/left[0])
+    beta = np.arctan(right[1]/right[0])
+    gamma = ( alpha + beta ) / 2
+    cosg, sing = np.cos( gamma ), np.sin( gamma )
+    rotation_matrix = np.array([[cosg, -sing],[sing, cosg]])
+    return rotation_matrix
 

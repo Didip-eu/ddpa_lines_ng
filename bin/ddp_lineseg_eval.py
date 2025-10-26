@@ -38,7 +38,7 @@ import fargv
 src_root = Path(__file__).parents[1]
 sys.path.append( str( src_root ))
 from bin import ddp_lineseg_train as lsg
-from libs import seglib, list_utils as lu, line_build as lb 
+from libs import seglib, list_utils as lu, line_geometry as lgm 
 
 
 logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
@@ -158,13 +158,13 @@ if __name__ == '__main__':
                         logger.warning('The model being loaded is trained on {}x{} patches, but the script uses a {} patch size argument: overriding patch_size value with model-stored size.'.format( *live_model.hyper_parameters['img_size'], args.patch_size))
                         patch_size = live_model.hyper_parameters['img_size'][0]
                 logger.debug('Patch size: {} x {}'.format( patch_size, patch_size))
-                binary_mask = lb.binary_mask_from_fixed_patches( Image.open(img_path), patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold, cached_prediction_prefix=img_md5, cached_prediction_path=cache_subdir_path )
+                binary_mask = lgm.binary_mask_from_fixed_patches( Image.open(img_path), patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold, cached_prediction_prefix=img_md5, cached_prediction_path=cache_subdir_path )
             # Style 2: Inference M x N squares
             else:
                 patch_row_count = args.patch_row_count if args.patch_row_count else 1
                 patch_col_count = args.patch_col_count if args.patch_col_count else 1
                 logger.debug("Patches: {}x{}".format(patch_row_count, patch_col_count))
-                binary_mask = lb.binary_mask_from_patches( Image.open(img_path), patch_row_count, patch_col_count, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold )
+                binary_mask = lgm.binary_mask_from_patches( Image.open(img_path), patch_row_count, patch_col_count, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold )
 
             logger.debug("Inference time: {:.5f}s".format( time.time()-start))
 
@@ -176,11 +176,11 @@ if __name__ == '__main__':
             logger.debug("Inference time: {:.5f}s".format( time.time()-start))
             if args.rescale:
                 logger.debug("Rescale")
-                binary_mask = lb.post_process( preds[0], orig_size=sizes[0], mask_threshold=args.mask_threshold, box_threshold=args.box_threshold )
+                binary_mask = lgm.post_process( preds[0], orig_size=sizes[0], mask_threshold=args.mask_threshold, box_threshold=args.box_threshold )
             else:
                 logger.debug("Square")
                 # TODO: label binary map
-                binary_mask= lb.post_process( preds[0], mask_threshold=args.mask_threshold , box_threshold=args.box_threshold)
+                binary_mask = lgm.post_process( preds[0], mask_threshold=args.mask_threshold , box_threshold=args.box_threshold)
         if binary_mask is None:
             logger.warning("No line mask found for {}: skipping item.".format( img_path ))
             continue

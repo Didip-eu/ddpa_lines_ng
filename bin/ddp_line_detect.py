@@ -52,7 +52,7 @@ import fargv
 
 src_root = Path(__file__).parents[1]
 sys.path.append( str( src_root ))
-from libs import seglib, list_utils as lu, line_build as lb
+from libs import seglib, list_utils as lu, line_geometry as lgm
 from bin import ddp_lineseg_train as lsg
 
 
@@ -288,7 +288,7 @@ if __name__ == "__main__":
                         if args.patch_size:
                             patch_size = check_patch_size_against_model( live_model, args.patch_size )
                             logger.debug('Patch size: {} x {}'.format( patch_size, patch_size))
-                            binary_mask = lb.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold, cached_prediction_prefix=img_md5, cached_prediction_path=cache_subdir_path )
+                            binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold, cached_prediction_prefix=img_md5, cached_prediction_path=cache_subdir_path )
 
                         # Check for unusual size before choosing patch-based inference or not
                         else:
@@ -296,19 +296,19 @@ if __name__ == "__main__":
                             if rows or cols:
                                 logger.debug("Unusual size detected: process {}x{} patches.".format(rows, cols))
                             if rows > 1:
-                                binary_mask = lb.binary_mask_from_patches( crop_whc, row_count=rows, model=model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold) 
+                                binary_mask = lgm.binary_mask_from_patches( crop_whc, row_count=rows, model=model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold) 
                             elif cols > 1:
-                                binary_mask = lb.binary_mask_from_patches( crop_whc, col_count=cols, model=model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold) 
+                                binary_mask = lgm.binary_mask_from_patches( crop_whc, col_count=cols, model=model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold) 
                             else:
                                 imgs_t, preds, sizes = lsg.predict( [crop_whc], live_model=live_model )
-                                binary_mask = lb.post_process( preds[0], orig_size=sizes[0], box_threshold=args.box_threshold, mask_threshold=args.mask_threshold ) 
+                                binary_mask = lgm.post_process( preds[0], orig_size=sizes[0], box_threshold=args.box_threshold, mask_threshold=args.mask_threshold ) 
                         if binary_mask is None:
                             logger.warning("No line mask found for {}, crop {}: skipping item.".format( img_path, crop_idx ))
                             continue
                         binary_masks.append( binary_mask )
 
                         # each segpage: label map, attribute, <image path or id>
-                    segmentation_records = [ lb.get_morphology( msk, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor ) for msk in binary_masks ]
+                    segmentation_records = [ lgm.get_morphology( msk, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor ) for msk in binary_masks ]
                     #binary_mask = np.squeeze( segmentation_records[0][0] )
                     segdict = build_segdict_composite( img_metadata, boxes, segmentation_records, args.line_attributes ) 
 
@@ -320,19 +320,19 @@ if __name__ == "__main__":
                     # case 1: process image in fixed-size patches
                     patch_size = check_patch_size_against_model( live_model, args.patch_size )
                     logger.debug('Patch size: {} x {}'.format( patch_size, patch_size))
-                    binary_mask = lb.binary_mask_from_fixed_patches( img, patch_size=patch_size, model=live_model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold, cached_prediction_prefix=img_md5, cached_prediction_path=cache_subdir_path )
+                    binary_mask = lgm.binary_mask_from_fixed_patches( img, patch_size=patch_size, model=live_model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold, cached_prediction_prefix=img_md5, cached_prediction_path=cache_subdir_path )
                 else:
                     # case 2: process image in M x N patches
                     if args.patch_row_count and args.patch_col_count:
                         logger.debug("Process {}x{} patches.".format(args.patch_row_count, args.patch_col_count))
-                        binary_mask = lb.binary_mask_from_patches( img, args.patch_row_count, args.patch_col_count, model=model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
+                        binary_mask = lgm.binary_mask_from_patches( img, args.patch_row_count, args.patch_col_count, model=model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
                     # case 3: process image as-is
                     else:
                         logger.debug("Page-wide processing")
                         imgs_t, preds, sizes = lsg.predict( [img], live_model=live_model )
                         logger.info("Successful segmentation.")
-                        binary_mask = lb.post_process( preds[0], orig_size=sizes[0], box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
-                segmentation_record = lb.get_morphology( binary_mask, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor )
+                        binary_mask = lgm.post_process( preds[0], orig_size=sizes[0], box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
+                segmentation_record = lgm.get_morphology( binary_mask, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor )
                 segdict = build_segdict( img_metadata, segmentation_record, args.line_attributes )
 
             ############ 3. Handing the output #################
