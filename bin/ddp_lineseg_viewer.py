@@ -115,7 +115,7 @@ if __name__ == '__main__':
     for img_path in files:
         logger.info(img_path)
 
-        if live_model:
+        if live_model: # False if segfile option passed
             start = time.time()
             mp, atts, path = None, None, None
             start = time.time()

@@ -116,7 +116,7 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
 
     Args:
         img_path (Path): image file
-        segfile (Path): if not provided, look for a segmentation file that shares its prefix with the image.
+        segfile (Path): if not provided, look for a (XML or JSON) segmentation file that shares its prefix with the image.
         show (dict): features to be shown. Default: `{'polygons': True, 'regions': True, 'baselines': False, 'centerlines': False}`
         alpha (float): overlay transparency.
         linewidth (int): box line width
@@ -157,8 +157,10 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
 
     col_msk_hwc = np.zeros( img_hwc.shape, dtype=img_hwc.dtype )
     # for (older) JSON segmentation dictionaries, that have top-level 'lines' list.
-    regions = [segdict] if 'lines' in segdict else segdict['regions'] 
-    for reg in regions:
+    if 'lines' in segdict:
+        segdict = seglib.segdict_sink_lines( segdict )
+    #regions = [segdict] if 'lines' in segdict else segdict['regions'] 
+    for reg in segdict['regions']:
         color_count = len(reg['lines'])
         colors = get_n_color_palette( color_count )
         for l,line in enumerate(reg['lines']):

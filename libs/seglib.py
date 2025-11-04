@@ -639,6 +639,35 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
 
     return page_dict 
 
+
+def segdict_sink_lines(segdict: dict):
+    """Convert a segmentation dictionary with top-level line array ('lines') 
+    to a nested dictionary where each region in the 'regions' array contains its 
+    corresponding 'lines' array. No change applied if lines are already wrapped
+    into the regions.
+
+    Args:
+        segdict (dict): segmentation dictionary of the form::
+
+            {..., "lines": [ {"id":..., regions=[...]}, ... ], "regions": [ ... ] }
+
+    Returns:
+        dict: a modified copy of the original dictionary::
+
+            {..., "regions": [ {"id":..., lines=[{"id": ... }, ... ]}, ... ] }
+    """
+    segdict = segdict.copy()
+    if 'lines' not in segdict:
+        return segdict
+    for line in segdict['lines']:
+        if line['regions']:
+            this_reg=[ reg for reg in segdict['regions'] if reg['id']==line['regions'][0] ][0]
+            if 'lines' not in this_reg:
+                this_reg['lines']=[]
+            this_reg['lines'].append(line)
+    del segdict['lines']
+    return segdict
+
 def merge_seals_regseg_lineseg( regseg: dict, region_labels: list[str], *linesegs: list[str]) -> dict:
     """Merge 2 segmentation outputs into a single one:
 
