@@ -44,6 +44,7 @@ from hashlib import md5
 from PIL import Image
 import skimage as ski
 import numpy as np
+import matplotlib.pyplot as plt
 
 # Didip
 import fargv
@@ -347,7 +348,7 @@ if __name__ == "__main__":
             if args.output_format == 'json':
                 with open(output_file_path, 'w') as of:
                     #segdict['image_wh']=img.size
-                    json.dump( segdict, of )
+                    of.write(json.dumps( segdict, indent=4 ))
             elif args.output_format == 'xml':
                 #segdict['image_wh']=img.size
                 seglib.xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
