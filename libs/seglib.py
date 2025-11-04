@@ -668,16 +668,16 @@ def segdict_sink_lines(segdict: dict):
     del segdict['lines']
     return segdict
 
-def merge_seals_regseg_lineseg( regseg: dict, region_labels: list[str], *linesegs: list[str]) -> dict:
+def merge_layout_regseg_lineseg( regseg: dict, region_labels: list[str], *linesegs: list[str]) -> dict:
     """Merge 2 segmentation outputs into a single one:
 
-    * the page-wide yolo/seals segmentation (with OldText, ... regions)
+    * the page-wide yolo/layout segmentation (with OldText, ... regions)
     * the line segmentation for the regions defined in the first one
 
     The resulting file is a page-wide line-segmentation JSON.
 
     Args:
-        regseg (dict): the regional segmentation json, as given by the 'seals' app
+        regseg (dict): the regional segmentation json, as given by the 'layout' app
         *linesegs (list[str]): a number of local line segmentations for the region defined in the
             first file, of the form::
 
@@ -734,13 +734,13 @@ def merge_seals_regseg_lineseg( regseg: dict, region_labels: list[str], *lineseg
 
     return merged_seg
         
-def seals_regseg_to_crops( img: Image.Image, regseg: dict, region_labels: list[str] ) -> tuple[list[Image.Image], list[str]]:
-    """From a seals-app segmentation dictionary, returns the regions with matching
+def layout_regseg_to_crops( img: Image.Image, regseg: dict, region_labels: list[str] ) -> tuple[list[Image.Image], list[str]]:
+    """From a layout-app segmentation dictionary, return the regions with matching
     labels as a list of images.
 
     Args:
         img (Image.Image): Image to crop.
-        regseg (dict): the regional segmentation json, as given by the 'seals' app
+        regseg (dict): the regional segmentation json, as given by the 'layout' app
         region_labels (list[str]): Labels to be extracted.
 
     Returns:
@@ -757,12 +757,12 @@ def seals_regseg_to_crops( img: Image.Image, regseg: dict, region_labels: list[s
                 clsid_2_clsname[ regseg['rect_classes'][i]]) for i in to_keep ])
 
 
-def seals_regseg_check_class(regseg: dict, region_labels: list[str] ) -> list[bool]:
-    """From a seals-app segmentation dictionary, check if rectangle with given labels
+def layout_regseg_check_class(regseg: dict, region_labels: list[str] ) -> list[bool]:
+    """From a layout-app segmentation dictionary, check if rectangle with given labels
     have been detected.
 
     Args:
-        regseg (dict): the regional segmentation json, as given by the 'seals' app
+        regseg (dict): the regional segmentation json, as given by the 'layout' app
         region_labels (list[str]): Labels to check.
 
     Returns:

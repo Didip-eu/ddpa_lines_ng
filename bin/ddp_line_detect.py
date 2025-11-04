@@ -19,10 +19,10 @@ Output formats:
 Example calls::
     
     export FSDB_ROOT=~/tmp/data/1000CV
-    PYTHONPATH=. python3 ./bin/ddp_line_detect -img_paths "${FSDB_ROOT}"/*/*/d9ae9ea49832ed79a2238c2d87cd0765/*seals.crops/*OldText*.jpg -model_path best.mlmodel -mask_classes Wr:OldText
+    PYTHONPATH=. python3 ./bin/ddp_line_detect -img_paths "${FSDB_ROOT}"/*/*/d9ae9ea49832ed79a2238c2d87cd0765/*layout.crops/*OldText*.jpg -model_path best.mlmodel -region_classes Wr:OldText
 
     # patch-trained model, exporting raw polygons (instead of abstract reconstructions)
-    PYTHONPATH=. python3 ./bin/ddp_line_detect -img_paths "${FSDB_ROOT}"/*/*/d9ae9ea49832ed79a2238c2d87cd0765/*seals.crops/*OldText*.jpg -model_path best.mlmodel -mask_classes Wr:OldText -raw_polygons 1
+    PYTHONPATH=. python3 ./bin/ddp_line_detect -img_paths "${FSDB_ROOT}"/*/*/d9ae9ea49832ed79a2238c2d87cd0765/*layout.crops/*OldText*.jpg -model_path best.mlmodel -region_classes Wr:OldText -raw_polygons 1
 
 TODO:
 """
@@ -44,7 +44,6 @@ from hashlib import md5
 from PIL import Image
 import skimage as ski
 import numpy as np
-import matplotlib.pyplot as plt
 
 # Didip
 import fargv
@@ -70,8 +69,9 @@ p = {
         #"img_paths": set([Path.home().joinpath("tmp/data/1000CV/AT-AES/d3a416ef7813f88859c305fb83b20b5b/207cd526e08396b4255b12fa19e8e4f8/4844ee9f686008891a44821c6133694d.img.jpg")]),
         "img_paths": set([]),
         "charter_dirs": set(["./"]),
-        "mask_classes": [set([]), "Names of the seals-app regions on which lines are to be detected. Eg. '[Wr:OldText']. If empty (default), detection is run on the entire page."],
-        "region_segmentation_suffix": [".seals.pred.json", "Regions are given by segmentation file that is <img name stem>.<suffix>."],
+        "region_classes": [set([]), "Names of the layout-app regions on which lines are to be detected. Eg. '[Wr:OldText']. If empty (default), detection is run on the entire page."],
+        "img_suffix": [".img.jpg", "Image file suffix."],
+        "layout_suffix": [".layout.pred.json", "Regions are given by segmentation file that is <img name stem><suffix>."],
         "line_attributes": [set(["centerline", "height"]), "Non-standard line properties to be included in the dictionary."],
         "output_format": [("json", "xml", "npy", "stdout"), "Segmentation output: json=<JSON file>, xml=<PageXML file>, npy=label map (HW), stdout=JSON on standard output."],
         "output_dir": ['', "Output directory; if not provided, defaults to the image path's parent."],
@@ -84,6 +84,7 @@ p = {
         'cached_prediction_root_dir': ['/tmp', "Where to save the cached predictions."],
         'raw_polygons': [1, "Show polygons as resulting from the NN (default); otherwise, show the abstract polygons constructed from centerlines."],
         'line_height_factor': [1.0, "Factor (within ]0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"],
+        'overwrite_existing': [1, "Write over existing output file (default)."],
 }
 
 
@@ -200,6 +201,30 @@ def check_patch_size_against_model( live_model: dict, patch_size ):
     return patch_size
 
 
+def pack_img_inputs_outputs( args:dict ):
+    """
+    Process arguments into a tuple of the form. It is a triplet::
+
+        ( <img path>, <layout segmentation path>, <line segmentation path> ) 
+
+    No existence check on the layout segmentation path.
+    """
+    all_img_paths = set([ Path(p) for p in args.img_paths ])
+
+    for charter_dir in args.charter_dirs:
+        charter_dir_path = Path( charter_dir )
+        logger.debug(f"Charter Dir: {charter_dir}")
+        if charter_dir_path.is_dir() and charter_dir_path.joinpath("CH.cei.xml").exists():
+            all_img_paths = all_img_paths.union( charter_dir_path.glob("*.img.*"))
+    path_triplets = []
+    for img_path in all_img_paths:
+        img_stem = re.sub(r'{}$'.format( args.img_suffix), '', img_path.name )
+        layout_segfile_path = Path( re.sub(r'{}$'.format( args.img_suffix), args.layout_suffix, str(img_path) ))
+        output_dir = img_path.parent if not args.output_dir else Path(args.output_dir)
+        path_triplets.append( ( img_path, layout_segfile_path, output_dir.joinpath( f'{img_stem}.{args.appname}.pred.{args.output_format}')))
+    return sorted( path_triplets, key=lambda x: str(x))
+
+
 if __name__ == "__main__":
 
     args, _ = fargv.fargv( p )
@@ -230,64 +255,43 @@ if __name__ == "__main__":
     if args.raw_polygons and args.line_height_factor != 1.0:
         logger.warning("'-raw_polygons' option set: ignoring the line height factor ({}).".format( args.line_height_factor))
 
-    all_img_paths = list(sorted(args.img_paths))
-    for charter_dir in args.charter_dirs:
-        charter_dir_path = Path( charter_dir )
-        logger.debug(f"Charter Dir: {charter_dir}")
-        if charter_dir_path.is_dir() and charter_dir_path.joinpath("CH.cei.xml").exists():
-            charter_images = [str(f) for f in charter_dir_path.glob("*.img.*")]
-            all_img_paths += charter_images
-
-        args.img_paths = list(all_img_paths)
-
-    logger.debug( args )
-
-    for img_path in list( args.img_paths ):
+    for img_path, layout_file_path, output_file_path in pack_img_inputs_outputs( args ): 
         logger.debug( img_path )
-        img_path = Path(img_path)
-        #stem = Path( path ).stem
-        stem = re.sub(r'\..+', '', img_path.name )
-
+        
         img_md5=''
         if args.cache_predictions:
             with open(img_path, 'rb') as imgf:
                 img_md5 = md5( imgf.read()).hexdigest()
 
         # only for segmentation on Seals-detected regions
-        region_segfile = re.sub(r'.img.jpg', args.region_segmentation_suffix, str(img_path) )
-        logger.debug("region_segfile={}".format(region_segfile))
+        logger.debug("layout_file_path={}".format(layout_file_path))
 
         with Image.open( img_path, 'r' ) as img:
             # keys from PageXML specs
             img_metadata = { 'image_filename': str(img_path.name), 'image_width': img.size[0], 'image_height': img.size[1] }
 
-            # ex. '1063063ceab07a6b9f146c598810529d.lines.pred'
-            output_dir = img_path.parent if not args.output_dir else Path(args.output_dir)
-            output_file_path_wo_suffix = output_dir.joinpath( f'{stem}.{args.appname}.pred' )
-
-            json_file_path = Path(f'{output_file_path_wo_suffix}.json')
-            npy_file_path = Path(f'{output_file_path_wo_suffix}.npy')
-
             binary_mask = None
             segdict = {}
 
-            # Option 1: segment the region crops (from seals), and construct a page-wide file
-            if len(args.mask_classes):
-                logger.debug(f"Run segmentation on masked regions '{args.mask_classes} from layout file {region_segfile}, instead of whole page.")
+            # Option 1: segment the region crops (from layout), and construct a page-wide file
+            if len(args.region_classes):
+                logger.debug(f"Run segmentation on masked regions '{args.region_classes} from layout file {layout_file_path}, instead of whole page.")
+                if not layout_file_path.exists():
+                    logger.warning("Could not find layout segmentation file {}. Skipping item.".format( layout_file_path ))
+                    continue
                 
                 # parse segmentation file, and extract and concatenate the WritableArea crops
-                with open(region_segfile, 'r') as regseg_if:
+                with open(layout_file_path, 'r') as regseg_if:
                     regseg = json.load( regseg_if )
-                   
-                    # iterate over seals crops and segment
-                    crops_pil, boxes, classes = seglib.seals_regseg_to_crops( img, regseg, args.mask_classes )
+                    # iterate over layout crops and segment
+                    crops_pil, boxes, classes = seglib.layout_regseg_to_crops( img, regseg, args.region_classes )
 
                     binary_masks = []
                     for crop_idx, crop_whc in enumerate(crops_pil):
                         logger.debug("Crop size={})".format(crop_whc.size))
                         binary_mask = None
 
-                        # Style 1: inference from fixed-size squares
+                        # Style 1: inference from fixed-size patches
                         if args.patch_size:
                             patch_size = check_patch_size_against_model( live_model, args.patch_size )
                             logger.debug('Patch size: {} x {}'.format( patch_size, patch_size))
@@ -339,21 +343,21 @@ if __name__ == "__main__":
                 segdict = build_segdict( img_metadata, segmentation_record, args.line_attributes )
 
             ############ 3. Handing the output #################
-            output_file_path = Path(f'{output_file_path_wo_suffix}.{args.output_format}')
             logger.debug(f"Serializing segmentation for img.shape={img.size}")
 
             if args.output_format == 'stdout':
                 print(json.dumps(segdict))
                 sys.exit()
-            if args.output_format == 'json':
-                with open(output_file_path, 'w') as of:
+            if not output_file_path.exists() or args.overwrite_existing:
+                if args.output_format == 'json':
+                    with open(output_file_path, 'w') as of:
+                        #segdict['image_wh']=img.size
+                        of.write(json.dumps( segdict, indent=4 ))
+                elif args.output_format == 'xml':
                     #segdict['image_wh']=img.size
-                    of.write(json.dumps( segdict, indent=4 ))
-            elif args.output_format == 'xml':
-                #segdict['image_wh']=img.size
-                seglib.xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
-            elif args.output_format == 'npy':
-                np.save( output_file_path, binary_mask )
-            logger.info("Segmentation output saved in {}".format( output_file_path ))
+                    seglib.xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
+                elif args.output_format == 'npy':
+                    np.save( output_file_path, binary_mask )
+                logger.info("Segmentation output saved in {}".format( output_file_path ))
 
 
