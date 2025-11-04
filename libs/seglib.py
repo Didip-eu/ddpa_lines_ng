@@ -410,7 +410,7 @@ def expand_flat_tensor_to_n_channels( t_hw: Tensor, n: int ) -> np.ndarray:
     return t_hwc.numpy()
 
 
-def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_key='coords'):
+def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_key='coords', with_text=False):
     """Serialize a JSON dictionary describing the lines into a PageXML file.
     Caution: this is a crude function, with no regard for validation.
 
@@ -423,6 +423,7 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
         pagexml_filename (str): if provided, output is saved in a PageXML file (standard output is the default).
         polygon_key (str): if the segmentation dictionary contain alternative polygons (f.i. 'extBoundary'),
             use them, instead of the usual line 'coords'.
+        with_text (bool): encode line transcription, if it exists. Default is False.
     """
     def boundary_to_point_string( list_of_pts ):
         return ' '.join([ f"{pair[0]:.0f},{pair[1]:.0f}" for pair in list_of_pts ] )
@@ -460,9 +461,10 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
         for line in lines:
             textLineElt = ET.SubElement( regElt, 'TextLine', attrib={'id': f"{reg_xml_id}l{line['id']}" if type(line['id']) is int else f"{reg['id']}{line['id']}"} )
             ET.SubElement( textLineElt, 'Coords', attrib={'points': boundary_to_point_string(line[polygon_key])} )
-            ET.SubElement( textLineElt, 'TextEquiv')
             if 'baseline' in line:
                 ET.SubElement( textLineElt, 'Baseline', attrib={'points': boundary_to_point_string(line['baseline'])})
+            if with_text and 'text' in line:
+                ET.SubElement( ET.SubElement( textLineElt, 'TextEquiv'), 'Unicode').text = line['text']
 
     tree = ET.ElementTree( rootElt )
     ET.indent(tree, space='\t', level=0)
@@ -525,7 +527,7 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
                 unicode_elt = text_elt.find('./pc:Unicode', ns)
                 if unicode_elt is not None:
                     line_text = unicode_elt.text 
-            line_dict = {'line_id': line_id, 'baseline': baseline_points, 
+            line_dict = {'id': line_id, 'baseline': baseline_points, 
                         'coords': polygon_points, 'regions': region_ids}
             if line_text and not re.match(r'\s*$', line_text):
                 line_dict['text'] = line_text 

@@ -73,6 +73,7 @@ p = {
         "region_segmentation_suffix": [".seals.pred.json", "Regions are given by segmentation file that is <img name stem>.<suffix>."],
         "line_attributes": [set(["centerline", "height"]), "Non-standard line properties to be included in the dictionary."],
         "output_format": [("json", "xml", "npy", "stdout"), "Segmentation output: json=<JSON file>, xml=<PageXML file>, npy=label map (HW), stdout=JSON on standard output."],
+        "output_dir": ['', "Output directory; if not provided, defaults to the image path's parent."],
         'mask_threshold': [.6, "In the post-processing phase, threshold to use for line soft masks."],
         'box_threshold': [0.75, "Threshold used for line bounding boxes."],
         'patch_row_count': [ 0, "Process the image in <patch_row_count> rows."],
@@ -260,7 +261,8 @@ if __name__ == "__main__":
             img_metadata = { 'image_filename': str(img_path.name), 'image_width': img.size[0], 'image_height': img.size[1] }
 
             # ex. '1063063ceab07a6b9f146c598810529d.lines.pred'
-            output_file_path_wo_suffix = img_path.parent.joinpath( f'{stem}.{args.appname}.pred' )
+            output_dir = img_path.parent if not args.output_dir else Path(args.output_dir)
+            output_file_path_wo_suffix = output_dir.joinpath( f'{stem}.{args.appname}.pred' )
 
             json_file_path = Path(f'{output_file_path_wo_suffix}.json')
             npy_file_path = Path(f'{output_file_path_wo_suffix}.npy')
