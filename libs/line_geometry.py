@@ -121,9 +121,10 @@ def post_process( preds: dict, box_threshold=.75, mask_threshold=.6, orig_size=(
          np.ndarray: binary mask (1,H,W)
     """
     # select masks with best box scores
-    best_masks = [ m.detach().numpy() for m in preds['masks'][preds['scores']>=box_threshold]]
+    best_masks = [ m.detach().numpy() for m in preds['masks'][preds['scores']>=box_threshold].cpu()]
     if len(best_masks) < preds['masks'].shape[0]:
-        logger.debug("Selecting masks {} out of {}".format( np.argwhere( preds['scores']>=box_threshold ).tolist(), len(preds['scores'])))
+        logger.debug("Selecting masks {} out of {}".format( np.argwhere( preds['scores'].cpu()>=box_threshold ).tolist(), len(preds['scores'])))
+        #pass
     if not best_masks:
         return None
     # threshold masks
@@ -326,7 +327,7 @@ def binary_mask_from_patches( img: Image.Image, row_count=2, col_count=1, overla
     return page_mask[None,:]
 
 
-def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.04, model=None, mask_threshold=.25, box_threshold=.8, cached_prediction_prefix='', cached_prediction_path=Path('/tmp'), max_patches=25) -> np.ndarray:
+def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.04, model=None, mask_threshold=.25, box_threshold=.8, cached_prediction_prefix='', cached_prediction_path=Path('/tmp'), max_patches=25, device='cpu') -> np.ndarray:
     """
     Construct a single binary mask from predictions on patches of size <patch_size> x <patch_size>.
 
@@ -379,7 +380,7 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
         img_crops = [ torch.from_numpy(img_hwc[y:y+patch_size,x:x+patch_size]).permute(2,0,1) for (y,x) in tile_tls ]
         logger.debug([ c.shape for c in img_crops ])
         
-        _, crop_preds, _ = lsg.predict( img_crops, live_model=model )
+        _, crop_preds, _ = lsg.predict( img_crops, live_model=model, device=device )
         logger.debug("Computed {} tile predictions".format(len(crop_preds)))
         if cached_prediction_prefix:
             zpf = gzip.GzipFile( cached_prediction_file, 'w')

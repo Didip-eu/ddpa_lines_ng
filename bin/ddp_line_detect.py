@@ -79,6 +79,7 @@ p = {
         'box_threshold': [0.75, "Threshold used for line bounding boxes."],
         'patch_size': [1024, "Process the image by <patch_size>*<patch_size> patches"],
         'raw_polygons': [1, "Serialize polygons as resulting from the NN (default); otherwise, construct the abstract polygons from centerlines."],
+        'device': [('cpu','gpu'), "Computing device."],
         'line_height_factor': [1.0, "Factor (within ]0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"],
         'overwrite_existing': [1, "Write over existing output file (default)."],
         'timer': [0, "Aggregate performance metrics. A strictly positive integer <n> computes the mean time for every batch of <n> images."],
@@ -187,7 +188,7 @@ if __name__ == "__main__":
 
     for img_idx, img_triplet in enumerate( pack_fsdb_inputs_outputs( args )): 
         img_path, layout_file_path, output_file_path = img_triplet
-        logger.debug( "File path={}".format( img_triplet[0]))
+        logger.info( "File path={}".format( img_triplet[0]))
         if not args.overwrite_existing and output_file_path.exists():
             continue
         
@@ -229,7 +230,7 @@ if __name__ == "__main__":
                 binary_mask = None
                 # Inference from fixed-size patches
                 patch_size = check_patch_size_against_model( live_model, args.patch_size )
-                binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold )
+                binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold, device=args.device )
                 if binary_mask is None:
                     logger.warning("No line mask found in {}, crop {}: skipping item.".format( img_path, crop_idx ))
                     img.close()
