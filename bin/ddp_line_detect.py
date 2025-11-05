@@ -42,7 +42,7 @@ from hashlib import md5
 from time import time
 
 # 3rd party
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 import skimage as ski
 import numpy as np
 
@@ -57,7 +57,7 @@ from libs import seglib, list_utils as lu, line_geometry as lgm
 from bin import ddp_lineseg_train as lsg
 
 
-logging.basicConfig( level=logging.DEBUG, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
+logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
 logger = logging.getLogger(__name__)
 
 # tone down unwanted logging
@@ -203,7 +203,7 @@ def check_patch_size_against_model( live_model: dict, patch_size ):
     return patch_size
 
 
-def pack_img_inputs_outputs( args:dict ):
+def pack_fsdb_inputs_outputs( args:dict ):
     """
     Process arguments into a tuple of the form. It is a triplet::
 
@@ -224,7 +224,7 @@ def pack_img_inputs_outputs( args:dict ):
         layout_segfile_path = Path( re.sub(r'{}$'.format( args.img_suffix), args.layout_suffix, str(img_path) ))
         output_dir = img_path.parent if not args.output_dir else Path(args.output_dir)
         path_triplets.append( ( img_path, layout_segfile_path, output_dir.joinpath( f'{img_stem}.{args.appname}.pred.{args.output_format}')))
-    #return path_triplets
+    return path_triplets
     return sorted( path_triplets, key=lambda x: str(x))
 
 
@@ -257,115 +257,129 @@ if __name__ == "__main__":
     if args.raw_polygons and args.line_height_factor != 1.0:
         logger.warning("'-raw_polygons' option set: ignoring the line height factor ({}).".format( args.line_height_factor))
 
-    # Store aggregate computation time for every batch of 100 images 
+    # Store aggregate computation time for every batch of <args.timer> images 
     timer_means = []
     start_time = time()
 
-    for img_idx, img_triplet in enumerate( pack_img_inputs_outputs( args )): 
+    for img_idx, img_triplet in enumerate( pack_fsdb_inputs_outputs( args )): 
         img_path, layout_file_path, output_file_path = img_triplet
-        logger.info( "File triplet={}".format( img_triplet ))
+        logger.info( "File triplet={}".format( img_triplet[0]))
         
         img_md5=''
         if args.cache_predictions:
             with open(img_path, 'rb') as imgf:
                 img_md5 = md5( imgf.read()).hexdigest()
 
-        with Image.open( img_path, 'r' ) as img:
-            # keys from PageXML specs
-            img_metadata = { 'image_filename': str(img_path.name), 'image_width': img.size[0], 'image_height': img.size[1] }
+        img = None
+        try:
+            img = Image.open( img_path, 'r' )
+        except UnidentifiedImageError as err:
+            logger.warning("Could not open image: {}. Skipping item.".format( err ))
+            continue
 
-            binary_mask, segdict = None, {}
+        img_metadata = { 'image_filename': str(img_path.name), 'image_width': img.size[0], 'image_height': img.size[1] }
+        binary_mask, segdict = None, {}
 
-            # Option 1: segment the region crops (from layout), and construct a page-wide file
-            if len(args.region_classes):
-                logger.debug(f"Run segmentation on masked regions '{args.region_classes} from layout file {layout_file_path}, instead of whole page.")
-                if not layout_file_path.exists():
-                    #logger.warning("Could not find layout segmentation file {}. Skipping item.".format( layout_file_path ))
-                    continue
-                
-                # parse segmentation file, and extract and concatenate the WritableArea crops
-                logger.debug("layout_file_path={}".format(layout_file_path))
-                with open(layout_file_path, 'r') as regseg_if:
-                    regseg = json.load( regseg_if )
-                    # iterate over layout crops and segment
+        # Option 1: segment the region crops (from layout), and construct a page-wide file
+        if len(args.region_classes):
+            logger.debug(f"Run segmentation on masked regions '{args.region_classes} from layout file {layout_file_path}, instead of whole page.")
+            if not layout_file_path.exists():
+                #logger.warning("Could not find layout segmentation file {}. Skipping item.".format( layout_file_path ))
+                img.close()
+                continue
+            
+            # parse segmentation file, and extract and concatenate the WritableArea crops
+            logger.debug("layout_file_path={}".format(layout_file_path))
+            with open(layout_file_path, 'r') as regseg_if:
+                regseg = json.load( regseg_if )
+                # iterate over layout crops and segment
+                layout_data = tuple()
+                try:
                     layout_data = seglib.layout_regseg_to_crops( img, regseg, args.region_classes )
-                    if len(list(layout_data))==0:
-                        #logger.warning("Could not find region with name in {} in the layout segmentation file {}. Skipping item.".format( args.region_classes, layout_file_path ))
-                        continue
-                    crops_pil, boxes, classes = seglib.layout_regseg_to_crops( img, regseg, args.region_classes, force_rgb=True )
+                except OSError as err:
+                    logger.warning("Could not crop the image: {}. Skipping item.".format( err ))
+                    img.close()
+                    continue
+                if not layout_data:
+                    #logger.warning("Could not find region with name in {} in the layout segmentation file {}. Skipping item.".format( args.region_classes, layout_file_path ))
+                    img.close()
+                    continue
+                crops_pil, boxes, classes = seglib.layout_regseg_to_crops( img, regseg, args.region_classes, force_rgb=True )
 
-                    binary_masks = []
-                    for crop_idx, crop_whc in enumerate(crops_pil):
-                        binary_mask = None
+                binary_masks = []
+                for crop_idx, crop_whc in enumerate(crops_pil):
+                    binary_mask = None
 
-                        # Style 1: inference from fixed-size patches
-                        if args.patch_size:
-                            patch_size = check_patch_size_against_model( live_model, args.patch_size )
-                            binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold, cached_prediction_prefix=img_md5, cached_prediction_path=cache_subdir_path )
+                    # Style 1: inference from fixed-size patches
+                    if args.patch_size:
+                        patch_size = check_patch_size_against_model( live_model, args.patch_size )
+                        binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold, cached_prediction_prefix=img_md5, cached_prediction_path=cache_subdir_path )
 
-                        # Check for unusual size before choosing patch-based inference or not
-                        else:
-                            rows, cols = is_unusual_size( crop_whc.size[1], crop_whc.size[0] ) 
-                            if rows or cols:
-                                logger.debug("Unusual size detected: process {}x{} patches.".format(rows, cols))
-                            if rows > 1:
-                                binary_mask = lgm.binary_mask_from_patches( crop_whc, row_count=rows, model=model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold) 
-                            elif cols > 1:
-                                binary_mask = lgm.binary_mask_from_patches( crop_whc, col_count=cols, model=model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold) 
-                            else:
-                                imgs_t, preds, sizes = lsg.predict( [crop_whc], live_model=live_model )
-                                binary_mask = lgm.post_process( preds[0], orig_size=sizes[0], box_threshold=args.box_threshold, mask_threshold=args.mask_threshold ) 
-                        if binary_mask is None:
-                            logger.warning("No line mask found for {}, crop {}: skipping item.".format( img_path, crop_idx ))
-                            continue
-                        binary_masks.append( binary_mask )
-
-                    try:
-                        segmentation_records = [ lgm.get_morphology( msk, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor ) for msk in binary_masks ]
-                        #binary_mask = np.squeeze( segmentation_records[0][0] )
-                        segdict = build_segdict_composite( img_metadata, boxes, segmentation_records, args.line_attributes ) 
-                    except (TypeError, ValueError):
-                        logger.error("Failed to polygonize the line masks: abort segmentation.")
-                        continue
-
-            # Option 2: single-file segmentation (an Wr:OldText crop, supposedly)
-            else:
-                binary_mask = None
-                if args.patch_size:
-                    # case 1: process image in fixed-size patches
-                    patch_size = check_patch_size_against_model( live_model, args.patch_size )
-                    logger.debug('Patch size: {} x {}'.format( patch_size, patch_size))
-                    binary_mask = lgm.binary_mask_from_fixed_patches( img, patch_size=patch_size, model=live_model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold, cached_prediction_prefix=img_md5, cached_prediction_path=cache_subdir_path )
-                else:
-                    # case 2: process image in M x N patches
-                    if args.patch_row_count and args.patch_col_count:
-                        logger.debug("Process {}x{} patches.".format(args.patch_row_count, args.patch_col_count))
-                        binary_mask = lgm.binary_mask_from_patches( img, args.patch_row_count, args.patch_col_count, model=model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
-                    # case 3: process image as-is
+                    # Check for unusual size before choosing patch-based inference or not
                     else:
-                        logger.debug("Page-wide processing")
-                        imgs_t, preds, sizes = lsg.predict( [img], live_model=live_model )
-                        binary_mask = lgm.post_process( preds[0], orig_size=sizes[0], box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
-                segmentation_record = lgm.get_morphology( binary_mask, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor )
-                segdict = build_segdict( img_metadata, segmentation_record, args.line_attributes )
+                        rows, cols = is_unusual_size( crop_whc.size[1], crop_whc.size[0] ) 
+                        if rows or cols:
+                            logger.debug("Unusual size detected: process {}x{} patches.".format(rows, cols))
+                        if rows > 1:
+                            binary_mask = lgm.binary_mask_from_patches( crop_whc, row_count=rows, model=model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold) 
+                        elif cols > 1:
+                            binary_mask = lgm.binary_mask_from_patches( crop_whc, col_count=cols, model=model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold) 
+                        else:
+                            imgs_t, preds, sizes = lsg.predict( [crop_whc], live_model=live_model )
+                            binary_mask = lgm.post_process( preds[0], orig_size=sizes[0], box_threshold=args.box_threshold, mask_threshold=args.mask_threshold ) 
+                    if binary_mask is None:
+                        logger.warning("No line mask found for {}, crop {}: skipping item.".format( img_path, crop_idx ))
+                        img.close()
+                        continue
+                    binary_masks.append( binary_mask )
 
-            ############ 3. Handing the output #################
-            logger.debug(f"Serializing segmentation for img.shape={img.size}")
+                try:
+                    segmentation_records = [ lgm.get_morphology( msk, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor ) for msk in binary_masks ]
+                    #binary_mask = np.squeeze( segmentation_records[0][0] )
+                    segdict = build_segdict_composite( img_metadata, boxes, segmentation_records, args.line_attributes ) 
+                except (TypeError, ValueError):
+                    logger.error("Failed to polygonize the line masks: abort segmentation.")
+                    img.close()
+                    continue
 
-            if args.output_format == 'stdout':
-                print(json.dumps(segdict))
-                sys.exit()
-            if not output_file_path.exists() or args.overwrite_existing:
-                if args.output_format == 'json':
-                    with open(output_file_path, 'w') as of:
-                        #segdict['image_wh']=img.size
-                        of.write(json.dumps( segdict, indent=4 ))
-                elif args.output_format == 'xml':
+        # Option 2: single-file segmentation (an Wr:OldText crop, supposedly)
+        else:
+            binary_mask = None
+            if args.patch_size:
+                # case 1: process image in fixed-size patches
+                patch_size = check_patch_size_against_model( live_model, args.patch_size )
+                logger.debug('Patch size: {} x {}'.format( patch_size, patch_size))
+                binary_mask = lgm.binary_mask_from_fixed_patches( img, patch_size=patch_size, model=live_model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold, cached_prediction_prefix=img_md5, cached_prediction_path=cache_subdir_path )
+            else:
+                # case 2: process image in M x N patches
+                if args.patch_row_count and args.patch_col_count:
+                    logger.debug("Process {}x{} patches.".format(args.patch_row_count, args.patch_col_count))
+                    binary_mask = lgm.binary_mask_from_patches( img, args.patch_row_count, args.patch_col_count, model=model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
+                # case 3: process image as-is
+                else:
+                    logger.debug("Page-wide processing")
+                    imgs_t, preds, sizes = lsg.predict( [img], live_model=live_model )
+                    binary_mask = lgm.post_process( preds[0], orig_size=sizes[0], box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
+            segmentation_record = lgm.get_morphology( binary_mask, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor )
+            segdict = build_segdict( img_metadata, segmentation_record, args.line_attributes )
+
+        ############ 3. Handing the output #################
+        logger.debug(f"Serializing segmentation for img.shape={img.size}")
+
+        if args.output_format == 'stdout':
+            print(json.dumps(segdict))
+            sys.exit()
+        if not output_file_path.exists() or args.overwrite_existing:
+            if args.output_format == 'json':
+                with open(output_file_path, 'w') as of:
                     #segdict['image_wh']=img.size
-                    seglib.xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
-                elif args.output_format == 'npy':
-                    np.save( output_file_path, binary_mask )
-                logger.debug("Segmentation output saved in {}".format( output_file_path ))
+                    of.write(json.dumps( segdict, indent=4 ))
+            elif args.output_format == 'xml':
+                #segdict['image_wh']=img.size
+                seglib.xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
+            elif args.output_format == 'npy':
+                np.save( output_file_path, binary_mask )
+            logger.debug("Segmentation output saved in {}".format( output_file_path ))
 
         if args.timer > 0 and img_idx > 0 and img_idx % args.timer==0:
             timer_means.append( (time()-start_time)/args.timer )
