@@ -188,7 +188,7 @@ if __name__ == "__main__":
 
     for img_idx, img_triplet in enumerate( pack_fsdb_inputs_outputs( args )): 
         img_path, layout_file_path, output_file_path = img_triplet
-        logger.info( "File path={}".format( img_triplet[0]))
+        #logger.info( "File path={}".format( img_triplet[0]))
         if not args.overwrite_existing and output_file_path.exists():
             continue
         
@@ -264,5 +264,5 @@ if __name__ == "__main__":
 
         if args.timer > 0 and img_idx > 0 and img_idx % args.timer==0:
             timer_means.append( (time()-start_time)/args.timer )
-            logger.info("{}: {}s/img".format( img_idx, mean(timer_means)))
+            logger.info("{}: {}s/img".format( img_idx, np.mean(timer_means)))
             start_time = time()
