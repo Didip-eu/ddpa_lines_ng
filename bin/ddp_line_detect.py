@@ -39,6 +39,7 @@ import shutil
 import math
 import gzip
 from hashlib import md5
+from time import time
 
 # 3rd party
 from PIL import Image
@@ -68,9 +69,9 @@ p = {
         "model_path": str(src_root.joinpath("best.mlmodel")),
         #"img_paths": set([Path.home().joinpath("tmp/data/1000CV/AT-AES/d3a416ef7813f88859c305fb83b20b5b/207cd526e08396b4255b12fa19e8e4f8/4844ee9f686008891a44821c6133694d.img.jpg")]),
         "img_paths": set([]),
-        "charter_dirs": set(["./"]),
+        "charter_dirs": set([]),
         "region_classes": [set([]), "Names of the layout-app regions on which lines are to be detected. Eg. '[Wr:OldText']. If empty (default), detection is run on the entire page."],
-        "img_suffix": [".img.jpg", "Image file suffix."],
+        "img_suffix": [r".img.*p*g", "Image file suffix."],
         "layout_suffix": [".layout.pred.json", "Regions are given by segmentation file that is <img name stem><suffix>."],
         "line_attributes": [set(["centerline", "height"]), "Non-standard line properties to be included in the dictionary."],
         "output_format": [("json", "xml", "npy", "stdout"), "Segmentation output: json=<JSON file>, xml=<PageXML file>, npy=label map (HW), stdout=JSON on standard output."],
@@ -79,12 +80,13 @@ p = {
         'box_threshold': [0.75, "Threshold used for line bounding boxes."],
         'patch_row_count': [ 0, "Process the image in <patch_row_count> rows."],
         'patch_col_count': [ 0, "Process the image in <patch_col_count> cols."],
-        'patch_size': [0, "Process the image by <patch_size>*<patch_size> patches"],
-        'cache_predictions': [1, "Cache prediction tensors for faster, repeated calls with various post-processing options."],
+        'patch_size': [1024, "Process the image by <patch_size>*<patch_size> patches"],
+        'cache_predictions': [0, "Cache prediction tensors for faster, repeated calls with various post-processing options."],
         'cached_prediction_root_dir': ['/tmp', "Where to save the cached predictions."],
         'raw_polygons': [1, "Show polygons as resulting from the NN (default); otherwise, show the abstract polygons constructed from centerlines."],
         'line_height_factor': [1.0, "Factor (within ]0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"],
         'overwrite_existing': [1, "Write over existing output file (default)."],
+        'timer': [0, "Aggregate performance metrics. A strictly positive integer <n> computes the mean time for every batch of <n> images."],
 }
 
 
@@ -213,15 +215,16 @@ def pack_img_inputs_outputs( args:dict ):
 
     for charter_dir in args.charter_dirs:
         charter_dir_path = Path( charter_dir )
-        logger.debug(f"Charter Dir: {charter_dir}")
         if charter_dir_path.is_dir() and charter_dir_path.joinpath("CH.cei.xml").exists():
-            all_img_paths = all_img_paths.union( charter_dir_path.glob("*.img.*"))
+            new_imgs = charter_dir_path.glob("*{}".format(args.img_suffix))
+            all_img_paths = all_img_paths.union( charter_dir_path.glob("*{}".format(args.img_suffix)))
     path_triplets = []
     for img_path in all_img_paths:
         img_stem = re.sub(r'{}$'.format( args.img_suffix), '', img_path.name )
         layout_segfile_path = Path( re.sub(r'{}$'.format( args.img_suffix), args.layout_suffix, str(img_path) ))
         output_dir = img_path.parent if not args.output_dir else Path(args.output_dir)
         path_triplets.append( ( img_path, layout_segfile_path, output_dir.joinpath( f'{img_stem}.{args.appname}.pred.{args.output_format}')))
+    #return path_triplets
     return sorted( path_triplets, key=lambda x: str(x))
 
 
@@ -237,7 +240,6 @@ if __name__ == "__main__":
         model_md5 = md5( mf.read() ).hexdigest()
         # create output subdir for this model
         cached_prediction_subdir_path = cached_prediction_root_path.joinpath( model_md5 )
-        print("cached_prediction_subdir_path={}".format(cached_prediction_subdir_path))
         cached_prediction_subdir_path.mkdir( exist_ok=True )
         model_local_copy_path = cached_prediction_subdir_path.with_suffix('.mlmodel')
         # copy model file into root folder, with MD5 identifier (make it easier to rerun eval loops later)
@@ -255,46 +257,50 @@ if __name__ == "__main__":
     if args.raw_polygons and args.line_height_factor != 1.0:
         logger.warning("'-raw_polygons' option set: ignoring the line height factor ({}).".format( args.line_height_factor))
 
-    for img_path, layout_file_path, output_file_path in pack_img_inputs_outputs( args ): 
-        logger.debug( img_path )
+    # Store aggregate computation time for every batch of 100 images 
+    timer_means = []
+    start_time = time()
+
+    for img_idx, img_triplet in enumerate( pack_img_inputs_outputs( args )): 
+        img_path, layout_file_path, output_file_path = img_triplet
+        logger.info( "File triplet={}".format( img_triplet ))
         
         img_md5=''
         if args.cache_predictions:
             with open(img_path, 'rb') as imgf:
                 img_md5 = md5( imgf.read()).hexdigest()
 
-        # only for segmentation on Seals-detected regions
-        logger.debug("layout_file_path={}".format(layout_file_path))
-
         with Image.open( img_path, 'r' ) as img:
             # keys from PageXML specs
             img_metadata = { 'image_filename': str(img_path.name), 'image_width': img.size[0], 'image_height': img.size[1] }
 
-            binary_mask = None
-            segdict = {}
+            binary_mask, segdict = None, {}
 
             # Option 1: segment the region crops (from layout), and construct a page-wide file
             if len(args.region_classes):
                 logger.debug(f"Run segmentation on masked regions '{args.region_classes} from layout file {layout_file_path}, instead of whole page.")
                 if not layout_file_path.exists():
-                    logger.warning("Could not find layout segmentation file {}. Skipping item.".format( layout_file_path ))
+                    #logger.warning("Could not find layout segmentation file {}. Skipping item.".format( layout_file_path ))
                     continue
                 
                 # parse segmentation file, and extract and concatenate the WritableArea crops
+                logger.debug("layout_file_path={}".format(layout_file_path))
                 with open(layout_file_path, 'r') as regseg_if:
                     regseg = json.load( regseg_if )
                     # iterate over layout crops and segment
-                    crops_pil, boxes, classes = seglib.layout_regseg_to_crops( img, regseg, args.region_classes )
+                    layout_data = seglib.layout_regseg_to_crops( img, regseg, args.region_classes )
+                    if len(list(layout_data))==0:
+                        #logger.warning("Could not find region with name in {} in the layout segmentation file {}. Skipping item.".format( args.region_classes, layout_file_path ))
+                        continue
+                    crops_pil, boxes, classes = seglib.layout_regseg_to_crops( img, regseg, args.region_classes, force_rgb=True )
 
                     binary_masks = []
                     for crop_idx, crop_whc in enumerate(crops_pil):
-                        logger.debug("Crop size={})".format(crop_whc.size))
                         binary_mask = None
 
                         # Style 1: inference from fixed-size patches
                         if args.patch_size:
                             patch_size = check_patch_size_against_model( live_model, args.patch_size )
-                            logger.debug('Patch size: {} x {}'.format( patch_size, patch_size))
                             binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold, cached_prediction_prefix=img_md5, cached_prediction_path=cache_subdir_path )
 
                         # Check for unusual size before choosing patch-based inference or not
@@ -314,14 +320,16 @@ if __name__ == "__main__":
                             continue
                         binary_masks.append( binary_mask )
 
-                        # each segpage: label map, attribute, <image path or id>
-                    segmentation_records = [ lgm.get_morphology( msk, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor ) for msk in binary_masks ]
-                    #binary_mask = np.squeeze( segmentation_records[0][0] )
-                    segdict = build_segdict_composite( img_metadata, boxes, segmentation_records, args.line_attributes ) 
+                    try:
+                        segmentation_records = [ lgm.get_morphology( msk, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor ) for msk in binary_masks ]
+                        #binary_mask = np.squeeze( segmentation_records[0][0] )
+                        segdict = build_segdict_composite( img_metadata, boxes, segmentation_records, args.line_attributes ) 
+                    except (TypeError, ValueError):
+                        logger.error("Failed to polygonize the line masks: abort segmentation.")
+                        continue
 
             # Option 2: single-file segmentation (an Wr:OldText crop, supposedly)
             else:
-                logger.info("Starting segmentation")
                 binary_mask = None
                 if args.patch_size:
                     # case 1: process image in fixed-size patches
@@ -337,7 +345,6 @@ if __name__ == "__main__":
                     else:
                         logger.debug("Page-wide processing")
                         imgs_t, preds, sizes = lsg.predict( [img], live_model=live_model )
-                        logger.info("Successful segmentation.")
                         binary_mask = lgm.post_process( preds[0], orig_size=sizes[0], box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
                 segmentation_record = lgm.get_morphology( binary_mask, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor )
                 segdict = build_segdict( img_metadata, segmentation_record, args.line_attributes )
@@ -358,6 +365,9 @@ if __name__ == "__main__":
                     seglib.xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
                 elif args.output_format == 'npy':
                     np.save( output_file_path, binary_mask )
-                logger.info("Segmentation output saved in {}".format( output_file_path ))
+                logger.debug("Segmentation output saved in {}".format( output_file_path ))
 
-
+        if args.timer > 0 and img_idx > 0 and img_idx % args.timer==0:
+            timer_means.append( (time()-start_time)/args.timer )
+            start_time = time()
+            logger.info("{}: {}s/img".format( img_idx, timer_means[-1]))

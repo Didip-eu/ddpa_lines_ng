@@ -734,7 +734,7 @@ def merge_layout_regseg_lineseg( regseg: dict, region_labels: list[str], *linese
 
     return merged_seg
         
-def layout_regseg_to_crops( img: Image.Image, regseg: dict, region_labels: list[str] ) -> tuple[list[Image.Image], list[str]]:
+def layout_regseg_to_crops( img: Image.Image, regseg: dict, region_labels: list[str], force_rgb=False ) -> tuple[list[Image.Image], list[str]]:
     """From a layout-app segmentation dictionary, return the regions with matching
     labels as a list of images.
 
@@ -751,6 +751,9 @@ def layout_regseg_to_crops( img: Image.Image, regseg: dict, region_labels: list[
     """
     clsid_2_clsname = { i:n for (i,n) in enumerate( regseg['class_names'] )}
     to_keep = [ i for (i,v) in enumerate( regseg['rect_classes'] ) if clsid_2_clsname[v] in region_labels ]
+
+    if force_rgb and img.mode != 'RGB':
+        img = img.convert('RGB')
 
     return zip(*[ ( img.crop( regseg['rect_LTRB'][i] ), 
                 regseg['rect_LTRB'][i], 

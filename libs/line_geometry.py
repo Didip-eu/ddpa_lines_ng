@@ -44,6 +44,8 @@ def prune_skeleton( skeleton_hw: np.ndarray )->np.ndarray:
         Tuple[np.ndarray, np.ndarray]: a pair with 
             - (H,W) pruned skeleton (i.e. no branching)
             - (N,2) list of skeleton coordinates 
+    Raises:
+        ValueError
     """
     def neighborhood( pixel ):
         max_h, max_w = skeleton_hw.shape
@@ -89,13 +91,18 @@ def prune_skeleton( skeleton_hw: np.ndarray )->np.ndarray:
     # New skeleton is a longest path
     longest_path = []
     current = deepest_leaf
+    pruned_skeleton, skeleton_coords_n2 = None, None
     while ( not np.array_equal(current, leftmost )):
         longest_path.append( parent_matrix[current[0]][current[1]] )
         current = longest_path[-1]
+    #try:
     skeleton_coords_n2 = np.stack([ px for px in longest_path[::-1]], axis=0)
     rr, cc = skeleton_coords_n2.transpose()
     pruned_skeleton = np.zeros( skeleton_hw.shape )
     pruned_skeleton[rr,cc]=1
+    #except ValueError e:
+    #    loggger.error("Polygonization failed on connected component. Abort.")
+        
     return ( pruned_skeleton, skeleton_coords_n2 )
 
 
@@ -249,20 +256,22 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
         
         # 2. Skeletonize and prune
         skeleton=ski.morphology.skeletonize( polygon_box )
-        _, this_skeleton_yx = prune_skeleton( ski.morphology.skeletonize( polygon_box ))
-        # 3. Avg line height = area of polygon / length of skeleton
-        line_heights.append( (np.sum(polygon_box) // len( this_skeleton_yx)).item() )
-        this_skeleton_yx = fix_ends( this_skeleton_yx, line_heights[-1], polygon_box.shape[1] )
-        centroids.append( this_skeleton_yx[int(len(this_skeleton_yx)/2)] + np.array( [min_y, min_x] ))
-        approximate_pagewide_skl_yx = ski.measure.approximate_polygon(this_skeleton_yx, tolerance=3) + np.array( [min_y, min_x] )
-        skeleton_coords.append( approximate_pagewide_skl_yx )
+        try:
+            _, this_skeleton_yx = prune_skeleton( ski.morphology.skeletonize( polygon_box ))
+            # 3. Avg line height = area of polygon / length of skeleton
+            line_heights.append( (np.sum(polygon_box) // len( this_skeleton_yx)).item() )
+            this_skeleton_yx = fix_ends( this_skeleton_yx, line_heights[-1], polygon_box.shape[1] )
+            centroids.append( this_skeleton_yx[int(len(this_skeleton_yx)/2)] + np.array( [min_y, min_x] ))
+            approximate_pagewide_skl_yx = ski.measure.approximate_polygon(this_skeleton_yx, tolerance=3) + np.array( [min_y, min_x] )
+            skeleton_coords.append( approximate_pagewide_skl_yx )
 
-        if not raw_polygons:
-            polygon_coords[-1] = regularize_polygon( skeleton_coords[-1], line_heights[-1], height_factor )
-            polyg_rr, polyg_cc = ski.draw.polygon( *(polygon_coords[-1]).transpose())
-            labeled_msk_regular_hw[ polyg_rr, polyg_cc ]=lbl
-            
-
+            if not raw_polygons:
+                polygon_coords[-1] = regularize_polygon( skeleton_coords[-1], line_heights[-1], height_factor )
+                polyg_rr, polyg_cc = ski.draw.polygon( *(polygon_coords[-1]).transpose())
+                labeled_msk_regular_hw[ polyg_rr, polyg_cc ]=lbl
+        except ValueError:
+            logger.warning("Failed to retrieve label mask geometry: aborting segmentation.")
+        
     # BBs centroid ordering differs from CCs top-to-bottom ordering:
     # usually hints at messy, non-standard line layout
     # TO DOUBLE-CHECK
