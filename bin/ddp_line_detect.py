@@ -8,7 +8,7 @@ Line detection app, i.e. the specialized, fsdb-specific version:
 + inference is run on the regions detected by the layout app, provided a class name (ex. `Wr:Oldtext`) 
 + each region is processed in patches (default: 1024x1024), assuming that the model used has been trained accordingly
 
-For more options (page-wide inference, row/col processing), see its fully-featured companion `ddp_line_detect_full.py`.
+For more options (page-wide inference, flexible row/col processing, NN prediction cache), see its fully-featured companion `ddp_line_detect_full.py`.
 In both apps, the heavy lifting is done by the Mask-RCNN model defined in module `ddp_lineseg_train`.
 
 Output formats: 
@@ -69,7 +69,7 @@ p = {
         #"img_paths": set([Path.home().joinpath("tmp/data/1000CV/AT-AES/d3a416ef7813f88859c305fb83b20b5b/207cd526e08396b4255b12fa19e8e4f8/4844ee9f686008891a44821c6133694d.img.jpg")]),
         "img_paths": set([]),
         "charter_dirs": set([]),
-        "region_classes": [set([]), "Names of the layout-app regions on which lines are to be detected. Eg. '[Wr:OldText']. If empty (default), detection is run on the entire page."],
+        "region_classes": [set(["Wr:OldText"]), "Names of the layout-app regions on which lines are to be detected. Eg. '[Wr:OldText']. If empty (default), detection is run on the entire page."],
         "img_suffix": [r".img.*p*g", "Image file suffix."],
         "layout_suffix": [".layout.pred.json", "Regions are given by segmentation file that is <img name stem><suffix>."],
         "line_attributes": [set(["centerline", "height"]), "Non-standard line properties to be included in the dictionary."],
@@ -78,8 +78,6 @@ p = {
         'mask_threshold': [.6, "In the post-processing phase, threshold to use for line soft masks."],
         'box_threshold': [0.75, "Threshold used for line bounding boxes."],
         'patch_size': [1024, "Process the image by <patch_size>*<patch_size> patches"],
-        'cache_predictions': [0, "Cache prediction tensors for faster, repeated calls with various post-processing options."],
-        'cached_prediction_root_dir': ['/tmp', "Where to save the cached predictions."],
         'raw_polygons': [1, "Serialize polygons as resulting from the NN (default); otherwise, construct the abstract polygons from centerlines."],
         'line_height_factor': [1.0, "Factor (within ]0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"],
         'overwrite_existing': [1, "Write over existing output file (default)."],
@@ -176,24 +174,6 @@ if __name__ == "__main__":
         logger.info("The 'region_classes' parameter must contain at least one valid region name (from the layout app).a)")
         sys.exit()
 
-    cached_prediction_root_path = Path(args.cached_prediction_root_dir)
-    cached_prediction_subdir_path = None
-    cache_subdir_path = None
-    with open( args.model_path, 'rb') as mf:
-        # computing MD5 of model file used
-        model_md5 = md5( mf.read() ).hexdigest()
-        # create output subdir for this model
-        cached_prediction_subdir_path = cached_prediction_root_path.joinpath( model_md5 )
-        cached_prediction_subdir_path.mkdir( exist_ok=True )
-        model_local_copy_path = cached_prediction_subdir_path.with_suffix('.mlmodel')
-        # copy model file into root folder, with MD5 identifier (make it easier to rerun eval loops later)
-        if not model_local_copy_path.exists():
-            shutil.copy2( args.model_path, model_local_copy_path )
-        if args.cache_predictions:
-            cache_subdir_path = cached_prediction_subdir_path.joinpath('cached') 
-            cache_subdir_path.mkdir( exist_ok=True )
-            logger.info( 'Using cache subdirectory {}.'.format( cache_subdir_path ))
-
     if not Path( args.model_path ).exists():
         raise FileNotFoundError("Could not find model file", args.model_path)
     live_model = lsg.SegModel.load( args.model_path ) 
@@ -207,13 +187,8 @@ if __name__ == "__main__":
 
     for img_idx, img_triplet in enumerate( pack_fsdb_inputs_outputs( args )): 
         img_path, layout_file_path, output_file_path = img_triplet
-        logger.info( "File triplet={}".format( img_triplet[0]))
+        logger.info( "File path={}".format( img_triplet[0]))
         
-        img_md5=''
-        if args.cache_predictions:
-            with open(img_path, 'rb') as imgf:
-                img_md5 = md5( imgf.read()).hexdigest()
-
         img = None
         try:
             img = Image.open( img_path, 'r' )
@@ -252,7 +227,7 @@ if __name__ == "__main__":
                 binary_mask = None
                 # Inference from fixed-size patches
                 patch_size = check_patch_size_against_model( live_model, args.patch_size )
-                binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold, cached_prediction_prefix=img_md5, cached_prediction_path=cache_subdir_path )
+                binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold )
                 if binary_mask is None:
                     logger.warning("No line mask found for {}, crop {}: skipping item.".format( img_path, crop_idx ))
                     img.close()
