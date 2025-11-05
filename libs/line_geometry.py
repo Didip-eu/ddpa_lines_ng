@@ -269,7 +269,7 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
                 polygon_coords[-1] = regularize_polygon( skeleton_coords[-1], line_heights[-1], height_factor )
                 polyg_rr, polyg_cc = ski.draw.polygon( *(polygon_coords[-1]).transpose())
                 labeled_msk_regular_hw[ polyg_rr, polyg_cc ]=lbl
-        except ValueError:
+        except (ValueError, IndexError):
             logger.warning("Failed to retrieve label mask geometry: aborting segmentation.")
         
     # BBs centroid ordering differs from CCs top-to-bottom ordering:

@@ -187,7 +187,9 @@ if __name__ == "__main__":
 
     for img_idx, img_triplet in enumerate( pack_fsdb_inputs_outputs( args )): 
         img_path, layout_file_path, output_file_path = img_triplet
-        logger.info( "File path={}".format( img_triplet[0]))
+        logger.debug( "File path={}".format( img_triplet[0]))
+        if not args.overwrite_existing and output_file_path.exists():
+            continue
         
         img = None
         try:
@@ -213,7 +215,7 @@ if __name__ == "__main__":
             try:
                 layout_data = seglib.layout_regseg_to_crops( img, regseg, args.region_classes )
             except OSError as err:
-                logger.warning("Could not crop the image: {}. Skipping item.".format( err ))
+                logger.warning("Could not crop image {}: {}. Skipping item.".format( img_path, err ))
                 img.close()
                 continue
             if not layout_data:
@@ -229,7 +231,7 @@ if __name__ == "__main__":
                 patch_size = check_patch_size_against_model( live_model, args.patch_size )
                 binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold )
                 if binary_mask is None:
-                    logger.warning("No line mask found for {}, crop {}: skipping item.".format( img_path, crop_idx ))
+                    logger.warning("No line mask found in {}, crop {}: skipping item.".format( img_path, crop_idx ))
                     img.close()
                     continue
                 binary_masks.append( binary_mask )
@@ -239,7 +241,7 @@ if __name__ == "__main__":
                 #binary_mask = np.squeeze( segmentation_records[0][0] )
                 segdict = build_segdict_composite( img_metadata, boxes, segmentation_records, args.line_attributes ) 
             except (TypeError, ValueError):
-                logger.warning("Failed to polygonize the line masks: abort segmentation.")
+                logger.warning("Failed to polygonize line masks in {}: abort segmentation.".format( img_path ))
                 img.close()
                 continue
 
@@ -261,5 +263,5 @@ if __name__ == "__main__":
 
         if args.timer > 0 and img_idx > 0 and img_idx % args.timer==0:
             timer_means.append( (time()-start_time)/args.timer )
+            logger.info("{}: {}s/img".format( img_idx, mean(timer_means)))
             start_time = time()
-            logger.info("{}: {}s/img".format( img_idx, timer_means[-1]))
