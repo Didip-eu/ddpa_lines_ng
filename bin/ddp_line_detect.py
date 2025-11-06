@@ -199,7 +199,7 @@ if __name__ == "__main__":
                 binary_mask, segdict = None, {}
 
                 if not layout_file_path.exists():
-                    #logger.warning("Could not find layout segmentation file {}. Skipping item.".format( layout_file_path ))
+                    logger.warning("{}\tCould not find layout segmentation file {}. Skipping item.".format( img_path, layout_file_path.name ))
                     continue
                 
                 with open(layout_file_path, 'r') as regseg_if:
@@ -218,14 +218,14 @@ if __name__ == "__main__":
                         patch_size = check_patch_size_against_model( live_model, args.patch_size )
                         binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold, device=args.device )
                         if binary_mask is None:
-                            logger.warning("No line mask found in {}, crop {}: skipping item.".format( img_path, crop_idx ))
+                            logger.warning("{}\tNo line mask found in crop {}: skipping item.".format( img_path, crop_idx ))
                             continue
                         binary_masks.append( binary_mask )
                     try:
                         segmentation_records = [ lgm.get_morphology( msk, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor ) for msk in binary_masks ]
                         segdict = build_segdict_composite( img_metadata, boxes, segmentation_records, args.line_attributes ) 
                     except (TypeError,ValueError) as e:
-                        logger.warning("Failed to polygonize line masks in {} ({}): abort segmentation.".format( img_path, e ))
+                        logger.warning("{}\tFailed to polygonize line masks ({}): abort segmentation.".format( img_path, e ))
                         continue
 
                 ############ 3. Handing the output #################
