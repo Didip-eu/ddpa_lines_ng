@@ -188,81 +188,68 @@ if __name__ == "__main__":
 
     for img_idx, img_triplet in enumerate( pack_fsdb_inputs_outputs( args )): 
         img_path, layout_file_path, output_file_path = img_triplet
-        #logger.info( "File path={}".format( img_triplet[0]))
+        logger.debug( "File path={}".format( img_triplet[0]))
         if not args.overwrite_existing and output_file_path.exists():
             continue
         
-        img = None
         try:
-            img = Image.open( img_path, 'r' )
-        except UnidentifiedImageError as err:
-            logger.warning("Could not open image: {}. Skipping item.".format( err ))
-            continue
+            with Image.open( img_path, 'r' ) as img:
 
-        img_metadata = { 'image_filename': str(img_path.name), 'image_width': img.size[0], 'image_height': img.size[1] }
-        binary_mask, segdict = None, {}
+                img_metadata = { 'image_filename': str(img_path.name), 'image_width': img.size[0], 'image_height': img.size[1] }
+                binary_mask, segdict = None, {}
 
-        # Segment the region crops (from layout), and construct a page-wide file
-        logger.debug(f"Run segmentation on masked regions '{args.region_classes} from layout file {layout_file_path}, instead of whole page.")
-        if not layout_file_path.exists():
-            #logger.warning("Could not find layout segmentation file {}. Skipping item.".format( layout_file_path ))
-            img.close()
-            continue
-        
-        with open(layout_file_path, 'r') as regseg_if:
-            regseg = json.load( regseg_if )
-            # iterate over layout crops and segment
-            layout_data = tuple()
-            try:
-                layout_data = seglib.layout_regseg_to_crops( img, regseg, args.region_classes )
-            except OSError as err:
-                logger.warning("Could not crop image {}: {}. Skipping item.".format( img_path, err ))
-                img.close()
-                continue
-            if not layout_data:
-                #logger.warning("Could not find region with name in {} in the layout segmentation file {}. Skipping item.".format( args.region_classes, layout_file_path ))
-                img.close()
-                continue
-            crops_pil, boxes, classes = seglib.layout_regseg_to_crops( img, regseg, args.region_classes, force_rgb=True )
-
-            binary_masks = []
-            for crop_idx, crop_whc in enumerate(crops_pil):
-                binary_mask = None
-                # Inference from fixed-size patches
-                patch_size = check_patch_size_against_model( live_model, args.patch_size )
-                binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold, device=args.device )
-                if binary_mask is None:
-                    logger.warning("No line mask found in {}, crop {}: skipping item.".format( img_path, crop_idx ))
-                    img.close()
+                if not layout_file_path.exists():
+                    #logger.warning("Could not find layout segmentation file {}. Skipping item.".format( layout_file_path ))
                     continue
-                binary_masks.append( binary_mask )
+                
+                with open(layout_file_path, 'r') as regseg_if:
+                    regseg = json.load( regseg_if )
+                    # iterate over layout crops and segment
+                    layout_data = seglib.layout_regseg_to_crops( img, regseg, args.region_classes )
+                    if not layout_data:
+                        #logger.warning("Could not find region with name in {} in the layout segmentation file {}. Skipping item.".format( args.region_classes, layout_file_path ))
+                        continue
+                    crops_pil, boxes, classes = seglib.layout_regseg_to_crops( img, regseg, args.region_classes, force_rgb=True )
 
-            try:
-                segmentation_records = [ lgm.get_morphology( msk, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor ) for msk in binary_masks ]
-                #binary_mask = np.squeeze( segmentation_records[0][0] )
-                segdict = build_segdict_composite( img_metadata, boxes, segmentation_records, args.line_attributes ) 
-            except (TypeError, ValueError):
-                logger.warning("Failed to polygonize line masks in {}: abort segmentation.".format( img_path ))
-                img.close()
-                continue
+                    binary_masks = []
+                    for crop_idx, crop_whc in enumerate(crops_pil):
+                        binary_mask = None
+                        # Inference from fixed-size patches
+                        patch_size = check_patch_size_against_model( live_model, args.patch_size )
+                        binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold, device=args.device )
+                        if binary_mask is None:
+                            logger.warning("No line mask found in {}, crop {}: skipping item.".format( img_path, crop_idx ))
+                            continue
+                        binary_masks.append( binary_mask )
+                    try:
+                        segmentation_records = [ lgm.get_morphology( msk, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor ) for msk in binary_masks ]
+                        segdict = build_segdict_composite( img_metadata, boxes, segmentation_records, args.line_attributes ) 
+                    except (TypeError,ValueError) as e:
+                        logger.warning("Failed to polygonize line masks in {} ({}): abort segmentation.".format( img_path, e ))
+                        continue
 
-        ############ 3. Handing the output #################
-        logger.debug(f"Serializing segmentation for img.shape={img.size}")
+                ############ 3. Handing the output #################
+                logger.debug(f"Serializing segmentation for img.shape={img.size}")
 
-        if args.output_format == 'stdout':
-            print(json.dumps(segdict))
-            sys.exit()
-        if not output_file_path.exists() or args.overwrite_existing:
-            if args.output_format == 'json':
-                with open(output_file_path, 'w') as of:
-                    #segdict['image_wh']=img.size
-                    of.write(json.dumps( segdict, indent=4 ))
-            elif args.output_format == 'xml':
-                #segdict['image_wh']=img.size
-                seglib.xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
-            logger.debug("Segmentation output saved in {}".format( output_file_path ))
+                if args.output_format == 'stdout':
+                    print(json.dumps(segdict))
+                    sys.exit()
+                if not output_file_path.exists() or args.overwrite_existing:
+                    if args.output_format == 'json':
+                        with open(output_file_path, 'w') as of:
+                            #segdict['image_wh']=img.size
+                            of.write(json.dumps( segdict, indent=4 ))
+                    elif args.output_format == 'xml':
+                        #segdict['image_wh']=img.size
+                        seglib.xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
+                    logger.debug("Segmentation output saved in {}".format( output_file_path ))
 
-        if args.timer > 0 and img_idx > 0 and img_idx % args.timer==0:
-            timer_means.append( (time()-start_time)/args.timer )
-            logger.info("{}: {}s/img".format( img_idx, np.mean(timer_means)))
-            start_time = time()
+                if args.timer > 0 and img_idx > 0 and img_idx % args.timer==0:
+                    timer_means.append( (time()-start_time)/args.timer )
+                    logger.info("{}: {}s/img".format( img_idx, np.mean(timer_means)))
+                    start_time = time()
+
+        except Exception as e:
+            logger.warning("{}".format( e ))
+            continue
+            
