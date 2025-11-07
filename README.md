@@ -32,11 +32,12 @@ PYTHONPATH=. python3 ./bin/ddp_lineseg.py -img_paths dataset/*.jpg -max_epoch 40
 
 
 ```sh
-export FSDB_ROOT=/tmp/data/fsdb_subset; export PYTHONPATH=.; echo $FSDB_ROOT/*/*/*/*.img.*p*g | xargs python3 ./bin/ddp_line_detect.py -line_height_factor 1.3 -output_format json -img_paths
+export FSDB_ROOT=/tmp/data/fsdb_subset; export PYTHONPATH=.; echo $FSDB_ROOT/*/*/*/*.img.*p*g | xargs python3 ./bin/ddp_line_detect.py -model_path ./best.mlmodel -line_height_factor 1.3 -output_format json -img_paths
 ```
 
 Remarks:
 
++ The `-model_path` parameter should point at the weight file.
 + The command above yields a JSON file; the default output is a JSON dictionary on the _standard output_ (or, explicitly: `-output_format stdout`).
 + The `-line_height_factor` parameter determines how much of the line should be serialized, with respect to the detected 'x-height' for the line component. Eg. With the factor above (1.3), if the detected core line is 10-pixel high, the resulting polygon is a strip that is 13-pixel thick. Default: 1.0 ($\approx$ core line only).
 + By default, the JSON serialization includes non-standard line attributes, such as the line x-height (in pixels) and the centerline points: they are not part of the PageXML specs and are omitted from the corresponding output format (see `-output_format xml` format option).
