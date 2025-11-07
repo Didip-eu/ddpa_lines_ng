@@ -2,10 +2,10 @@
 
 
 
-Line segmentation scripts, Kraken-free:
+Line segmentation scripts.
 
 
-## Detect 
+## 1. Detect
 
 
  `ddp_line_detect.py` - for line detection on entire page, using an existing [layout analysis](https://github.com/anguelos/ddpa_layout.git) (`*.layout.pred.json`), if it exists. The following command runs a model trained on 1024x1024 patches, using the CPU as the default computing device:
@@ -23,7 +23,7 @@ Remarks:
 + By default, the JSON serialization includes non-standard line attributes, such as the line x-height (in pixels) and the centerline points: they are not part of the PageXML specs and are omitted from the corresponding output format (see `-output_format xml` format option).
 + To run on the GPU, pass the `-device gpu` option.
 
-## Visualize
+## 2. Visualize
 
 + `ddp_lineseg_viewer.py` - reading an existing segmentation file:
 
@@ -43,7 +43,7 @@ Remarks:
   ![](data/examples/0042453de0344b72519e093c7b20d593.Wr_OldText_1.png)
 
 
-## Train and validate
+## 3. Train and validate
 
 Training script for Mask-RCNN, page-wide (with training set automatically built out of the provided image paths):
 
