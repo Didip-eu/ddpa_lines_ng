@@ -37,9 +37,10 @@ export FSDB_ROOT=/tmp/data/fsdb_subset; export PYTHONPATH=.; echo $FSDB_ROOT/*/*
 
 Remarks:
 
-+ To run on the GPU, pass `-device gpu` to the command. 
++ The default output format is a JSON dictionary on the standard output (or, explicitly: `-output_format stdout`)
 + The `-line_height_factor` parameter determines how much of the line should be serialized, with respect to the detected 'x-height' for the line component. Eg. With the factor above (1.3), if the detected core line is 10-pixel high, the resulting polygon is a strip that is 13-pixel thick. Default: 1.0 ($\approx$ core line only).
-+ By default, the JSON serialization includes non-standard line attributes, such as the line x-height (in pixels) and the centerline points: they are not part of the PageXML specs and are omitted from the corresponding output format (see `xml` format option).
++ By default, the JSON serialization includes non-standard line attributes, such as the line x-height (in pixels) and the centerline points: they are not part of the PageXML specs and are omitted from the corresponding output format (see `-output_format xml` format option).
++ To run on the GPU, pass the `-device gpu` option.
 
 ## Visualize
 
