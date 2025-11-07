@@ -4,26 +4,6 @@
 
 Line segmentation scripts, Kraken-free:
 
-## Train and validate
-
-Training script for Mask-RCNN, page-wide (with training set automatically built out of the provided image paths):
-
-```sh
-PYTHONPATH=. python3 ./bin/ddp_lineseg.py -img_paths dataset/*.jpg -max_epoch 400 -patience 50 -img_size 1024 -backbone resnet101 -batch_size 4
-```
-
-Validate (with validation set automatically built out of the provided image paths):
-
-```sh
-PYTHONPATH=. python3 ./bin/ddp_lineseg.py -mode validate -img_paths dataset/*.jpg
-```
-
-Patch-based training:
-
-```sh
-PYTHONPATH=. python3 ./bin/ddp_lineseg.py -img_paths dataset/*.jpg -max_epoch 400 -patience 50 -img_size 1024 -backbone resnet101 -batch_size 4 -train_style patch
-```
-
 
 ## Detect 
 
@@ -62,6 +42,26 @@ Remarks:
 
   ![](data/examples/0042453de0344b72519e093c7b20d593.Wr_OldText_1.png)
 
+
+## Train and validate
+
+Training script for Mask-RCNN, page-wide (with training set automatically built out of the provided image paths):
+
+```sh
+PYTHONPATH=. python3 ./bin/ddp_lineseg.py -img_paths dataset/*.jpg -max_epoch 400 -patience 50 -img_size 1024 -backbone resnet101 -batch_size 4
+```
+
+Validate (with validation set automatically built out of the provided image paths):
+
+```sh
+PYTHONPATH=. python3 ./bin/ddp_lineseg.py -mode validate -img_paths dataset/*.jpg
+```
+
+Patch-based training:
+
+```sh
+PYTHONPATH=. python3 ./bin/ddp_lineseg.py -img_paths dataset/*.jpg -max_epoch 400 -patience 50 -img_size 1024 -backbone resnet101 -batch_size 4 -train_style patch
+```
 
 ## More examples
 
