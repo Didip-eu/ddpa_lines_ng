@@ -56,7 +56,7 @@ from libs import seglib, list_utils as lu, line_geometry as lgm
 from bin import ddp_lineseg_train as lsg
 
 
-logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
+logging.basicConfig( level=logging.DEBUG, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
 logger = logging.getLogger(__name__)
 
 # tone down unwanted logging
@@ -127,7 +127,7 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, line_att
             polygon_coords += offset.astype(polygon_coords.dtype)
             baseline += offset.astype(baseline.dtype)
             centerline += offset.astype(centerline.dtype)
-            dict_line_entry = {'id': f'l{line_id}', 'coords': polygon_coords[:,::-1].tolist(), 'baseline': baseline[:,::-1].tolist() }
+            dict_line_entry = {'id': f'l{line_id}', 'coords': polygon_coords[:,::-1].astype('int').tolist(), 'baseline': baseline[:,::-1].astype('int').tolist() }
             if 'height' in line_attributes:
                 dict_line_entry['height']=int(line_height)
             if 'centerline' in line_attributes:
@@ -142,13 +142,13 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, line_att
     return segdict
 
 
-def pack_fsdb_inputs_outputs( args:dict ):
+def pack_fsdb_inputs_outputs( args:dict, segmentation_suffix:str ):
     """
     Process arguments into a tuple of the form. It is a triplet::
 
-        ( <img path>, <layout segmentation path>, <line segmentation path> ) 
+        ( <img path>, <segmentation path>, <line segmentation path> ) 
 
-    No existence check on the layout segmentation path.
+    No existence check on the segmentation path.
     """
     all_img_paths = set([ Path(p) for p in args.img_paths ])
 
@@ -160,9 +160,9 @@ def pack_fsdb_inputs_outputs( args:dict ):
     path_triplets = []
     for img_path in all_img_paths:
         img_stem = re.sub(r'{}$'.format( args.img_suffix), '', img_path.name )
-        layout_segfile_path = Path( re.sub(r'{}$'.format( args.img_suffix), args.layout_suffix, str(img_path) ))
+        segfile_path = Path( re.sub(r'{}$'.format( args.img_suffix), segmentation_suffix, str(img_path) ))
         output_dir = img_path.parent if not args.output_dir else Path(args.output_dir)
-        path_triplets.append( ( img_path, layout_segfile_path, output_dir.joinpath( f'{img_stem}.{args.appname}.pred.{args.output_format}')))
+        path_triplets.append( ( img_path, segfile_path, output_dir.joinpath( f'{img_stem}.{args.appname}.pred.{args.output_format}')))
     #return path_triplets
     return sorted( path_triplets, key=lambda x: str(x))
 
@@ -186,7 +186,7 @@ if __name__ == "__main__":
     timer_means = []
     start_time = time()
 
-    for img_idx, img_triplet in enumerate( pack_fsdb_inputs_outputs( args )): 
+    for img_idx, img_triplet in enumerate( pack_fsdb_inputs_outputs( args, args.layout_suffix )): 
         img_path, layout_file_path, output_file_path = img_triplet
         logger.debug( "File path={}".format( img_triplet[0]))
         if not args.overwrite_existing and output_file_path.exists():
