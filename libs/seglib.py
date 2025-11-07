@@ -201,18 +201,29 @@ def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='
     Returns:
         list[list[int]]: a list of lists of coordinates.
     """
-    # Two possible structures:
-    # 
-    # 1. Top-level list of lines  (no region or only region id as a line attribute)
     if 'lines' in segmentation_dict:
         if factor==1.0:
             return [ line[polygon_key] for line in segmentation_dict['lines'] ]
         return [ lgm.strip_from_baseline( line['baseline'], line['height']*factor ).tolist() for line in segmentation_dict['lines'] ]
-    # 2. Text lines are nested into regions
     elif 'regions' in segmentation_dict:
         if factor==1.0:
             return [ line[polygon_key] for reg in segmentation_dict['regions'] for line in reg['lines']] 
         return [ lgm.strip_from_baseline( line['baseline'], line['height']*factor ).tolist() for reg in segmentation_dict['regions'] for line in reg['lines']]
+    return []
+
+def line_dicts_from_segmentation_dict( segmentation_dict: dict) -> list[dict]:
+    """From a segmentation dictionary, return a list of all line dictionaries.
+
+    Args:
+        segmentation_dict (dict): a dictionary, typically constructed from a JSON file. The 'lines' entry is either
+        top-level key, or nested as in 'regions > region > lists'.
+    Returns:
+        list[dict]: a list of dictionaries.
+    """
+    if 'lines' in segmentation_dict:
+        return segmentation_dict['lines']
+    elif 'regions' in segmentation_dict:
+        return [ line for reg in segmentation_dict['regions'] for line in reg['lines']]
     return []
 
 
@@ -234,7 +245,7 @@ def line_images_from_img_xml_files(img: str, page_xml: str, as_dictionary=False 
     with Image.open(img, 'r') as img_wh:
         segmentation_dict = segmentation_dict_from_xml( page_xml )
         line_pairs = line_images_from_img_segmentation_dict( img_wh, segmentation_dict )
-        line_triplets = [ (*line_pair, line_dict) for line_pair, line_dict in zip( line_pairs, segmentation_dict['lines']) ]
+        line_triplets = [ (*line_pair, line_dict) for line_pair, line_dict in zip( line_pairs, line_dicts_from_segmentation_dict(segmentation_dict)) ]
         if as_dictionary:
             segmentation_dict['lines'] = line_triplets
             return segmentation_dict
@@ -258,7 +269,7 @@ def line_images_from_img_json_files( img: str, segmentation_json: str, as_dictio
     with Image.open(img, 'r') as img_wh, open( segmentation_json, 'r' ) as json_file:
         segmentation_dict = json.load( json_file )
         line_pairs = line_images_from_img_segmentation_dict( img_wh, segmentation_dict, factor=factor )
-        line_triplets = [ (*line_pair, line_dict) for line_pair, line_dict in zip( line_pairs, segmentation_dict['lines']) ]
+        line_triplets = [ (*line_pair, line_dict) for line_pair, line_dict in zip( line_pairs, line_dicts_from_segmentation_dict(segmentation_dict)) ]
         if as_dictionary:
             segmentation_dict['lines'] = line_triplets
             return segmentation_dict

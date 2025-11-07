@@ -56,7 +56,7 @@ from libs import seglib, list_utils as lu, line_geometry as lgm
 from bin import ddp_lineseg_train as lsg
 
 
-logging.basicConfig( level=logging.DEBUG, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
+logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
 logger = logging.getLogger(__name__)
 
 # tone down unwanted logging
