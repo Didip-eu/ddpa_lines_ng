@@ -45,6 +45,7 @@ import time
 import sys
 import random
 import logging
+import re
 
 # 3rd party
 import matplotlib.pyplot as plt
@@ -200,9 +201,10 @@ if __name__ == '__main__':
                 plt.savefig( output_file_path, bbox_inches='tight')
             else:
                 plt.show()
-        else:
-            if args.segfile:
-                segviz.display_segmentation_and_img( img_path, segfile=args.segfile, show={ k:True for k in args.show if k != 'labels'}, linewidth=args.linewidth, crop=(args.crop_x, args.crop_y), output_file_path=args.output_file_path )
-            elif args.segfile_suffix:
-                segviz.display_segmentation_and_img( img_path, segfile_suffix=args.segfile_suffix, show={ k:True for k in args.show if k != 'labels'}, linewidth=args.linewidth, crop=(args.crop_x, args.crop_y), output_file_path=args.output_file_path )
+        elif args.segfile or args.segfile_suffix:
+                segfile_path = Path(args.segfile) if args.segfile else Path( re.sub(r'\.[^/]+$', args.segfile_suffix, str(img_path)) )
+                if not segfile_path.exists():
+                    logger.warning("Could not find a segmentation file {}: skipping item;".format( Path(segfile_path)))
+                    continue
+                segviz.display_segmentation_and_img( img_path, segfile=segfile_path, show={ k:True for k in args.show if k != 'labels'}, linewidth=args.linewidth, crop=(args.crop_x, args.crop_y), output_file_path=args.output_file_path )
 

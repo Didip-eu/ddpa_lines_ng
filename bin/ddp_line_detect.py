@@ -78,7 +78,7 @@ p = {
         'mask_threshold': [.6, "In the post-processing phase, threshold to use for line soft masks."],
         'box_threshold': [0.75, "Threshold used for line bounding boxes."],
         'patch_size': [1024, "Process the image by <patch_size>*<patch_size> patches"],
-        'raw_polygons': [1, "Serialize polygons as resulting from the NN (default); otherwise, construct the abstract polygons from centerlines."],
+        'raw_polygons': [0, "Serialize polygons as resulting from the NN (default); otherwise, construct the abstract polygons from centerlines."],
         'device': [('cpu','gpu'), "Computing device."],
         'line_height_factor': [1.0, "Factor (within ]0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"],
         'overwrite_existing': [1, "Write over existing output file (default)."],
@@ -204,7 +204,7 @@ if __name__ == "__main__":
                 
                 with open(layout_file_path, 'r') as regseg_if:
                     regseg = json.load( regseg_if )
-                    # iterate over layout crops and segment
+                    # extract crops from layout analysis file
                     layout_data = seglib.layout_regseg_to_crops( img, regseg, args.region_classes )
                     if not layout_data:
                         #logger.warning("Could not find region with name in {} in the layout segmentation file {}. Skipping item.".format( args.region_classes, layout_file_path ))
@@ -228,7 +228,7 @@ if __name__ == "__main__":
                         logger.warning("{}\tFailed to polygonize line masks ({}): abort segmentation.".format( img_path, e ))
                         continue
 
-                ############ 3. Handing the output #################
+                ############ Output #################
                 logger.debug(f"Serializing segmentation for img.shape={img.size}")
 
                 if args.output_format == 'stdout':

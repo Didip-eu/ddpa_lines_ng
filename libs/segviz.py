@@ -133,17 +133,19 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
         segfile = str(img_path).replace('.img.jpg', f'.{segfile_suffix}') 
     assert Path(segfile).exists()
 
-
     plt.close()
     fig, ax = plt.subplots(figsize=(12,12))
 
     img_hwc = ski.io.imread( img_path )/255.0
+    # grayscale -> 3-channel
+    if len(img_hwc.shape) == 2:
+        img_hwc = np.stack( [img_hwc, img_hwc, img_hwc] ).transpose(1,2,0)
     bm_hw = np.zeros( img_hwc.shape[:2], dtype='bool' )
 
     segdict = None
-    if segfile[-3:]=='xml' or segfile_suffix[-3:]=='xml':
+    if str(segfile)[-3:]=='xml' or segfile_suffix[-3:]=='xml':
         segdict = seglib.segmentation_dict_from_xml( segfile )
-    elif segfile[-4:]=='json' or segfile_suffix[-3:]=='json':
+    elif str(segfile)[-4:]=='json' or segfile_suffix[-3:]=='json':
         with open( segfile, 'r' ) as segfile_in:
             segdict = json.load( segfile_in )
     if segdict is None:
