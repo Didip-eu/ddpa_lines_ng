@@ -1,8 +1,8 @@
 fargv
 matplotlib
 numpy
-Pillow
-scikit_image
+pillow
+scikit-image
 setuptools
 torch
 torchvision
