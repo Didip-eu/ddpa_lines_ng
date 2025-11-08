@@ -142,13 +142,16 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, line_att
     return segdict
 
 
-def pack_fsdb_inputs_outputs( args:dict, segmentation_suffix:str ):
+def pack_fsdb_inputs_outputs( args:dict, segmentation_suffix:str ) -> list[tuple]:
     """
-    Process arguments into a tuple of the form. It is a triplet::
+    Compile image files and/or charter paths in the CLI arguments.
+    No existence check on the dependency (segmentation path).
 
-        ( <img path>, <segmentation path>, <line segmentation path> ) 
-
-    No existence check on the segmentation path.
+    Args:
+        dict: the parsed arguments.
+        segmentation_suffix (str): suffix of the expected segmentation file.
+    Returns:
+        list[tuple]: a list of triplets (<img file path>, <segmentation file path>, <output file path>)
     """
     all_img_paths = set([ Path(p) for p in args.img_paths ])
 
