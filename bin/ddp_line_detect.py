@@ -132,8 +132,6 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, line_att
                 dict_line_entry['height']=int(line_height)
             if 'centerline' in line_attributes:
                 dict_line_entry['centerline']=centerline[:,::-1].tolist() # yx to xy
-            if 'baseline' in line_attributes:
-                dict_line_entry['baseline']=baseline[:,::-1].tolist()
             this_region_lines.append( dict_line_entry )
             line_id += 1
         segdict['regions'].append( { 'id': f'r{region_id}', 'type': 'text_region', 'coords': [[box[0],box[1]],[box[2],box[1]],[box[2],box[3]],[box[0],box[3]]], 'lines': this_region_lines } )
