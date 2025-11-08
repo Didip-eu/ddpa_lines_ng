@@ -273,22 +273,23 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
         except (ValueError, IndexError):
             logger.warning("Failed to retrieve label mask geometry: aborting segmentation.")
         
-    # BBs centroid ordering differs from CCs top-to-bottom ordering:
-    # usually hints at messy, non-standard line layout
-    # TO DOUBLE-CHECK
-    #if [ att[0] for att in attributes ] != sorted([att[0] for att in attributes]):
-    #    logger.warning("Labels may not follow reading order.")
-    
-    entry = (labeled_msk_hw[None,:] if raw_polygons else labeled_msk_regular_hw[None,:], [{
+    # sort by centroids (y,x): 
+    # - a very naive reading order heuristic, that does not work on multi-component, skewed lines
+    #   Eg. (les feuilles mortes) --> ! mortes feuilles Les
+    #                         mortes
+    #               feuilles
+    #          Les 
+    # - order that differs from labels may hint at messy reading order
+    line_features = sorted( zip(labels, line_heights, skeleton_coords, polygon_coords, centroids), key=lambda t: t[4].tolist() )
+    return (labeled_msk_hw[None,:] if raw_polygons else labeled_msk_regular_hw[None,:], [{
                 'label': lbl,
-                'centroid': center,
+                'centroid': center_yx,
                 'polygon_coords': plgc,
                 'line_height': lh, 
                 'centerline': skc,
                 'baseline': skc + [lh/2,0],
-    } for lbl, lh, skc, plgc, center in zip(labels, line_heights, skeleton_coords, polygon_coords, centroids) ])
+    } for lbl, lh, skc, plgc, center_yx in line_features ])
 
-    return entry
 
 
 def binary_mask_from_patches( img: Image.Image, row_count=2, col_count=1, overlap=.04, model=None, mask_threshold=.25, box_threshold=.8):
