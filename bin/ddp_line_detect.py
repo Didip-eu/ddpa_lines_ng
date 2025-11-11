@@ -222,7 +222,7 @@ if __name__ == "__main__":
                             continue
                         binary_masks.append( binary_mask )
                     try:
-                        segmentation_records = [ lgm.get_morphology( msk, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor, region_of_interest=boxes[crop_idx] ) for msk in binary_masks ]
+                        segmentation_records = [ lgm.get_morphology( msk, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor ) for msk in binary_masks ]
                         segdict = build_segdict_composite( img_metadata, boxes, segmentation_records, args.line_attributes ) 
                     except (TypeError,ValueError) as e:
                         logger.warning("{}\tFailed to polygonize line masks ({}): abort segmentation.".format( img_path, e ))
