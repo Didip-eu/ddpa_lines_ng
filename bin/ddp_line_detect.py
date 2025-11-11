@@ -192,7 +192,6 @@ if __name__ == "__main__":
         logger.debug( "File path={}".format( img_triplet[0]))
         if not args.overwrite_existing and output_file_path.exists():
             continue
-        
         try:
             with Image.open( img_path, 'r' ) as img:
 
@@ -223,7 +222,7 @@ if __name__ == "__main__":
                             continue
                         binary_masks.append( binary_mask )
                     try:
-                        segmentation_records = [ lgm.get_morphology( msk, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor ) for msk in binary_masks ]
+                        segmentation_records = [ lgm.get_morphology( msk, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor, region_of_interest=boxes[crop_idx] ) for msk in binary_masks ]
                         segdict = build_segdict_composite( img_metadata, boxes, segmentation_records, args.line_attributes ) 
                     except (TypeError,ValueError) as e:
                         logger.warning("{}\tFailed to polygonize line masks ({}): abort segmentation.".format( img_path, e ))
@@ -234,7 +233,6 @@ if __name__ == "__main__":
 
                 if args.output_format == 'stdout':
                     print(json.dumps(segdict))
-                    sys.exit()
                 if not output_file_path.exists() or args.overwrite_existing:
                     if args.output_format == 'json':
                         with open(output_file_path, 'w') as of:

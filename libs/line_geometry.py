@@ -25,8 +25,6 @@ import torch
 from bin import ddp_lineseg_train as lsg
 from libs import seglib
 
-import matplotlib.pyplot as plt
-
 
 logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
 logger = logging.getLogger(__name__)
@@ -137,45 +135,7 @@ def post_process( preds: dict, box_threshold=.75, mask_threshold=.6, orig_size=(
     return page_wide_mask_1hw
 
 
-def post_process_boxes( preds: dict, box_threshold=.9, mask_threshold=.1, orig_size=()):
-    """
-    Compute lines from predictions, by separate processing of box masks.
-    (UNUSED)
-
-    Args:
-        preds (dict[str,torch.Tensor]): predicted dictionary for the page:
-            - 'scores'(N) : box probs
-            - 'masks' (N1HW): line heatmaps
-            - 'orig_size': if provided, masks are rescaled to the respective size
-    Returns:
-        tuple[ np.ndarray, list[tuple[int, list, float, list]]]: a pair with
-            - binary mask (1,H,W)
-            - a list of line attribute dicts (label, centroid pt, area, polygon coords, ...)
-    """
-    # select masks with best box scores
-    best_masks = [ m.detach().numpy() for m in preds['masks'][preds['scores']>box_threshold]]
-    # threshold masks
-    masks = [ (m * (m > mask_threshold)).astype('bool') for m in best_masks ]
-    # in each mask, keep the largest CC
-    clean_masks = []
-    for m_1hw in masks:
-        labeled_msk_1hw = ski.measure.label( m_1hw, connectivity=2 )
-        reg_props = ski.measure.regionprops( labeled_msk_1hw )
-        max_label, _ = max([ (reg.label, reg.area) for reg in reg_props ], key=lambda t: t[1])
-        clean_masks.append( m_1hw * (labeled_msk_1hw == max_label))
-
-    # merge masks 
-    page_wide_mask_1hw = np.sum( clean_masks, axis=0 ).astype('bool')
-    plt.imshow( np.squeeze(np.sum( clean_masks, axis=0)) )
-    plt.show()
-    # optional: scale up masks to the original size of the image
-    if orig_size:
-        page_wide_mask_1hw = ski.transform.resize( page_wide_mask_1hw, (1, orig_size[1], orig_size[0]))
-
-    return page_wide_mask_1w
-
-
-def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, contour_tolerance=4, raw_polygons=False, height_factor=1.0):
+def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, contour_tolerance=4, raw_polygons=False, region_of_interest=tuple(), height_factor=1.0):
     """
     From a page-wide line mask, extract a labeled map and a dictionary of features.
     
@@ -186,6 +146,7 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
         raw_polygons (bool): if True, return the (approximated) polygon obtained from the page mask; otherwise (default),
             return a reconstructed version of the polygon (baseline+height).
         height_factor (float): factor (∈  ]0,1]) to be applied to the polygon height-unused if 'raw_polygons' set.
+        region_of_interest (tuple[int])!: a (L,T,R,B) tuple into which all resulting coordinates should be contained. Default: page limits.
 
     Returns:
         tuple[ np.ndarray, list[tuple[int, list, float, list]]]: a pair with
@@ -209,6 +170,10 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
     line_heights = [] # a list of integers
     centroids = []
 
+    if not region_of_interest:
+        region_of_interest = (0,0,*(labeled_msk_hw.shape))
+    else:
+        region_of_interest = (region_of_interest[1],region_of_interest[0],region_of_interest[3], region_of_interest[2])
 
     def fix_ends( skl_yx: np.array, line_height: int, box_width: tuple[int,int]):
         """
@@ -228,17 +193,17 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
             skl_yx_reduced[-1,1] = box_width-1
         return skl_yx_reduced
 
-    def regularize_polygon( centerline: np.ndarray, line_height: int, hf: float ):
-        """
-        Crude way: concatenate baseline to translated and reverted version of itself
-        """
-        pg = np.concatenate( [ centerline+[(line_height*hf)//2,0], (centerline-[(line_height*hf)//2,0])[::-1] ] )
-        # move points that are out of bounds
-        pg[ np.where( pg[:,0] < 0 ), 0 ] = 0
-        pg[ np.where( pg[:,1] < 0 ), 1 ] = 0
-        pg[ np.where( pg[:,0] >= labeled_msk_hw.shape[0] ), 0 ] = labeled_msk_hw.shape[0]-1
-        pg[ np.where( pg[:,1] >= labeled_msk_hw.shape[1] ), 1 ] = labeled_msk_hw.shape[1]-1
-        return pg
+#    def regularize_polygon( centerline: np.ndarray, line_height: int, hf: float ):
+#        """
+#        Crude way: concatenate baseline to translated and reverted version of itself
+#        """
+#        pg = np.concatenate( [ centerline+[(line_height*hf)//2,0], (centerline-[(line_height*hf)//2,0])[::-1] ] )
+#        # move points that are out of bounds
+#        pg[ np.where( pg[:,0] < 0 ), 0 ] = 0
+#        pg[ np.where( pg[:,1] < 0 ), 1 ] = 0
+#        pg[ np.where( pg[:,0] >= labeled_msk_hw.shape[0] ), 0 ] = labeled_msk_hw.shape[0]-1
+#        pg[ np.where( pg[:,1] >= labeled_msk_hw.shape[1] ), 1 ] = labeled_msk_hw.shape[1]-1
+#        return pg
 
     labeled_msk_regular_hw = None if raw_polygons else np.zeros(labeled_msk_hw.shape, dtype=labeled_msk_hw.dtype)
 
@@ -267,11 +232,12 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
             skeleton_coords.append( approximate_pagewide_skl_yx )
 
             if not raw_polygons:
-                polygon_coords[-1] = regularize_polygon( skeleton_coords[-1], line_heights[-1], height_factor )
+                polygon_coords[-1] = boxed_in( strip_from_centerline( skeleton_coords[-1][:,::-1], line_heights[-1]*height_factor )[:,::-1], region_of_interest )
+                #polygon_coords[-1] = regularize_polygon( skeleton_coords[-1], line_heights[-1] )
                 polyg_rr, polyg_cc = ski.draw.polygon( *(polygon_coords[-1]).transpose())
                 labeled_msk_regular_hw[ polyg_rr, polyg_cc ]=lbl
-        except (ValueError, IndexError):
-            logger.warning("Failed to retrieve label mask geometry: aborting segmentation.")
+        except (ValueError, IndexError) as e:
+            logger.warning("Failed to retrieve geometry from label mask #{}: {}".format(lbl, e))
         
     # sort by centroids (y,x): 
     # - a very naive reading order heuristic, that does not work on multi-component, skewed lines
@@ -430,16 +396,19 @@ def strip_from_centerline(centerline_n2: np.ndarray, height: float) -> np.ndarra
     vertebra_north_south_2xy = np.array([[0,-height/2], [0,height/2]])
     for ctr_idx in range(1,len(centerline_n2_augmented)-1):
         left, mid, right = centerline_n2_augmented[ctr_idx-1:ctr_idx+2]
-        rotation_matrix = bisection_rotation_matrix( left-mid, right-mid )
-        rotated_vertebra_north_south_2xy=np.matmul( rotation_matrix, vertebra_north_south_2xy.T).T
-        vertebras_n2xy.append( rotated_vertebra_north_south_2xy + mid ) # shift to actual pos.
+        try:
+            rotation_matrix = bisection_rotation_matrix( left-mid, right-mid )
+            rotated_vertebra_north_south_2xy=np.matmul( rotation_matrix, vertebra_north_south_2xy.T).T
+            vertebras_n2xy.append( rotated_vertebra_north_south_2xy + mid ) # shift to actual pos.
+        except Exception as e:
+            print(e)
+            continue
     vertebras_n2xy = np.stack(vertebras_n2xy)
-
     contour_pts_n2xy = np.concatenate( [vertebras_n2xy[:,0], vertebras_n2xy[::-1,1], vertebras_n2xy[0:1,0]])
 
 #    plt.close()
 #    plt.plot(*(centerline_n2_augmented[1:-1]).transpose())
-#    plt.plot( *contour_pts_n2xy.transpose() )
+#    plt.plot( *contour_pts_n2xy.transpose())
 #    ax=plt.gca()
 #    ax.set_aspect('equal', adjustable='box')
 #    plt.show()
@@ -450,7 +419,7 @@ def strip_from_centerline(centerline_n2: np.ndarray, height: float) -> np.ndarra
 def boxed_in( sequence_n2xy: np.ndarray, ltrb: tuple[float,float,float,float] )->np.ndarray:
     """
     Given a sequence of points, shift its elements' coordinates  s.t. they are contained
-    within the given box.
+    within the given box. Can be used for (y,x) points: be sure to pass the box as (t,l,b,r).
 
     Args: 
         sequence_n2xy (np.ndarray) a (N,2) sequence of (x,y) points.
@@ -486,12 +455,19 @@ def bisection_rotation_matrix(left, right):
     if np.isclose(left[0], right[0]):
         raise ValueError("Vertical segment: abort.")
     # special case (2): colinear, horizontal vectors
-    if np.isclose(left[1], right[1]):
+    if np.isclose(left[1], right[1]): 
         return np.identity(2)
-
-    alpha = np.arctan(left[1]/left[0])
-    beta = np.arctan(right[1]/right[0])
-    gamma = ( alpha + beta ) / 2
+    alpha, beta, gamma = 0, 0, 0
+    if left[0] == 0 and right[0] != 0: # L vector is horizontal
+        beta = np.arctan(right[1]/right[0])
+        gamma = beta/2
+    elif right[0] == 0 and left[0] != 0: # R vector is horizontal
+        alpha = np.arctan(left[1]/left[0]) 
+        gamma = -alpha/2
+    else:
+        alpha = np.arctan(left[1]/left[0]) 
+        beta = np.arctan(right[1]/right[0]) 
+        gamma = ( alpha + beta ) / 2
     cosg, sing = np.cos( gamma ), np.sin( gamma )
     rotation_matrix = np.array([[cosg, -sing],[sing, cosg]])
     return rotation_matrix
