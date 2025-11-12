@@ -121,10 +121,12 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, line_att
         line_id = 0
         _, atts = record
         offset = np.array([box[1],box[0]])
+        centroid_ys = [] 
         for att_dict in atts:
-            label, polygon_coords, line_height, centerline, baseline = [ att_dict[k] for k in ('label','polygon_coords','line_height', 'centerline', 'baseline')]
+            label, polygon_coords, centroid,line_height, centerline, baseline = [ att_dict[k] for k in ('label','polygon_coords','centroid','line_height', 'centerline', 'baseline')]
             # adding box offsets
             polygon_coords += offset.astype(polygon_coords.dtype)
+            centroid_ys.append( centroid[0].item() )
             baseline += offset.astype(baseline.dtype)
             centerline += offset.astype(centerline.dtype)
             dict_line_entry = {'id': f'l{line_id}', 'coords': polygon_coords[:,::-1].astype('int').tolist(), 'baseline': baseline[:,::-1].astype('int').tolist() }
@@ -134,7 +136,13 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, line_att
                 dict_line_entry['centerline']=centerline[:,::-1].tolist() # yx to xy
             this_region_lines.append( dict_line_entry )
             line_id += 1
-        segdict['regions'].append( { 'id': f'r{region_id}', 'type': 'text_region', 'coords': [[box[0],box[1]],[box[2],box[1]],[box[2],box[3]],[box[0],box[3]]], 'lines': this_region_lines } )
+        line_spacings = np.array(centroid_ys[1:]) - np.array(centroid_ys[:-1])
+        line_spacing_avg, line_spacing_min, line_spacing_max, line_spacing_std = [ int(v.item()) for v in (np.mean(line_spacings), np.min(line_spacings), np.max(line_spacings), np.std(line_spacings)) ] if len(centroid_ys)>1 else (-1,-1,-1,-1)
+        segdict['regions'].append( { 
+            'id': f'r{region_id}', 'type': 'text_region', 
+            'coords': [[int(pt[0]),int(pt[1])] for pt in ([box[0],box[1]],[box[2],box[1]],[box[2],box[3]],[box[0],box[3]])], 
+            'line_spacing': {'avg': line_spacing_avg, 'min': line_spacing_min, 'max': line_spacing_max, 'std': line_spacing_std }, 
+            'lines': this_region_lines } )
         region_id += 1
 
     return segdict

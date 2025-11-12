@@ -30,82 +30,6 @@ logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(
 logger = logging.getLogger(__name__)
 
 
-def prune_skeleton( skeleton_hw: np.ndarray )->np.ndarray:
-    """
-    Given a binary skeleton tree, find a longest path, as a sequence of pixels.
-    (A crude way to prune a skeleton.)
-
-    Args:
-        skeleton_hw (np.ndarray): a binary skeleton.
-
-    Returns:
-        Tuple[np.ndarray, np.ndarray]: a pair with 
-            - (H,W) pruned skeleton (i.e. no branching)
-            - (N,2) list of skeleton coordinates 
-    Raises:
-        ValueError
-    """
-    def neighborhood( pixel ):
-        max_h, max_w = skeleton_hw.shape
-        offsets = np.array([[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]])
-        return [ nb for nb in pixel+offsets if (nb[0]>=0 and nb[0]<max_h and nb[1]>=0 and nb[1]<max_w and skeleton_hw[nb[0], nb[1]]) ] 
-
-    # Find left-most pixel with neighborhood 1 (root of the tree)
-    min_x, leftmost = 2**10, None
-    for px in np.stack( np.where( skeleton_hw == True ), axis=1 ):
-        if len(neighborhood( px )) > 1:
-            continue
-        if px[1] < min_x:
-            min_x = px[1]
-            leftmost = px
-
-    max_h, max_w = skeleton_hw.shape
-    parent_matrix = [ [ None ] * max_w for i in range(max_h) ]
-    depth_matrix = np.zeros( skeleton_hw.shape )
-
-    def dfs_iterative( px ):
-        """ Iterative DFS, to circumvent recursion limits."""
-        visited_matrix = [ [False] * max_w for i in range(max_h) ] 
-        current = leftmost
-        while(1):
-            neighbors = neighborhood( current )
-            if not neighbors or all( [ visited_matrix[ nb[0]][nb[1]] for nb in neighbors ] ):
-                if current is leftmost:
-                    break
-                current = parent_matrix[ current[0] ][ current[1] ]
-            for nb in neighbors:
-                y,x = nb
-                if visited_matrix[y][x]:
-                    continue
-                visited_matrix[y][x]=True
-                parent_matrix[y][x]=current
-                depth_matrix[y][x]=depth_matrix[ current[0] ][ current[1] ]+1
-                current = nb
-                break
-
-    dfs_iterative( leftmost )
-    deepest_leaf = np.stack( np.unravel_index( np.argmax(depth_matrix), depth_matrix.shape ))
-
-    # New skeleton is a longest path
-    longest_path = []
-    current = deepest_leaf
-    pruned_skeleton, skeleton_coords_n2 = None, None
-    while ( not np.array_equal(current, leftmost )):
-        longest_path.append( parent_matrix[current[0]][current[1]] )
-        current = longest_path[-1]
-    #try:
-    skeleton_coords_n2 = np.stack([ px for px in longest_path[::-1]], axis=0)
-    rr, cc = skeleton_coords_n2.transpose()
-    pruned_skeleton = np.zeros( skeleton_hw.shape )
-    pruned_skeleton[rr,cc]=1
-    #except ValueError e:
-    #    loggger.error("Polygonization failed on connected component. Abort.")
-        
-    return ( pruned_skeleton, skeleton_coords_n2 )
-
-
-
-
 def post_process( preds: dict, box_threshold=.75, mask_threshold=.6, orig_size=()):
     """
     Compute lines from predictions, by merging box masks.
@@ -227,7 +151,7 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
 
             if not raw_polygons:
                 polyg = strip_from_centerline( skeleton_coords[-1][:,::-1], line_heights[-1]*height_factor )[:,::-1]
-                polyg = boxed_in( polyg, (0,0,*labeled_msk_hw.shape ))
+                polyg = boxed_in( polyg, (0,0,*[ d-1 for d in labeled_msk_hw.shape] ))
                 polygon_coords[-1] = polyg
                 #polygon_coords[-1] = regularize_polygon( skeleton_coords[-1], line_heights[-1], height_factor )
                 polyg_rr, polyg_cc = ski.draw.polygon( *(polygon_coords[-1]).transpose())
@@ -467,4 +391,81 @@ def bisection_rotation_matrix(left, right):
     cosg, sing = np.cos( gamma ), np.sin( gamma )
     rotation_matrix = np.array([[cosg, -sing],[sing, cosg]])
     return rotation_matrix
+
+
+def prune_skeleton( skeleton_hw: np.ndarray, left_to_right=True )->np.ndarray:
+    """
+    Given a binary skeleton tree, find a longest path, as a sequence of pixels.
+    (A crude way to prune a skeleton.)
+
+    Args:
+        skeleton_hw (np.ndarray): a binary skeleton.
+        left_to_right (np.ndarray): ensure that a longest path can only go right, up, or down.
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray]: a pair with 
+            - (H,W) pruned skeleton (i.e. no branching)
+            - (N,2) list of skeleton coordinates 
+    Raises:
+        ValueError
+    """
+    def neighborhood( pixel, left_to_right=left_to_right ):
+        max_h, max_w = skeleton_hw.shape
+        offsets = np.array([[-1,0],[-1,1],[0,1],[1,0],[1,1]]) if left_to_right else np.array([[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]])
+        return [ nb for nb in pixel+offsets if (nb[0]>=0 and nb[0]<max_h and nb[1]>=0 and nb[1]<max_w and skeleton_hw[nb[0], nb[1]]) ] 
+
+    # Find left-most pixel with neighborhood 1 (root of the tree)
+    min_x, leftmost = 2**10, None
+    for px in np.stack( np.where( skeleton_hw == True ), axis=1 ):
+        if len(neighborhood( px )) > 1:
+            continue
+        if px[1] < min_x:
+            min_x = px[1]
+            leftmost = px
+
+    max_h, max_w = skeleton_hw.shape
+    parent_matrix = [ [ None ] * max_w for i in range(max_h) ]
+    depth_matrix = np.zeros( skeleton_hw.shape )
+
+    def dfs_iterative( px ):
+        """ Iterative DFS, to circumvent recursion limits."""
+        visited_matrix = [ [False] * max_w for i in range(max_h) ] 
+        current = leftmost
+        while(1):
+            neighbors = neighborhood( current )
+            if not neighbors or all( [ visited_matrix[ nb[0]][nb[1]] for nb in neighbors ] ):
+                if current is leftmost:
+                    break
+                current = parent_matrix[ current[0] ][ current[1] ]
+            for nb in neighbors:
+                y,x = nb
+                if visited_matrix[y][x]:
+                    continue
+                visited_matrix[y][x]=True
+                parent_matrix[y][x]=current
+                depth_matrix[y][x]=depth_matrix[ current[0] ][ current[1] ]+1
+                current = nb
+                break
+
+    dfs_iterative( leftmost )
+    deepest_leaf = np.stack( np.unravel_index( np.argmax(depth_matrix), depth_matrix.shape ))
+
+    # New skeleton is a longest path
+    longest_path = []
+    current = deepest_leaf
+    pruned_skeleton, skeleton_coords_n2 = None, None
+    while ( not np.array_equal(current, leftmost )):
+        longest_path.append( parent_matrix[current[0]][current[1]] )
+        current = longest_path[-1]
+    #try:
+    skeleton_coords_n2 = np.stack([ px for px in longest_path[::-1]], axis=0)
+    rr, cc = skeleton_coords_n2.transpose()
+    pruned_skeleton = np.zeros( skeleton_hw.shape )
+    pruned_skeleton[rr,cc]=1
+    #except ValueError e:
+    #    loggger.error("Polygonization failed on connected component. Abort.")
+        
+    return ( pruned_skeleton, skeleton_coords_n2 )
+
+
 
