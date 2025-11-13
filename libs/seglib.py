@@ -187,6 +187,7 @@ def line_binary_mask_stack_from_segmentation_dict( segmentation_dict: dict, poly
     mask_size = (segmentation_dict['image_width'], segmentation_dict['image_height'])
     return torch.tensor( np.stack( [ ski.draw.polygon2mask( mask_size, polyg ).transpose(1,0) for polyg in polygon_boundaries ]))
 
+
 def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='coords', factor=1.0 ) -> list[list[int]]:
     """From a segmentation dictionary describing polygons, return a list of polygon boundaries, i.e. lists of points.
     TODO: apply region box_in constraint.
@@ -204,11 +205,11 @@ def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='
     if 'lines' in segmentation_dict:
         if factor==1.0:
             return [ line[polygon_key] for line in segmentation_dict['lines'] ]
-        return [ lgm.strip_from_baseline( line['baseline'], line['height']*factor ).tolist() for line in segmentation_dict['lines'] ]
+        return [ (lgm.strip_from_baseline( line['baseline'], line['height']*factor ) if 'height' in line else line[polygon_key]) for line in segmentation_dict['lines'] ]
     elif 'regions' in segmentation_dict:
         if factor==1.0:
             return [ line[polygon_key] for reg in segmentation_dict['regions'] for line in reg['lines']] 
-        return [ lgm.strip_from_baseline( line['baseline'], line['height']*factor ).tolist() for reg in segmentation_dict['regions'] for line in reg['lines']]
+        return [ (lgm.strip_from_baseline( line['baseline'], line['height']*factor ) if 'height' in line else line[polygon_key]) for reg in segmentation_dict['regions'] for line in reg['lines']]
     return []
 
 def line_dicts_from_segmentation_dict( segmentation_dict: dict) -> list[dict]:
@@ -453,6 +454,9 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
     commentElt = ET.SubElement( metadataElt, 'Comments')
     if 'comments' in seg_dict:
         commentElt.text = seg_dict['comments']
+    if 'line_height_factor' in seg_dict:
+        lineHeightFactorElt = ET.SubElement( metadataElt, 'LineHeightFactor' )
+        lineHeightFactorElt.text = str(seg_dict['line_height_factor'])
 
     img_name = Path(seg_dict['image_filename']).name
     img_width, img_height = seg_dict['image_width'], seg_dict['image_height']    

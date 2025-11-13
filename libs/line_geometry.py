@@ -272,37 +272,37 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
     return page_mask[None,:]
 
 
-
-def strip_from_baseline(baseline_n2: list[tuple[int,int]], height: float) -> list[tuple[int,int]]:
+def strip_from_baseline(baseline_n2xy: list[tuple[int,int]], height: float) -> list[tuple[int,int]]:
     """
     Given a baseline, construct the strip-shaped polygon with given height.
 
     Args:
-        baseline_n2 (list[tuple[int,int]]): a sequence of 2D points (x_i, y_i).
+        baseline_n2xy (list[tuple[int,int]]): a sequence of (x,y) points.
         height (float): the strip height.
     Returns:
         list[tuple[int,int]]: a (N,2) clockwise sequence of (x,y) points.
     """
-    return strip_from_centerline( np.array( baseline_n2 )-[0,height/2], height ).tolist()
+    return strip_from_centerline( np.array( baseline_n2xy )-[0,height/2], height ).tolist()
 
-def strip_from_centerline(centerline_n2: np.ndarray, height: float) -> np.ndarray:
+
+def strip_from_centerline(centerline_n2xy: np.ndarray, height: float) -> np.ndarray:
     """
     Given a centerline, construct the strip-shaped polygon with given height.
 
     Args:
-        centerline_n2 (np.ndarray): a (N,2) sequence of 2D points (x_i, y_i).
+        centerline_n2xy (np.ndarray): a (N,2) sequence of (x,y) points.
         height (float): the strip height.
     Returns:
         np.ndarray: a (N,2) clockwise sequence of (x,y) points.
     """
-    left_dummy_pt = np.array( [ 2*centerline_n2[0][0]-centerline_n2[1][0], 2*centerline_n2[0][1]-centerline_n2[1][1] ])
-    right_dummy_pt = np.array( [ 2*centerline_n2[-1][0]-centerline_n2[-2][0], 2*centerline_n2[-1][1]-centerline_n2[-2][1] ])
-    centerline_n2_augmented = np.concatenate( [ [left_dummy_pt], centerline_n2, [right_dummy_pt] ], dtype='float')
+    left_dummy_pt = np.array( [ 2*centerline_n2xy[0][0]-centerline_n2xy[1][0], 2*centerline_n2xy[0][1]-centerline_n2xy[1][1] ])
+    right_dummy_pt = np.array( [ 2*centerline_n2xy[-1][0]-centerline_n2xy[-2][0], 2*centerline_n2xy[-1][1]-centerline_n2xy[-2][1] ])
+    centerline_n2xy = np.concatenate( [ [left_dummy_pt], centerline_n2xy, [right_dummy_pt] ], dtype='float')
 
     vertebras_n2xy = []
     vertebra_north_south_2xy = np.array([[0,-height/2], [0,height/2]])
-    for ctr_idx in range(1,len(centerline_n2_augmented)-1):
-        left, mid, right = centerline_n2_augmented[ctr_idx-1:ctr_idx+2]
+    for ctr_idx in range(1,len(centerline_n2xy)-1):
+        left, mid, right = centerline_n2xy[ctr_idx-1:ctr_idx+2]
         try:
             rotation_matrix = bisection_rotation_matrix( left-mid, right-mid )
             rotated_vertebra_north_south_2xy=np.matmul( rotation_matrix, vertebra_north_south_2xy.T).T

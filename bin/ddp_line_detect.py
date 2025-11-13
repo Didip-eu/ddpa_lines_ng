@@ -95,15 +95,14 @@ def check_patch_size_against_model( live_model: dict, patch_size ):
            return live_model.hyper_parameters['img_size'][0]
     return patch_size
 
-def build_segdict_composite( img_metadata, boxes, segmentation_records, line_attributes, contour_tolerance=4.0):
+def build_segdict_composite( img_metadata, boxes, segmentation_records, line_attributes, contour_tolerance=4.0, line_height_factor=1.0):
     """
     Construct the region + line segmentation dictionary.
 
     Args:
         img_metadata (dict): original image's metadata.
         boxes (list[tuple]): list of LTRB coordinate vectors, one for each region.
-        segmentation_records (list[tuple[np.ndarray, list[tuple]]]): a list of N tuples (one
-        per region) with
+        segmentation_records (list[tuple[np.ndarray, list[tuple]]]): a list of N tuples (one per region) with
             - label map (np.ndarray)
             - a list of line attribute dicts (label, centroid pt, ..., area, polygon_coords)
         contour_tolerance (float): value for contour approximation (default: 4)
@@ -113,6 +112,7 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, line_att
     """
     segdict = { 'created': str(datetime.now()), 'creator': __file__, }
     segdict.update( img_metadata )
+    segdict['line_height_factor']=line_height_factor
     segdict['regions']=[]
 
     region_id = 0
