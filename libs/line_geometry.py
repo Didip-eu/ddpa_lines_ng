@@ -139,7 +139,6 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
         polygon_box[ polyg_rr, polyg_cc ] = 1
         
         # 2. Skeletonize and prune
-        skeleton=ski.morphology.skeletonize( polygon_box )
         try:
             _, this_skeleton_yx = prune_skeleton( ski.morphology.skeletonize( polygon_box ))
             # 3. Avg line height = area of polygon / length of skeleton

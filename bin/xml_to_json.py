@@ -18,7 +18,7 @@ from typing import Union, Any
 
 p = {
     'file_paths': set([]),
-    'output_format': ('xml', 'stdout'),
+    'output_format': ('json', 'stdout'),
     'get_text': [1, "Extract text content of the line, if it exists"],
     "comment": ['',"A text string to be added to the <Comments> elt."],
 }
