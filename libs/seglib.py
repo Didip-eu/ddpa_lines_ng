@@ -683,72 +683,7 @@ def segdict_sink_lines(segdict: dict):
     del segdict['lines']
     return segdict
 
-def merge_layout_regseg_lineseg( regseg: dict, region_labels: list[str], *linesegs: list[str]) -> dict:
-    """Merge 2 segmentation outputs into a single one:
 
-    * the page-wide yolo/layout segmentation (with OldText, ... regions)
-    * the line segmentation for the regions defined in the first one
-
-    The resulting file is a page-wide line-segmentation JSON.
-
-    Args:
-        regseg (dict): the regional segmentation json, as given by the 'layout' app
-        *linesegs (list[str]): a number of local line segmentations for the region defined in the
-            first file, of the form::
-
-                {"type": "baseline", "image_filename": ..., lines: [ {"id": "... }, ... ] }
-
-        region_labels (list[str]): in the region segmentation, labels of those regions
-            that have been line-segmented.
-
-    Returns:
-        dict: a page-wide line-segmentation dictionary.
-    """
-    charter_img_suffix = '.img.jpg'
-
-    print( region_labels)
-    def translate( dictionary, translation ):
-        #print("Translate by ", translation)
-        #print("Input dictionary has", len(dictionary["lines"]), "lines")
-        new_lines = []
-        for line in dictionary['lines']:
-            new_line = copy.deepcopy( line )
-            #print("Before:", line['baseline'])
-            for k in ('baseline', 'coords'):
-                new_line[k] = [ [int(x+translation[0]),int(y+translation[1])] for (x,y) in line[k]]
-            new_lines.append( new_line )
-            #print("After:", new_line['baseline'])
-        #print("translated", len( new_lines ))
-
-        #print("Input dictionary has", len(dictionary["lines"]), "lines")
-        return new_lines
-
-    # extract mapping region type id -> region name
-    clsid_2_clsname = { i:n for (i,n) in enumerate( regseg['class_names'] )}
-    to_keep = [ i for (i,v) in enumerate( regseg['rect_classes'] ) if clsid_2_clsname[v] in region_labels ]
-
-    # assumptions: line segs are passed in the same order as the region order in the regseg
-    to_keep = to_keep[:len(linesegs)]
-
-    # go through local line segmentations (and corresponding rectangle in regseg),
-    # and translate every x,y coordinates by value of the rectangle's origin (left,top)
-    lines = []
-    #img_name = str(Path(linesegs[0]['image_filename']).parents[1].joinpath( regseg['img_md5'] ).with_suffix( charter_img_suffix ))
-    img_name = "TODO (ANGULAS)"
-
-    for (lineseg, coords) in zip( linesegs, [ c for (index, c) in enumerate( regseg['rect_LTRB'] ) if index in to_keep ]):
-        lines.extend( translate( lineseg, translation=coords[:2] ))
-        #print("merged lines have now", len(lines))
-
-    merged_seg = { "type": "baselines", 
-                   "image_filename": img_name,
-                   "text_direction": 'horizontal-lr',
-                   "script_detection": False,
-                   "lines": lines,
-                 }
-
-    return merged_seg
-        
 def layout_regseg_to_crops( img: Image.Image, regseg: dict, region_labels: list[str], force_rgb=False ) -> tuple[list[Image.Image], list[str]]:
     """From a layout-app segmentation dictionary, return the regions with matching
     labels as a list of images.
