@@ -111,18 +111,6 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
             skl_yx_reduced[-1,1] = box_width-1
         return skl_yx_reduced
 
-#    def regularize_polygon( centerline: np.ndarray, line_height: int, hf: float ):
-#        """
-#        Crude way: concatenate baseline to translated and reverted version of itself
-#        """
-#        pg = np.concatenate( [ centerline+[(line_height*hf)//2,0], (centerline-[(line_height*hf)//2,0])[::-1] ] )
-#        # move points that are out of bounds
-#        pg[ np.where( pg[:,0] < 0 ), 0 ] = 0
-#        pg[ np.where( pg[:,1] < 0 ), 1 ] = 0
-#        pg[ np.where( pg[:,0] >= labeled_msk_hw.shape[0] ), 0 ] = labeled_msk_hw.shape[0]-1
-#        pg[ np.where( pg[:,1] >= labeled_msk_hw.shape[1] ), 1 ] = labeled_msk_hw.shape[1]-1
-#        return pg
-
     labeled_msk_regular_hw = None if raw_polygons else np.zeros(labeled_msk_hw.shape, dtype=labeled_msk_hw.dtype)
 
     for lbl in labels:
@@ -324,14 +312,6 @@ def strip_from_centerline(centerline_n2: np.ndarray, height: float) -> np.ndarra
             continue
     vertebras_n2xy = np.stack(vertebras_n2xy)
     contour_pts_n2xy = np.concatenate( [vertebras_n2xy[:,0], vertebras_n2xy[::-1,1], vertebras_n2xy[0:1,0]])
-
-#    plt.close()
-#    plt.plot(*(centerline_n2_augmented[1:-1]).transpose())
-#    plt.plot( *contour_pts_n2xy.transpose())
-#    ax=plt.gca()
-#    ax.set_aspect('equal', adjustable='box')
-#    plt.show()
-    
     return contour_pts_n2xy.astype('int32')
 
 
@@ -360,7 +340,6 @@ def boxed_in( sequence_n2xy: np.ndarray, ltrb: tuple[float,float,float,float] )-
             y = bottom
         shifted_pts.append( [x,y] )
     return np.array( shifted_pts )
-
 
 
 def bisection_rotation_matrix(left, right):
