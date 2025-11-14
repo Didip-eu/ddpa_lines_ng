@@ -89,8 +89,7 @@ p = {
     'device': 'cuda',
     'augmentations': [ set([]), "Pass one or more tormentor class names, to build a choice of training augmentations; by default, apply the hard-coded transformations."],
     'train_style': [('page','patch'), "Use page-wide sample images for training (default), or fixed-size patches."],
-    'cache_dir_train': '',
-    'cache_dir_val': '',
+    'cache_dir': ['', ("Location for sample, serialized as Torch tensors. It should contain two subfolders: 'train' and 'val'.") ]
 }
 
 
@@ -114,7 +113,7 @@ def build_nn( backbone='resnet101'):
             box_head=box_head,)
 
 
-def predict( imgs: list[Union[str,Path,Image.Image,Tensor,np.ndarray]], live_model=None, model_file='best.mlmodel', device='cpu' ):
+def predict( imgs: list[Union[str,Path,Image.Image,Tensor,np.ndarray]], live_model=None, model_file='best.mlmodel' ):
     """
     Args:
         imgs (list[Union[Path,Tensor]]): lists of image filenames or tensors; in the latter case, images
@@ -135,12 +134,7 @@ def predict( imgs: list[Union[str,Path,Image.Image,Tensor,np.ndarray]], live_mod
         if not Path(model_file).exists():
             return []
         model = SegModel.load( model_file )
-    
-    if device=='gpu':
-        model.net.cuda()
-    else:
-        model.net.cpu()
-
+    model.net.cpu()
     model.net.eval()
 
     orig_sizes = []
@@ -158,9 +152,9 @@ def predict( imgs: list[Union[str,Path,Image.Image,Tensor,np.ndarray]], live_mod
             imgs_live = [ Image.open(img).convert('RGB') for img in imgs ]
         elif isinstance(imgs[0], Image.Image) or type(imgs[0]) is np.ndarray:
             imgs_live = imgs
-        imgs, orig_sizes = zip(*[ (tsf(img).cuda() if device=='gpu' else tsf(img), (img.size)) for img in imgs_live ])  
+        imgs, orig_sizes = zip(*[ (tsf(img), (img.size)) for img in imgs_live ])
     else:
-        imgs, orig_sizes = [ (tsf(img).cuda() if device=='gpu' else tsf(img)) for img in imgs ], [ img.shape[:0:-1] for img in imgs ]
+        imgs, orig_sizes = [ tsf(img) for img in imgs ], [ img.shape[:0:-1] for img in imgs ]
         
     return (imgs, model.net( imgs ), orig_sizes)
     
@@ -255,17 +249,31 @@ if __name__ == '__main__':
     model.hyper_parameters = hyper_params
 
     random.seed(46)
-    imgs = list(args.img_paths)
-    lbls = [ str(img_path).replace('.img.jpg', args.line_segmentation_suffix) for img_path in imgs ]
 
-    # split sets
-    imgs_train, imgs_test, lbls_train, lbls_test = split_set( imgs, lbls )
-    imgs_train, imgs_val, lbls_train, lbls_val = split_set( imgs_train, lbls_train )
+    imgs_train, lbls_train, imgs_val, lbls_val = [], [], [], []
+    cache_dir_train, cache_dir_val = None, None
 
-    if hyper_params['train_set_limit']:
-        imgs_train, _, lbls_train, _ = split_set( imgs_train, lbls_train, limit=hyper_params['train_set_limit'])
-    if hyper_params['validation_set_limit']:
-        imgs_val, _, lbls_val, _ = split_set( imgs_val, lbls_val, limit=hyper_params['validation_set_limit'])
+    # all of this is not needed if samples already torch-serialized 
+    if not args.cache_dir:
+        imgs = list(args.img_paths)
+        lbls = [ str(img_path).replace('.img.jpg', args.line_segmentation_suffix) for img_path in imgs ]
+
+        # split sets
+        imgs_train, imgs_test, lbls_train, lbls_test = split_set( imgs, lbls )
+        imgs_train, imgs_val, lbls_train, lbls_val = split_set( imgs_train, lbls_train )
+
+        if hyper_params['train_set_limit']:
+            imgs_train, _, lbls_train, _ = split_set( imgs_train, lbls_train, limit=hyper_params['train_set_limit'])
+        if hyper_params['validation_set_limit']:
+            imgs_val, _, lbls_val, _ = split_set( imgs_val, lbls_val, limit=hyper_params['validation_set_limit'])
+    else:
+        if not Path( args.cache_dir ).exists():
+            logger.error("Dataset cache dir {} does not exist: exiting.".format( args.cache_dir ))
+            sys.exit()
+        cache_dir_train, cache_dir_val = Path(args.cache_dir).joinpath('train'), Path(args.cache_dir).joinpath('val')
+        cache_dir_train.mkdir( exist_ok=True )
+        cache_dir_val.mkdir( exist_ok=True )
+
 
     ds_train, ds_val = None, None
     # Page-wide processing 
@@ -279,19 +287,22 @@ if __name__ == '__main__':
     # Patch-based processing
     elif args.train_style=='patch': # requires Tormentor anyway
         crop_size = hyper_params['img_size'][0]
-        if args.cache_dir_train:
-            ds_train = CachedDataset( data_source=args.cache_dir_train )
-            logger.info("Loading disk-cached dataset from {} ({} samples).".format( args.cache_dir_train, len(ds_train)))
+
+        if args.cache_dir:
+
+            # This is how you would cache a dataset on-the-fly
+            # ds_train = CachedDataset( ds_train )
+            # ds_train.serialize( subdir=Path(args.cache_dir).joinpath('train'), repeat=4 )
+            # ds_val = CachedDataset( ds_val )
+            # ds_val.serialize( subdir=Path(args.cache_dir).joinpath('val'), repeat=4)
+            ds_train, ds_val = CachedDataset( data_source=cache_dir_train ), CachedDataset( data_source=cache_dir_val )
+            logger.info("Loading disk-cached dataset from {} (train, {} samples) and {} (val, {} samples).".format( cache_dir_train, len(ds_train), cache_dir_val, len(ds_val)))
+
         else:
             # 1. All images resized to at least patch-size
             ds_train = LineDetectionDataset( imgs_train, lbls_train, min_size=crop_size)
             aug = build_tormentor_augmentation_for_crop_training( crop_size=crop_size, crop_before=True )
             ds_train = tormentor.AugmentedDs( ds_train, aug, computation_device=args.device, augment_sample_function=LineDetectionDataset.augment_with_bboxes )
-            #ds_train = CachedDataset( ds_train )
-            #ds_train.serialize( subdir='train_cached', repeat=4 )
-        if args.cache_dir_val:
-            ds_val = CachedDataset( data_source=args.cache_dir_val )
-        else:
             # 2. Validation set should use patch-size crops, not simply resized images!
             ds_val = LineDetectionDataset( imgs_val, lbls_val, min_size=crop_size)
             augCropCenter = tormentor.RandomCropTo.new_size( crop_size, crop_size )
@@ -299,11 +310,13 @@ if __name__ == '__main__':
             augCropRight = tormentor.RandomCropTo.new_size( crop_size, crop_size ).override_distributions( center_x=tormentor.Uniform((.4, 1)))
             aug = ( augCropCenter ^ augCropLeft ^ augCropRight ).override_distributions(choice=tormentor.Categorical(probs=(.33, .34, .33)))
             ds_val = tormentor.AugmentedDs( ds_val, aug, computation_device=args.device, augment_sample_function=LineDetectionDataset.augment_with_bboxes )
-            #ds_val = CachedDataset( ds_val )
-            #ds_val.serialize( subdir='val_cached', repeat=4)
         
+    if not (len(ds_train) and len(ds_val)):
+        logger.warning("Could not load a valid dataset: exiting.")
+        sys.exit()
+
     # not used for the moment
-    ds_test = LineDetectionDataset( imgs_test, lbls_test, img_size=hyper_params['img_size'], polygon_key=hyper_params['polygon_key'] )
+    # ds_test = LineDetectionDataset( imgs_test, lbls_test, img_size=hyper_params['img_size'], polygon_key=hyper_params['polygon_key'] )
 
     dl_train = DataLoader( ds_train, batch_size=hyper_params['batch_size'], shuffle=True, collate_fn = lambda b: tuple(zip(*b)))
     dl_val = DataLoader( ds_val, batch_size=1, collate_fn = lambda b: tuple(zip(*b)))

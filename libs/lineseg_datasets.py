@@ -1,22 +1,31 @@
 import sys
-import torch
+import logging
+from tqdm.auto import tqdm
+from pathlib import Path
+import json
+from typing import Union
+
 import numpy as np
 from torch.utils.data import Dataset
-from typing import Union
 import torch
 import torchvision
 from torchvision.transforms import v2
 from torchvision.tv_tensors import BoundingBoxes, Mask
-from tqdm.auto import tqdm
-from pathlib import Path
 from PIL import Image
-import json
+
+
+# DiDip
+import tormentor
 
 # local
-
 sys.path.append( str(Path(__file__).parents[1] ))
 from libs.transforms import ResizeMin
 from libs import seglib
+
+
+logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
+logger = logging.getLogger(__name__)
+
 
 class LineDetectionDataset(Dataset):
     """
@@ -137,12 +146,12 @@ class CachedDataset( Dataset ):
     + annotations saved as Torch pickles
     """
 
-    def __init__(self, data_source:Union[str,Dataset]=None, serialize=False, repeat=1 ):
+    def __init__(self, data_source:Union[str,Path,Dataset]=None, serialize=False, repeat=1 ):
         self._source_dataset = None
         self._img_paths = []
         self._label_paths = []
         # data source is an existing serialization: load the paths
-        if type(data_source) is str:
+        if type(data_source) is str or isinstance(data_source, Path) :
             assert Path(data_source).is_dir() and Path(data_source).exists()
             self.load( data_source )
         # data source is an existing Dataset: serialize on disk and load the newly generated paths

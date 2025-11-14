@@ -45,11 +45,24 @@ Remarks:
 
 ## 3. Train and validate
 
-Training script for Mask-RCNN, page-wide (with training set automatically built out of the provided image paths):
+Patch-based training for Mask-RCNN (with training set automatically built out of the provided image paths):
+
+```sh
+PYTHONPATH=. python3 ./bin/ddp_lineseg.py -img_paths dataset/*.jpg -img_size 1024 -batch_size 4 -train_style patch
+```
+
+Same, using cached samples (useful for Tormentor-augmented patches):
+
+```sh
+PYTHONPATH=. python3 ./bin/ddp_lineseg.py s dataset/*.jpg -img_size 1024 -batch_size 4 -train_style patch -cached_dir dataset/cached
+```
+
+Training on page-wide samples (legacy only):
 
 ```sh
 PYTHONPATH=. python3 ./bin/ddp_lineseg.py -img_paths dataset/*.jpg -max_epoch 400 -patience 50 -img_size 1024 -backbone resnet101 -batch_size 4
 ```
+
 
 Validate (with validation set automatically built out of the provided image paths):
 
@@ -57,11 +70,6 @@ Validate (with validation set automatically built out of the provided image path
 PYTHONPATH=. python3 ./bin/ddp_lineseg.py -mode validate -img_paths dataset/*.jpg
 ```
 
-Patch-based training:
-
-```sh
-PYTHONPATH=. python3 ./bin/ddp_lineseg.py -img_paths dataset/*.jpg -max_epoch 400 -patience 50 -img_size 1024 -backbone resnet101 -batch_size 4 -train_style patch
-```
 
 ## More examples
 
