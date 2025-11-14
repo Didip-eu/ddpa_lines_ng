@@ -71,6 +71,19 @@ PYTHONPATH=. python3 ./bin/ddp_lineseg.py -mode validate -img_paths dataset/*.jp
 ```
 
 
+## 4. Associated utilities
+
+Some scripts are essentially for internal use and auxiliary tasks (data transformations, dataset caching etc.):
+
++ `line_detect_dev.py`: an inference script, with both legacy and experimental features, for development purpose (do _not_ use in production).
++ `json_to_xml.py`: JSON →  PageXML conversion.
++ `xml_to_json.py`: PageXML →  JSON conversion.
++ `json_to_json.py`: JSON → JSON conversion: polygon scaling and other additions.
++ `generate_cached_datasets.py`: from an img+label dataset, generate augmented patches and serialize them as Torch tensors.
++ `binarize_images.py`: easy binarization of images into Numpy binary masks.
+
+
+
 ## More examples
 
 The segmentation pipeline is still in progress: [cases to ponder upon](data/curiosities/README.md).

@@ -8,6 +8,8 @@ Read a JSON segmentation file, with a choice of options:
 + remove transcription data
 + add a comment
 
+TODO: implement the conversion from legacy format.
+
 """
 
 import sys
@@ -26,6 +28,7 @@ p = {
     'output_file': ['stdout', "Output file"],
     'overwrite_existing': [0, "Overwrite an existing output file."],
     'with_transcription': [1, "Extract line transcription, if it exists"],
+    'from_legacy_format': [1, "Convert an legacy format (top-level lines) to newer one."],
     "comment": ['',"A text string to be added to the <Comments> elt."],
 }
 
@@ -33,6 +36,10 @@ p = {
 if __name__ == '__main__':
 
     args, _ = fargv.fargv( p )
+
+    if args.from_legacy_format:
+        print("-from legacy_format: NOT IMPLEMENTED")
+        sys.exit()
 
     for json_path in args.file_paths:
         json_path = Path( json_path )
