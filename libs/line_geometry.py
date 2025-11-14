@@ -1,8 +1,10 @@
 """
-line_build.py
+line_geometry.py
 
-This module factors out functions that call the low-level line prediction routines on libs/ddp_lineseg_train.py 
-and process their outcomes, made of boxes and a matching stack of soft masks.
+This module factors out 
+
++ Functions that call the low-level line prediction routines on libs/ddp_lineseg_train.py and process their outcomes, made of boxes and a matching stack of soft masks.
++ More broadly, functions that handle conversions between pixels maps and polygons, or line-to-polygon and polygon-to-polygon transformations.
 
 Users:
 
@@ -23,80 +25,9 @@ import torch
 from bin import ddp_lineseg_train as lsg
 from libs import seglib
 
-import matplotlib.pyplot as plt
-
 
 logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
 logger = logging.getLogger(__name__)
-
-
-def prune_skeleton( skeleton_hw: np.ndarray )->np.ndarray:
-    """
-    Given a binary skeleton tree, find a longest path, as a sequence of pixels.
-    (A crude way to prune a skeleton.)
-
-    Args:
-        skeleton_hw (np.ndarray): a binary skeleton.
-
-    Returns:
-        Tuple[np.ndarray, np.ndarray]: a pair with 
-            - (H,W) pruned skeleton (i.e. no branching)
-            - (N,2) list of skeleton coordinates 
-    """
-    def neighborhood( pixel ):
-        max_h, max_w = skeleton_hw.shape
-        offsets = np.array([[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]])
-        return [ nb for nb in pixel+offsets if (nb[0]>=0 and nb[0]<max_h and nb[1]>=0 and nb[1]<max_w and skeleton_hw[nb[0], nb[1]]) ] 
-
-    # Find left-most pixel with neighborhood 1 (root of the tree)
-    min_x, leftmost = 2**10, None
-    for px in np.stack( np.where( skeleton_hw == True ), axis=1 ):
-        if len(neighborhood( px )) > 1:
-            continue
-        if px[1] < min_x:
-            min_x = px[1]
-            leftmost = px
-
-    max_h, max_w = skeleton_hw.shape
-    parent_matrix = [ [ None ] * max_w for i in range(max_h) ]
-    depth_matrix = np.zeros( skeleton_hw.shape )
-
-    def dfs_iterative( px ):
-        """ Iterative DFS, to circumvent recursion limits."""
-        visited_matrix = [ [False] * max_w for i in range(max_h) ] 
-        current = leftmost
-        while(1):
-            neighbors = neighborhood( current )
-            if not neighbors or all( [ visited_matrix[ nb[0]][nb[1]] for nb in neighbors ] ):
-                if current is leftmost:
-                    break
-                current = parent_matrix[ current[0] ][ current[1] ]
-            for nb in neighbors:
-                y,x = nb
-                if visited_matrix[y][x]:
-                    continue
-                visited_matrix[y][x]=True
-                parent_matrix[y][x]=current
-                depth_matrix[y][x]=depth_matrix[ current[0] ][ current[1] ]+1
-                current = nb
-                break
-
-    dfs_iterative( leftmost )
-    deepest_leaf = np.stack( np.unravel_index( np.argmax(depth_matrix), depth_matrix.shape ))
-
-    # New skeleton is a longest path
-    longest_path = []
-    current = deepest_leaf
-    while ( not np.array_equal(current, leftmost )):
-        longest_path.append( parent_matrix[current[0]][current[1]] )
-        current = longest_path[-1]
-    skeleton_coords_n2 = np.stack([ px for px in longest_path[::-1]], axis=0)
-    rr, cc = skeleton_coords_n2.transpose()
-    pruned_skeleton = np.zeros( skeleton_hw.shape )
-    pruned_skeleton[rr,cc]=1
-    return ( pruned_skeleton, skeleton_coords_n2 )
-
-
 
 
 def post_process( preds: dict, box_threshold=.75, mask_threshold=.6, orig_size=()):
@@ -112,9 +43,10 @@ def post_process( preds: dict, box_threshold=.75, mask_threshold=.6, orig_size=(
          np.ndarray: binary mask (1,H,W)
     """
     # select masks with best box scores
-    best_masks = [ m.detach().numpy() for m in preds['masks'][preds['scores']>=box_threshold]]
+    best_masks = [ m.detach().numpy() for m in preds['masks'][preds['scores']>=box_threshold].cpu()]
     if len(best_masks) < preds['masks'].shape[0]:
-        logger.debug("Selecting masks {} out of {}".format( np.argwhere( preds['scores']>=box_threshold ).tolist(), len(preds['scores'])))
+        logger.debug("Selecting masks {} out of {}".format( np.argwhere( preds['scores'].cpu()>=box_threshold ).tolist(), len(preds['scores'])))
+        #pass
     if not best_masks:
         return None
     # threshold masks
@@ -125,44 +57,6 @@ def post_process( preds: dict, box_threshold=.75, mask_threshold=.6, orig_size=(
     if orig_size:
         page_wide_mask_1hw = ski.transform.resize( page_wide_mask_1hw, (1, orig_size[1], orig_size[0]))
     return page_wide_mask_1hw
-
-
-def post_process_boxes( preds: dict, box_threshold=.9, mask_threshold=.1, orig_size=()):
-    """
-    Compute lines from predictions, by separate processing of box masks.
-    (UNUSED)
-
-    Args:
-        preds (dict[str,torch.Tensor]): predicted dictionary for the page:
-            - 'scores'(N) : box probs
-            - 'masks' (N1HW): line heatmaps
-            - 'orig_size': if provided, masks are rescaled to the respective size
-    Returns:
-        tuple[ np.ndarray, list[tuple[int, list, float, list]]]: a pair with
-            - binary mask (1,H,W)
-            - a list of line attribute dicts (label, centroid pt, area, polygon coords, ...)
-    """
-    # select masks with best box scores
-    best_masks = [ m.detach().numpy() for m in preds['masks'][preds['scores']>box_threshold]]
-    # threshold masks
-    masks = [ (m * (m > mask_threshold)).astype('bool') for m in best_masks ]
-    # in each mask, keep the largest CC
-    clean_masks = []
-    for m_1hw in masks:
-        labeled_msk_1hw = ski.measure.label( m_1hw, connectivity=2 )
-        reg_props = ski.measure.regionprops( labeled_msk_1hw )
-        max_label, _ = max([ (reg.label, reg.area) for reg in reg_props ], key=lambda t: t[1])
-        clean_masks.append( m_1hw * (labeled_msk_1hw == max_label))
-
-    # merge masks 
-    page_wide_mask_1hw = np.sum( clean_masks, axis=0 ).astype('bool')
-    plt.imshow( np.squeeze(np.sum( clean_masks, axis=0)) )
-    plt.show()
-    # optional: scale up masks to the original size of the image
-    if orig_size:
-        page_wide_mask_1hw = ski.transform.resize( page_wide_mask_1hw, (1, orig_size[1], orig_size[0]))
-
-    return page_wide_mask_1w
 
 
 def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, contour_tolerance=4, raw_polygons=False, height_factor=1.0):
@@ -199,10 +93,9 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
     line_heights = [] # a list of integers
     centroids = []
 
-
     def fix_ends( skl_yx: np.array, line_height: int, box_width: tuple[int,int]):
         """
-        After pruning, skeleton's very ends may deviate markedly from the main axis: this a crude,
+        After pruning, skeleton's very ends may deviate markedly from the main axis; what follows is a crude,
         but adequate fix: both ends are truncated (proper length determined from line height) and replaced by a single 
         point at same height of the left(right)most point of the truncated skeleton. Option
         """
@@ -217,23 +110,6 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
             #skl_yx_reduced = np.concat( [ skl_yx_reduced, [[skl_yx_reduced[-1,0], box_width-1]]] )
             skl_yx_reduced[-1,1] = box_width-1
         return skl_yx_reduced
-
-    def constrain_polygon( pg: np.ndarray, height: int, width: int):
-        """ Move a set of coordinates to fit the given size constraints"""
-        pg = np.copy( pg )
-        pg[ np.where( pg[:,0] < 0 ), 0 ] = 0
-        pg[ np.where( pg[:,1] < 0 ), 1 ] = 0
-        pg[ np.where( pg[:,0] >= height ), 0 ] = height-1
-        pg[ np.where( pg[:,1] >= width ), 1 ] = width-1
-        return pg
-
-    def regularize_polygon( centerline: np.ndarray, line_height: int, hf: float ):
-        """
-        Crude way: concatenate baseline to translated and reverted version of itself
-        """
-        pg = np.concatenate( [ centerline+[(line_height*hf)//2,0], (centerline-[(line_height*hf)//2,0])[::-1] ] )
-        # move points that are out of bounds
-        return constrain_polygon( pg, *labeled_msk_hw.shape )
 
     labeled_msk_regular_hw = None if raw_polygons else np.zeros(labeled_msk_hw.shape, dtype=labeled_msk_hw.dtype)
 
@@ -251,37 +127,42 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
         polygon_box[ polyg_rr, polyg_cc ] = 1
         
         # 2. Skeletonize and prune
-        skeleton=ski.morphology.skeletonize( polygon_box )
-        _, this_skeleton_yx = prune_skeleton( ski.morphology.skeletonize( polygon_box ))
-        # 3. Avg line height = area of polygon / length of skeleton
-        line_heights.append( (np.sum(polygon_box) // len( this_skeleton_yx)).item() )
-        this_skeleton_yx = fix_ends( this_skeleton_yx, line_heights[-1], polygon_box.shape[1] )
-        centroids.append( this_skeleton_yx[int(len(this_skeleton_yx)/2)] + np.array( [min_y, min_x] ))
-        approximate_pagewide_skl_yx = ski.measure.approximate_polygon(this_skeleton_yx, tolerance=3) + np.array( [min_y, min_x] )
-        skeleton_coords.append( approximate_pagewide_skl_yx )
+        try:
+            _, this_skeleton_yx = prune_skeleton( ski.morphology.skeletonize( polygon_box ))
+            # 3. Avg line height = area of polygon / length of skeleton
+            line_heights.append( (np.sum(polygon_box) // len( this_skeleton_yx)).item() )
+            this_skeleton_yx = fix_ends( this_skeleton_yx, line_heights[-1], polygon_box.shape[1] )
+            centroids.append( this_skeleton_yx[int(len(this_skeleton_yx)/2)] + np.array( [min_y, min_x] ))
+            approximate_pagewide_skl_yx = ski.measure.approximate_polygon(this_skeleton_yx, tolerance=3) + np.array( [min_y, min_x] )
+            skeleton_coords.append( approximate_pagewide_skl_yx )
 
-        if not raw_polygons:
-            polygon_coords[-1] = regularize_polygon( skeleton_coords[-1], line_heights[-1], height_factor )
-            polyg_rr, polyg_cc = ski.draw.polygon( *(polygon_coords[-1]).transpose())
-            labeled_msk_regular_hw[ polyg_rr, polyg_cc ]=lbl
-            
-
-    # BBs centroid ordering differs from CCs top-to-bottom ordering:
-    # usually hints at messy, non-standard line layout
-    # TO DOUBLE-CHECK
-    #if [ att[0] for att in attributes ] != sorted([att[0] for att in attributes]):
-    #    logger.warning("Labels may not follow reading order.")
-    
-    entry = (labeled_msk_hw[None,:] if raw_polygons else labeled_msk_regular_hw[None,:], [{
+            if not raw_polygons:
+                polyg = strip_from_centerline( skeleton_coords[-1][:,::-1], line_heights[-1]*height_factor )[:,::-1]
+                polyg = boxed_in( polyg, (0,0,*[ d-1 for d in labeled_msk_hw.shape] ))
+                polygon_coords[-1] = polyg
+                #polygon_coords[-1] = regularize_polygon( skeleton_coords[-1], line_heights[-1], height_factor )
+                polyg_rr, polyg_cc = ski.draw.polygon( *(polygon_coords[-1]).transpose())
+                labeled_msk_regular_hw[ polyg_rr, polyg_cc ]=lbl
+        except (ValueError, IndexError) as e:
+            logger.warning("Failed to retrieve geometry from label mask #{}: {}".format(lbl, e))
+        
+    # sort by centroids (y,x): 
+    # - a very naive reading order heuristic, that does not work on multi-component, skewed lines
+    #   Eg. (les feuilles mortes) --> ! mortes feuilles Les
+    #                         mortes
+    #               feuilles
+    #          Les 
+    # - order that differs from labels may hint at messy reading order
+    line_features = sorted( zip(labels, line_heights, skeleton_coords, polygon_coords, centroids), key=lambda t: t[4].tolist() )
+    return (labeled_msk_hw[None,:] if raw_polygons else labeled_msk_regular_hw[None,:], [{
                 'label': lbl,
-                'centroid': center,
+                'centroid': center_yx,
                 'polygon_coords': plgc,
                 'line_height': lh, 
                 'centerline': skc,
                 'baseline': skc + [lh/2,0],
-    } for lbl, lh, skc, plgc, center in zip(labels, line_heights, skeleton_coords, polygon_coords, centroids) ])
+    } for lbl, lh, skc, plgc, center_yx in line_features ])
 
-    return entry
 
 
 def binary_mask_from_patches( img: Image.Image, row_count=2, col_count=1, overlap=.04, model=None, mask_threshold=.25, box_threshold=.8):
@@ -320,7 +201,7 @@ def binary_mask_from_patches( img: Image.Image, row_count=2, col_count=1, overla
     return page_mask[None,:]
 
 
-def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.04, model=None, mask_threshold=.25, box_threshold=.8, cached_prediction_prefix='', cached_prediction_path=Path('/tmp'), max_patches=25) -> np.ndarray:
+def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.04, model=None, mask_threshold=.25, box_threshold=.8, cached_prediction_prefix='', cached_prediction_path=Path('/tmp'), max_patches=25, device='cpu') -> np.ndarray:
     """
     Construct a single binary mask from predictions on patches of size <patch_size> x <patch_size>.
 
@@ -373,7 +254,7 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
         img_crops = [ torch.from_numpy(img_hwc[y:y+patch_size,x:x+patch_size]).permute(2,0,1) for (y,x) in tile_tls ]
         logger.debug([ c.shape for c in img_crops ])
         
-        _, crop_preds, _ = lsg.predict( img_crops, live_model=model )
+        _, crop_preds, _ = lsg.predict( img_crops, live_model=model, device=device )
         logger.debug("Computed {} tile predictions".format(len(crop_preds)))
         if cached_prediction_prefix:
             zpf = gzip.GzipFile( cached_prediction_file, 'w')
@@ -389,6 +270,185 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
     if rescaled:
         page_mask = ski.transform.resize( page_mask, (height, width ))
     return page_mask[None,:]
+
+
+def strip_from_baseline(baseline_n2xy: list[tuple[int,int]], height: float, ltrb: tuple[int,int,int,int]=tuple()) -> list[tuple[int,int]]:
+    """
+    Given a baseline, construct the strip-shaped polygon with given height.
+
+    Args:
+        baseline_n2xy (list[tuple[int,int]]): a sequence of (x,y) points.
+        height (float): the strip height.
+        ltrb (tuple[int,int,int,int]): LTRB constraint of containing region: if not empty (default),
+            shift coordinates that would otherwise exceed the region's boundaries.
+    Returns:
+        list[tuple[int,int]]: a (N,2) clockwise sequence of (x,y) points.
+    """
+    raw_polygon = strip_from_centerline( np.array( baseline_n2xy )-[0,height/2], height )
+    if ltrb:
+        return boxed_in( raw_polygon, ltrb ).tolist()
+    return raw_polygon.tolist()
+
+
+def strip_from_centerline(centerline_n2xy: np.ndarray, height: float) -> np.ndarray:
+    """
+    Given a centerline, construct the strip-shaped polygon with given height.
+
+    Args:
+        centerline_n2xy (np.ndarray): a (N,2) sequence of (x,y) points.
+        height (float): the strip height.
+    Returns:
+        np.ndarray: a (N,2) clockwise sequence of (x,y) points.
+    """
+    left_dummy_pt = np.array( [ 2*centerline_n2xy[0][0]-centerline_n2xy[1][0], 2*centerline_n2xy[0][1]-centerline_n2xy[1][1] ])
+    right_dummy_pt = np.array( [ 2*centerline_n2xy[-1][0]-centerline_n2xy[-2][0], 2*centerline_n2xy[-1][1]-centerline_n2xy[-2][1] ])
+    centerline_n2xy = np.concatenate( [ [left_dummy_pt], centerline_n2xy, [right_dummy_pt] ], dtype='float')
+
+    vertebras_n2xy = []
+    vertebra_north_south_2xy = np.array([[0,-height/2], [0,height/2]])
+    for ctr_idx in range(1,len(centerline_n2xy)-1):
+        left, mid, right = centerline_n2xy[ctr_idx-1:ctr_idx+2]
+        try:
+            rotation_matrix = bisection_rotation_matrix( left-mid, right-mid )
+            rotated_vertebra_north_south_2xy=np.matmul( rotation_matrix, vertebra_north_south_2xy.T).T
+            vertebras_n2xy.append( rotated_vertebra_north_south_2xy + mid ) # shift to actual pos.
+        except Exception as e:
+            logger.warning(e)
+            continue
+    vertebras_n2xy = np.stack(vertebras_n2xy)
+    contour_pts_n2xy = np.concatenate( [vertebras_n2xy[:,0], vertebras_n2xy[::-1,1], vertebras_n2xy[0:1,0]])
+    return contour_pts_n2xy.astype('int32')
+
+
+def boxed_in( sequence_n2xy: np.ndarray, ltrb: tuple[float,float,float,float] )->np.ndarray:
+    """
+    Given a sequence of points, shift its elements' coordinates  s.t. they are contained
+    within the given box. Can be used for (y,x) points: be sure to pass the box as (t,l,b,r).
+
+    Args: 
+        sequence_n2xy (np.ndarray) a (N,2) sequence of (x,y) points.
+        ltrb (tuple[float,float,float,float]): the left, top, right, and bottom coordinates.
+    Returns:
+        polyg_n2xy (np.ndarray): a (N,2) sequence of (x,y) points.
+    """
+    left, top, right, bottom = ltrb
+    shifted_pts = []
+    for pt in sequence_n2xy:
+        x, y = pt
+        if x < left:
+            x = left
+        elif x > right:
+            x = right
+        if y < top:
+            y = top
+        elif y > bottom:
+            y = bottom
+        shifted_pts.append( [x,y] )
+    return np.array( shifted_pts )
+
+
+def bisection_rotation_matrix(left, right):
+    """ Given 2 vectors <left> and <right>, return the matrix that rotates a vertical vector 
+    such that it bisects the angle formed by <left> and <right>.
+
+    left (float): a 2D vector/pt.
+    right (float): a 2D vector/pt.
+    """
+    # special case (1): vertical segment
+    if np.isclose(left[0], right[0]):
+        raise ValueError("Vertical segment: abort.")
+    # special case (2): colinear, horizontal vectors
+    if np.isclose(left[1], right[1]): 
+        return np.identity(2)
+    alpha, beta, gamma = 0, 0, 0
+    if left[0] == 0 and right[0] != 0: # L vector is horizontal
+        beta = np.arctan(right[1]/right[0])
+        gamma = beta/2
+    elif right[0] == 0 and left[0] != 0: # R vector is horizontal
+        alpha = np.arctan(left[1]/left[0]) 
+        gamma = -alpha/2
+    else:
+        alpha = np.arctan(left[1]/left[0]) 
+        beta = np.arctan(right[1]/right[0]) 
+        gamma = ( alpha + beta ) / 2
+    cosg, sing = np.cos( gamma ), np.sin( gamma )
+    rotation_matrix = np.array([[cosg, -sing],[sing, cosg]])
+    return rotation_matrix
+
+
+def prune_skeleton( skeleton_hw: np.ndarray, left_to_right=True )->np.ndarray:
+    """
+    Given a binary skeleton tree, find a longest path, as a sequence of pixels.
+    (A crude way to prune a skeleton.)
+
+    Args:
+        skeleton_hw (np.ndarray): a binary skeleton.
+        left_to_right (np.ndarray): ensure that a longest path can only go right, up, or down.
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray]: a pair with 
+            - (H,W) pruned skeleton (i.e. no branching)
+            - (N,2) list of skeleton coordinates 
+    Raises:
+        ValueError
+    """
+    def neighborhood( pixel, left_to_right=left_to_right ):
+        max_h, max_w = skeleton_hw.shape
+        offsets = np.array([[-1,0],[-1,1],[0,1],[1,0],[1,1]]) if left_to_right else np.array([[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]])
+        return [ nb for nb in pixel+offsets if (nb[0]>=0 and nb[0]<max_h and nb[1]>=0 and nb[1]<max_w and skeleton_hw[nb[0], nb[1]]) ] 
+
+    # Find left-most pixel with neighborhood 1 (root of the tree)
+    min_x, leftmost = 2**10, None
+    for px in np.stack( np.where( skeleton_hw == True ), axis=1 ):
+        if len(neighborhood( px )) > 1:
+            continue
+        if px[1] < min_x:
+            min_x = px[1]
+            leftmost = px
+
+    max_h, max_w = skeleton_hw.shape
+    parent_matrix = [ [ None ] * max_w for i in range(max_h) ]
+    depth_matrix = np.zeros( skeleton_hw.shape )
+
+    def dfs_iterative( px ):
+        """ Iterative DFS, to circumvent recursion limits."""
+        visited_matrix = [ [False] * max_w for i in range(max_h) ] 
+        current = leftmost
+        while(1):
+            neighbors = neighborhood( current )
+            if not neighbors or all( [ visited_matrix[ nb[0]][nb[1]] for nb in neighbors ] ):
+                if current is leftmost:
+                    break
+                current = parent_matrix[ current[0] ][ current[1] ]
+            for nb in neighbors:
+                y,x = nb
+                if visited_matrix[y][x]:
+                    continue
+                visited_matrix[y][x]=True
+                parent_matrix[y][x]=current
+                depth_matrix[y][x]=depth_matrix[ current[0] ][ current[1] ]+1
+                current = nb
+                break
+
+    dfs_iterative( leftmost )
+    deepest_leaf = np.stack( np.unravel_index( np.argmax(depth_matrix), depth_matrix.shape ))
+
+    # New skeleton is a longest path
+    longest_path = []
+    current = deepest_leaf
+    pruned_skeleton, skeleton_coords_n2 = None, None
+    while ( not np.array_equal(current, leftmost )):
+        longest_path.append( parent_matrix[current[0]][current[1]] )
+        current = longest_path[-1]
+    #try:
+    skeleton_coords_n2 = np.stack([ px for px in longest_path[::-1]], axis=0)
+    rr, cc = skeleton_coords_n2.transpose()
+    pruned_skeleton = np.zeros( skeleton_hw.shape )
+    pruned_skeleton[rr,cc]=1
+    #except ValueError e:
+    #    loggger.error("Polygonization failed on connected component. Abort.")
+        
+    return ( pruned_skeleton, skeleton_coords_n2 )
 
 
 

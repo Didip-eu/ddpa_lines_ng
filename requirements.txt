@@ -1,13 +1,12 @@
-defusedxml
 fargv
 matplotlib
 numpy
-Pillow
-pytest
-scikit_image
+pillow
+scikit-image
 setuptools
 torch
 torchvision
 tqdm
 tensorboard
 tormentor
+

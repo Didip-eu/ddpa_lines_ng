@@ -45,6 +45,7 @@ import time
 import sys
 import random
 import logging
+import re
 
 # 3rd party
 import matplotlib.pyplot as plt
@@ -58,7 +59,7 @@ import fargv
 src_root = Path(__file__).parents[1]
 sys.path.append( str( src_root ))
 from bin import ddp_lineseg_train as lsg
-from libs import segviz, seglib, list_utils as lu, line_build as lb
+from libs import segviz, seglib, list_utils as lu, line_geometry as lgm
 
 
 
@@ -115,7 +116,7 @@ if __name__ == '__main__':
     for img_path in files:
         logger.info(img_path)
 
-        if live_model:
+        if live_model: # False if segfile option passed
             start = time.time()
             mp, atts, path = None, None, None
             start = time.time()
@@ -132,20 +133,20 @@ if __name__ == '__main__':
                             logger.warning('The model being loaded is trained on {}x{} patches, but the script uses a {} patch size argument: overriding patch_size value with model-stored size.'.format( *live_model.hyper_parameters['img_size'], args.patch_size))
                             patch_size = live_model.hyper_parameters['img_size'][0]
                     logger.debug('Patch size: {} x {}'.format( patch_size, patch_size))
-                    binary_mask = lb.binary_mask_from_fixed_patches( Image.open(img_path), patch_size=patch_size, model=live_model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
+                    binary_mask = lgm.binary_mask_from_fixed_patches( Image.open(img_path), patch_size=patch_size, model=live_model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
                 # Style 2: Inference M x N squares
                 else:
                     patch_row_count = args.patch_row_count if args.patch_row_count else 1
                     patch_col_count = args.patch_col_count if args.patch_col_count else 1
                     logger.debug("Patches: {}x{}".format(patch_row_count, patch_col_count))
-                    binary_mask = lb.binary_mask_from_patches( Image.open(img_path), patch_row_count, patch_col_count, model=live_model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
+                    binary_mask = lgm.binary_mask_from_patches( Image.open(img_path), patch_row_count, patch_col_count, model=live_model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
                 if binary_mask is None:
                     logger.info("Invalid mask: skipping img {}".format( img_path))
                     continue
 
                 logger.debug("Inference time: {:.5f}s".format( time.time()-start))
                 logger.debug("binary_mask.shape={}".format(binary_mask.shape))
-                segmentation_record = lb.get_morphology( binary_mask, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor )
+                segmentation_record = lgm.get_morphology( binary_mask, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor )
                 logger.debug("segmentation_record[0].shape={}".format(segmentation_record[0].shape))
                 mp, atts, path = segviz.batch_label_maps_to_img( [img_path], [segmentation_record], color_count=0 )[0]
 
@@ -157,20 +158,20 @@ if __name__ == '__main__':
                 logger.debug("Inference time: {:.5f}s".format( time.time()-start))
                 if args.rescale:
                     logger.debug("Rescale")
-                    binary_mask = lb.post_process( preds[0], orig_size=sizes[0], box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
+                    binary_mask = lgm.post_process( preds[0], orig_size=sizes[0], box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
                     if binary_mask is None:
                         logger.warning("No line mask found for {}: skipping.".format( img_path ))
                         continue
                     logger.debug("binary_mask.shape={}".format(binary_mask.shape))
-                    segmentation_record = lb.get_morphology( binary_mask, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor )
+                    segmentation_record = lgm.get_morphology( binary_mask, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor )
                     mp, atts, path = segviz.batch_label_maps_to_img( [img_path], [segmentation_record], color_count=0 )[0]
                 else:
                     logger.debug("Square")
-                    binary_mask = lb.post_process( preds[0], box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
+                    binary_mask = lgm.post_process( preds[0], box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
                     if binary_mask is None:
                         logger.warning("No line mask found for {}: skipping.".format( img_path ))
                         continue
-                    segmentation_record= lb.get_morphology( binary_mask, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor )
+                    segmentation_record = lgm.get_morphology( binary_mask, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor )
                     mp, atts, path = segviz.batch_label_maps_to_img( [ {'img':imgs_t[0], 'id':str(img_path)} ], [segmentation_record], color_count=0 )[0]
             logger.debug("Rendering time: {:.5f}s".format( time.time()-start))
 
@@ -200,9 +201,10 @@ if __name__ == '__main__':
                 plt.savefig( output_file_path, bbox_inches='tight')
             else:
                 plt.show()
-        else:
-            if args.segfile:
-                segviz.display_segmentation_and_img( img_path, segfile=args.segfile, show={ k:True for k in args.show if k != 'labels'}, linewidth=args.linewidth, crop=(args.crop_x, args.crop_y), output_file_path=args.output_file_path )
-            elif args.segfile_suffix:
-                segviz.display_segmentation_and_img( img_path, segfile_suffix=args.segfile_suffix, show={ k:True for k in args.show if k != 'labels'}, linewidth=args.linewidth, crop=(args.crop_x, args.crop_y), output_file_path=args.output_file_path )
+        elif args.segfile or args.segfile_suffix:
+                segfile_path = Path(args.segfile) if args.segfile else Path( re.sub(r'\.[^/]+$', args.segfile_suffix, str(img_path)) )
+                if not segfile_path.exists():
+                    logger.warning("Could not find a segmentation file {}: skipping item;".format( Path(segfile_path)))
+                    continue
+                segviz.display_segmentation_and_img( img_path, segfile=segfile_path, show={ k:True for k in args.show if k != 'labels'}, linewidth=args.linewidth, crop=(args.crop_x, args.crop_y), output_file_path=args.output_file_path )
 

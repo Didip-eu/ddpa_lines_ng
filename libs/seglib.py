@@ -20,6 +20,9 @@ from torchvision.tv_tensors import Mask
 import numpy as np
 import numpy.ma as ma
 
+# local
+from . import line_geometry as lgm
+
 
 __LABEL_SIZE__=8
 
@@ -184,27 +187,58 @@ def line_binary_mask_stack_from_segmentation_dict( segmentation_dict: dict, poly
     mask_size = (segmentation_dict['image_width'], segmentation_dict['image_height'])
     return torch.tensor( np.stack( [ ski.draw.polygon2mask( mask_size, polyg ).transpose(1,0) for polyg in polygon_boundaries ]))
 
-def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='coords' ) -> list[list[int]]:
+
+def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='coords', factor=1.0 ) -> list[list[int]]:
     """From a segmentation dictionary describing polygons, return a list of polygon boundaries, i.e. lists of points.
+
+    Args:
+        segmentation_dict (dict): a dictionary, typically constructed from a JSON file. The 'lines' entry is either
+            top-level key, or nested as in 'regions > region > lists'.
+        polygon_key (str): the name of the polygon's entry in the dictionary.
+        factor (float): the factor applied to the strip's height; if 1.0, the polygons are extracted as they are
+            stored; otherwise, a new polygon is constructed from the baseline and the scaled height.
+
+    Returns:
+        list[list[int]]: a list of lists of coordinates.
+    """
+    line_polygons = []
+    if 'lines' in segmentation_dict:
+        if factor==1.0:
+            return [ line[polygon_key] for line in segmentation_dict['lines'] ]
+        #return [ (lgm.strip_from_baseline( line['baseline'], line['height']*factor, ltrb=tuple(np.array(line['regions'][0]['coords'])[[0,2]].flatten()) ) if 'height' in line else line[polygon_key]) for line in segmentation_dict['lines'] ]
+        for line in segmentation_dict['lines']:
+            if 'height' in line:
+                ltrb = tuple(np.array(line['regions'][0]['coords'])[[0,2]].flatten())
+                line_polygons.append( lgm.strip_from_baseline( line['baseline'], line['height']*factor, ltrb=ltrb) )
+            else:
+                line_polygons.append( line[polygon_key] )
+    elif 'regions' in segmentation_dict:
+        #return [ (lgm.strip_from_baseline( line['baseline'], line['height']*factor, ltrb=tuple(np.array(reg['coords'])[[0,2]].flatten()) ) if 'height' in line else line[polygon_key]) for reg in segmentation_dict['regions'] for line in reg['lines']]
+        if factor==1.0:
+            return [ line[polygon_key] for reg in segmentation_dict['regions'] for line in reg['lines']] 
+        for reg in segmentation_dict['regions']:
+            ltrb=tuple(np.array(reg['coords'])[[0,2]].flatten())
+            line_polygons.extend([ lgm.strip_from_baseline( line['baseline'], line['height']*factor, ltrb=ltrb ) if 'height' in line else line[polygon_key] for line in reg['lines'] ] )
+    return line_polygons
+    
+
+def line_dicts_from_segmentation_dict( segmentation_dict: dict) -> list[dict]:
+    """From a segmentation dictionary, return a list of all line dictionaries.
 
     Args:
         segmentation_dict (dict): a dictionary, typically constructed from a JSON file. The 'lines' entry is either
         top-level key, or nested as in 'regions > region > lists'.
     Returns:
-        list[list[int]]: a list of lists of coordinates.
+        list[dict]: a list of dictionaries.
     """
-    # Two possible structures:
-    # 
-    # 1. Top-level list of lines  (no region or only region id as a line attribute)
     if 'lines' in segmentation_dict:
-        return [ line[polygon_key] for line in segmentation_dict['lines'] ]
-    # 2. Text lines are nested into regions
+        return segmentation_dict['lines']
     elif 'regions' in segmentation_dict:
-        return [ line[polygon_key] for reg in segmentation_dict['regions'] for line in reg['lines']] 
+        return [ line for reg in segmentation_dict['regions'] for line in reg['lines']]
     return []
 
 
-def line_images_from_img_xml_files(img: str, page_xml: str ) -> list[tuple[np.ndarray, np.ndarray]]:
+def line_images_from_img_xml_files(img: str, page_xml: str, as_dictionary=False ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From an image file path and a segmentation PageXML file describing polygons, return
     a list of pairs (<line cropped BB>, <polygon mask>).
 
@@ -212,6 +246,8 @@ def line_images_from_img_xml_files(img: str, page_xml: str ) -> list[tuple[np.nd
         img (str): the input image's file path
         page_xml: :type page_xml: str a Page XML file describing the
             lines.
+        as_dictionary (bool): return segmentation dict where each line is a tuple (<img>,<msk>,<line_dict>); useful
+            for keeping track of line ids when running inference.
 
     Returns:
         list: a list of pairs (<line image BB>: np.ndarray (HWC), mask:
@@ -219,36 +255,52 @@ def line_images_from_img_xml_files(img: str, page_xml: str ) -> list[tuple[np.nd
     """
     with Image.open(img, 'r') as img_wh:
         segmentation_dict = segmentation_dict_from_xml( page_xml )
-        return line_images_from_img_segmentation_dict( img_wh, segmentation_dict )
+        line_pairs = line_images_from_img_segmentation_dict( img_wh, segmentation_dict )
+        line_triplets = [ (*line_pair, line_dict) for line_pair, line_dict in zip( line_pairs, line_dicts_from_segmentation_dict(segmentation_dict)) ]
+        if as_dictionary:
+            segmentation_dict['lines'] = line_triplets
+            return segmentation_dict
+        return line_pairs
 
 
-def line_images_from_img_json_files( img: str, segmentation_json: str ) -> list[tuple[np.ndarray, np.ndarray]]:
+def line_images_from_img_json_files( img: str, segmentation_json: str, as_dictionary=False, factor=1.0 ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From an image file path and a segmentation JSON file describing polygons, return
     a list of pairs (<line cropped BB>, <polygon mask>).
 
     Args:
         img (str): the input image's file path
         segmentation_json (str): path of a JSON file
+        as_dictionary (bool): return segmentation dict where each line is a tuple (<img>,<msk>,<line_dict>); useful
+            for keeping track of line ids when running inference.
+        factor (float): scale line polygon height to <factor>.
 
     Returns:
-        list: a list of pairs (<line image BB>: np.ndarray (HWC), mask: np.ndarray (HW))
+        Union[list,dict]: a segmentation dictionary or a list of pairs (<line image BB>: np.ndarray (HWC), mask: np.ndarray (HW))
     """
     with Image.open(img, 'r') as img_wh, open( segmentation_json, 'r' ) as json_file:
-        return line_images_from_img_segmentation_dict( img_wh, json.load( json_file ))
+        segmentation_dict = json.load( json_file )
+        line_pairs = line_images_from_img_segmentation_dict( img_wh, segmentation_dict, factor=factor )
+        line_triplets = [ (*line_pair, line_dict) for line_pair, line_dict in zip( line_pairs, line_dicts_from_segmentation_dict(segmentation_dict)) ]
+        if as_dictionary:
+            segmentation_dict['lines'] = line_triplets
+            return segmentation_dict
+        return line_pairs
 
-def line_images_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dict: dict, polygon_key='coords' ) -> list[tuple[np.ndarray, np.ndarray]]:
+def line_images_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dict: dict, polygon_key='coords', factor=1.0 ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From a segmentation dictionary describing polygons, return 
     a list of pairs (<line cropped BB>, <polygon mask>).
 
     Args:
         img_whc (Image.Image): the input image (needed for the size information).
-        segmentation_dict: :type segmentation_dict: dict a dictionary, typically constructed from a JSON file.
+        segmentation_dict (dict) a dictionary, typically constructed from a JSON file.
+        polygon_key (str): name of the line polygon's entry.
+        factor (float): scale line polygon height to <factor>.
 
     Returns:
         list[tuple[np.ndarray, np.ndarray]]: a list of pairs (<line
         image BB>: np.ndarray (HWC), mask: np.ndarray (HWC))
     """
-    polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict, polygon_key=polygon_key)
+    polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict, polygon_key=polygon_key, factor=factor)
     img_hwc = np.asarray( img_whc )
 
     pairs_line_bb_and_mask = []# [None] * len(polygon_boundaries)
@@ -362,6 +414,7 @@ def line_masks_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dic
 
 
 
+
 def expand_flat_tensor_to_n_channels( t_hw: Tensor, n: int ) -> np.ndarray:
     """Expand a flat map by duplicating its only channel into n identical ones.
     Channels dimension is last for convenient use with PIL images.
@@ -379,7 +432,7 @@ def expand_flat_tensor_to_n_channels( t_hw: Tensor, n: int ) -> np.ndarray:
     return t_hwc.numpy()
 
 
-def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_key='coords'):
+def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_key='coords', with_text=False):
     """Serialize a JSON dictionary describing the lines into a PageXML file.
     Caution: this is a crude function, with no regard for validation.
 
@@ -392,6 +445,7 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
         pagexml_filename (str): if provided, output is saved in a PageXML file (standard output is the default).
         polygon_key (str): if the segmentation dictionary contain alternative polygons (f.i. 'extBoundary'),
             use them, instead of the usual line 'coords'.
+        with_text (bool): encode line transcription, if it exists. Default is False.
     """
     def boundary_to_point_string( list_of_pts ):
         return ' '.join([ f"{pair[0]:.0f},{pair[1]:.0f}" for pair in list_of_pts ] )
@@ -410,6 +464,9 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
     commentElt = ET.SubElement( metadataElt, 'Comments')
     if 'comments' in seg_dict:
         commentElt.text = seg_dict['comments']
+    if 'line_height_factor' in seg_dict:
+        lineHeightFactorElt = ET.SubElement( metadataElt, 'LineHeightFactor' )
+        lineHeightFactorElt.text = str(seg_dict['line_height_factor'])
 
     img_name = Path(seg_dict['image_filename']).name
     img_width, img_height = seg_dict['image_width'], seg_dict['image_height']    
@@ -429,9 +486,10 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
         for line in lines:
             textLineElt = ET.SubElement( regElt, 'TextLine', attrib={'id': f"{reg_xml_id}l{line['id']}" if type(line['id']) is int else f"{reg['id']}{line['id']}"} )
             ET.SubElement( textLineElt, 'Coords', attrib={'points': boundary_to_point_string(line[polygon_key])} )
-            ET.SubElement( textLineElt, 'TextEquiv')
             if 'baseline' in line:
                 ET.SubElement( textLineElt, 'Baseline', attrib={'points': boundary_to_point_string(line['baseline'])})
+            if with_text and 'text' in line:
+                ET.SubElement( ET.SubElement( textLineElt, 'TextEquiv'), 'Unicode').text = line['text']
 
     tree = ET.ElementTree( rootElt )
     ET.indent(tree, space='\t', level=0)
@@ -451,7 +509,7 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
         regions_as_boxes (bool): when regions have more than 4 points or are not rectangular,
             store their bounding boxes instead; the boxe's boundary is determined
             by its pertaining lines, not by its nominal coordinates(default: True).
-        strict (bool): if True, raise an exception if line coordinates are comprised within
+        strict (bool): if True, raise an exception if line coordinates are not comprised within
             their region's boundaries; otherwise (default), the region value is automatically
             extended to encompass the line coordinates.
 
@@ -494,7 +552,7 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
                 unicode_elt = text_elt.find('./pc:Unicode', ns)
                 if unicode_elt is not None:
                     line_text = unicode_elt.text 
-            line_dict = {'line_id': line_id, 'baseline': baseline_points, 
+            line_dict = {'id': line_id, 'baseline': baseline_points, 
                         'coords': polygon_points, 'regions': region_ids}
             if line_text and not re.match(r'\s*$', line_text):
                 line_dict['text'] = line_text 
@@ -606,79 +664,43 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
 
     return page_dict 
 
-def merge_seals_regseg_lineseg( regseg: dict, region_labels: list[str], *linesegs: list[str]) -> dict:
-    """Merge 2 segmentation outputs into a single one:
 
-    * the page-wide yolo/seals segmentation (with OldText, ... regions)
-    * the line segmentation for the regions defined in the first one
-
-    The resulting file is a page-wide line-segmentation JSON.
+def segdict_sink_lines(segdict: dict):
+    """Convert a segmentation dictionary with top-level line array ('lines') 
+    to a nested dictionary where each region in the 'regions' array contains its 
+    corresponding 'lines' array. No change applied if lines are already wrapped
+    into the regions.
 
     Args:
-        regseg (dict): the regional segmentation json, as given by the 'seals' app
-        *linesegs (list[str]): a number of local line segmentations for the region defined in the
-            first file, of the form::
+        segdict (dict): segmentation dictionary of the form::
 
-                {"type": "baseline", "image_filename": ..., lines: [ {"id": "... }, ... ] }
-
-        region_labels (list[str]): in the region segmentation, labels of those regions
-            that have been line-segmented.
+            {..., "lines": [ {"id":..., regions=[...]}, ... ], "regions": [ ... ] }
 
     Returns:
-        dict: a page-wide line-segmentation dictionary.
+        dict: a modified copy of the original dictionary::
+
+            {..., "regions": [ {"id":..., lines=[{"id": ... }, ... ]}, ... ] }
     """
-    charter_img_suffix = '.img.jpg'
+    segdict = segdict.copy()
+    if 'lines' not in segdict:
+        return segdict
+    for line in segdict['lines']:
+        if line['regions']:
+            this_reg=[ reg for reg in segdict['regions'] if reg['id']==line['regions'][0] ][0]
+            if 'lines' not in this_reg:
+                this_reg['lines']=[]
+            this_reg['lines'].append(line)
+    del segdict['lines']
+    return segdict
 
-    print( region_labels)
-    def translate( dictionary, translation ):
-        #print("Translate by ", translation)
-        #print("Input dictionary has", len(dictionary["lines"]), "lines")
-        new_lines = []
-        for line in dictionary['lines']:
-            new_line = copy.deepcopy( line )
-            #print("Before:", line['baseline'])
-            for k in ('baseline', 'coords'):
-                new_line[k] = [ [int(x+translation[0]),int(y+translation[1])] for (x,y) in line[k]]
-            new_lines.append( new_line )
-            #print("After:", new_line['baseline'])
-        #print("translated", len( new_lines ))
 
-        #print("Input dictionary has", len(dictionary["lines"]), "lines")
-        return new_lines
-
-    # extract mapping region type id -> region name
-    clsid_2_clsname = { i:n for (i,n) in enumerate( regseg['class_names'] )}
-    to_keep = [ i for (i,v) in enumerate( regseg['rect_classes'] ) if clsid_2_clsname[v] in region_labels ]
-
-    # assumptions: line segs are passed in the same order as the region order in the regseg
-    to_keep = to_keep[:len(linesegs)]
-
-    # go through local line segmentations (and corresponding rectangle in regseg),
-    # and translate every x,y coordinates by value of the rectangle's origin (left,top)
-    lines = []
-    #img_name = str(Path(linesegs[0]['image_filename']).parents[1].joinpath( regseg['img_md5'] ).with_suffix( charter_img_suffix ))
-    img_name = "TODO (ANGULAS)"
-
-    for (lineseg, coords) in zip( linesegs, [ c for (index, c) in enumerate( regseg['rect_LTRB'] ) if index in to_keep ]):
-        lines.extend( translate( lineseg, translation=coords[:2] ))
-        #print("merged lines have now", len(lines))
-
-    merged_seg = { "type": "baselines", 
-                   "image_filename": img_name,
-                   "text_direction": 'horizontal-lr',
-                   "script_detection": False,
-                   "lines": lines,
-                 }
-
-    return merged_seg
-        
-def seals_regseg_to_crops( img: Image.Image, regseg: dict, region_labels: list[str] ) -> tuple[list[Image.Image], list[str]]:
-    """From a seals-app segmentation dictionary, returns the regions with matching
+def layout_regseg_to_crops( img: Image.Image, regseg: dict, region_labels: list[str], force_rgb=False ) -> tuple[list[Image.Image], list[str]]:
+    """From a layout-app segmentation dictionary, return the regions with matching
     labels as a list of images.
 
     Args:
         img (Image.Image): Image to crop.
-        regseg (dict): the regional segmentation json, as given by the 'seals' app
+        regseg (dict): the regional segmentation json, as given by the 'layout' app
         region_labels (list[str]): Labels to be extracted.
 
     Returns:
@@ -686,21 +708,26 @@ def seals_regseg_to_crops( img: Image.Image, regseg: dict, region_labels: list[s
             - a list of images (HWC)
             - a list of box coordinates (LTRB)
             - a list of class names
+
     """
     clsid_2_clsname = { i:n for (i,n) in enumerate( regseg['class_names'] )}
     to_keep = [ i for (i,v) in enumerate( regseg['rect_classes'] ) if clsid_2_clsname[v] in region_labels ]
 
-    return zip(*[ ( img.crop( regseg['rect_LTRB'][i] ), 
+    
+    if force_rgb and img.mode != 'RGB':
+        img = img.convert('RGB')
+
+    return tuple(zip(*[ ( img.crop( regseg['rect_LTRB'][i] ), 
                 regseg['rect_LTRB'][i], 
-                clsid_2_clsname[ regseg['rect_classes'][i]]) for i in to_keep ])
+                clsid_2_clsname[ regseg['rect_classes'][i]]) for i in to_keep ]))
 
 
-def seals_regseg_check_class(regseg: dict, region_labels: list[str] ) -> list[bool]:
-    """From a seals-app segmentation dictionary, check if rectangle with given labels
+def layout_regseg_check_class(regseg: dict, region_labels: list[str] ) -> list[bool]:
+    """From a layout-app segmentation dictionary, check if rectangle with given labels
     have been detected.
 
     Args:
-        regseg (dict): the regional segmentation json, as given by the 'seals' app
+        regseg (dict): the regional segmentation json, as given by the 'layout' app
         region_labels (list[str]): Labels to check.
 
     Returns:
