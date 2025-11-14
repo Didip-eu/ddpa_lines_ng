@@ -286,7 +286,6 @@ if __name__ == '__main__':
             ds_train = tormentor.AugmentedDs( ds_train, aug, computation_device=args.device, augment_sample_function=LineDetectionDataset.augment_with_bboxes )
     # Patch-based processing
     elif args.train_style=='patch': # requires Tormentor anyway
-        crop_size = hyper_params['img_size'][0]
 
         if args.cache_dir:
 
@@ -299,6 +298,7 @@ if __name__ == '__main__':
             logger.info("Loading disk-cached dataset from {} (train, {} samples) and {} (val, {} samples).".format( cache_dir_train, len(ds_train), cache_dir_val, len(ds_val)))
 
         else:
+            crop_size = hyper_params['img_size'][0]
             # 1. All images resized to at least patch-size
             ds_train = LineDetectionDataset( imgs_train, lbls_train, min_size=crop_size)
             aug = build_tormentor_augmentation_for_crop_training( crop_size=crop_size, crop_before=True )

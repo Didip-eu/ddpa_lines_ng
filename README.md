@@ -48,13 +48,13 @@ Remarks:
 Patch-based training for Mask-RCNN (with training set automatically built out of the provided image paths):
 
 ```sh
-PYTHONPATH=. python3 ./bin/ddp_lineseg.py -img_paths dataset/*.jpg -img_size 1024 -batch_size 4 -train_style patch
+PYTHONPATH=. python3 ./bin/ddp_lineseg_train.py -img_paths dataset/*.jpg -img_size 1024 -batch_size 4 -train_style patch
 ```
 
 Same, using cached samples (useful for Tormentor-augmented patches):
 
 ```sh
-PYTHONPATH=. python3 ./bin/ddp_lineseg.py s dataset/*.jpg -img_size 1024 -batch_size 4 -train_style patch -cached_dir dataset/cached
+PYTHONPATH=. python3 ./bin/ddp_lineseg_train.py -batch_size 4 -train_style patch -cached_dir dataset/cached
 ```
 
 Training on page-wide samples (legacy only):
