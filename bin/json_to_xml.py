@@ -21,6 +21,7 @@ p = {
     'output_format': ('xml', 'stdout'),
     'with_transcription': [1, "Extract line transcription, if it exists"],
     'line_height_factor': [1.0, "Factor to be applied to the original line strip height."],
+    'overwrite_existing': [0, "Overwrite an existing output file."],
     'comment': ['',"A text string to be added to the <Comments> elt."],
 }
 
@@ -30,8 +31,8 @@ if __name__ == '__main__':
     args, _ = fargv.fargv( p )
 
     for json_path in args.file_paths:
-        xml_path = json_path.replace('.lines.gt.json', '.xml')
-        json_path = Path( json_path )
+        json_path=Path( json_path )
+        xml_path = json_path.with_suffix('.xml')
 
         with open( json_path, 'r') as json_if:
             segdict = json.load( json_if )
@@ -47,5 +48,8 @@ if __name__ == '__main__':
             if args.output_format == 'stdout':
                 seglib.xml_from_segmentation_dict( segdict, '', polygon_key=args.polygon_key, with_text=args.with_transcription )
             else:
-                seglib.xml_from_segmentation_dict( segdict, xml_path, polygon_key=args.polygon_key, with_text=args.with_transcription )
+                if not args.overwrite_existing and xml_path.exists():
+                    print("File {} exists: abort.".format( xml_path ))
+                else:
+                    seglib.xml_from_segmentation_dict( segdict, xml_path, polygon_key=args.polygon_key, with_text=args.with_transcription )
 

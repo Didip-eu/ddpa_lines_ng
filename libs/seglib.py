@@ -190,7 +190,6 @@ def line_binary_mask_stack_from_segmentation_dict( segmentation_dict: dict, poly
 
 def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='coords', factor=1.0 ) -> list[list[int]]:
     """From a segmentation dictionary describing polygons, return a list of polygon boundaries, i.e. lists of points.
-    TODO: apply region box_in constraint.
 
     Args:
         segmentation_dict (dict): a dictionary, typically constructed from a JSON file. The 'lines' entry is either
@@ -202,15 +201,26 @@ def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='
     Returns:
         list[list[int]]: a list of lists of coordinates.
     """
+    line_polygons = []
     if 'lines' in segmentation_dict:
         if factor==1.0:
             return [ line[polygon_key] for line in segmentation_dict['lines'] ]
-        return [ (lgm.strip_from_baseline( line['baseline'], line['height']*factor ) if 'height' in line else line[polygon_key]) for line in segmentation_dict['lines'] ]
+        #return [ (lgm.strip_from_baseline( line['baseline'], line['height']*factor, ltrb=tuple(np.array(line['regions'][0]['coords'])[[0,2]].flatten()) ) if 'height' in line else line[polygon_key]) for line in segmentation_dict['lines'] ]
+        for line in segmentation_dict['lines']:
+            if 'height' in line:
+                ltrb = tuple(np.array(line['regions'][0]['coords'])[[0,2]].flatten())
+                line_polygons.append( lgm.strip_from_baseline( line['baseline'], line['height']*factor, ltrb=ltrb) )
+            else:
+                line_polygons.append( line[polygon_key] )
     elif 'regions' in segmentation_dict:
+        #return [ (lgm.strip_from_baseline( line['baseline'], line['height']*factor, ltrb=tuple(np.array(reg['coords'])[[0,2]].flatten()) ) if 'height' in line else line[polygon_key]) for reg in segmentation_dict['regions'] for line in reg['lines']]
         if factor==1.0:
             return [ line[polygon_key] for reg in segmentation_dict['regions'] for line in reg['lines']] 
-        return [ (lgm.strip_from_baseline( line['baseline'], line['height']*factor ) if 'height' in line else line[polygon_key]) for reg in segmentation_dict['regions'] for line in reg['lines']]
-    return []
+        for reg in segmentation_dict['regions']:
+            ltrb=tuple(np.array(reg['coords'])[[0,2]].flatten())
+            line_polygons.extend([ lgm.strip_from_baseline( line['baseline'], line['height']*factor, ltrb=ltrb ) if 'height' in line else line[polygon_key] for line in reg['lines'] ] )
+    return line_polygons
+    
 
 def line_dicts_from_segmentation_dict( segmentation_dict: dict) -> list[dict]:
     """From a segmentation dictionary, return a list of all line dictionaries.
@@ -499,7 +509,7 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
         regions_as_boxes (bool): when regions have more than 4 points or are not rectangular,
             store their bounding boxes instead; the boxe's boundary is determined
             by its pertaining lines, not by its nominal coordinates(default: True).
-        strict (bool): if True, raise an exception if line coordinates are comprised within
+        strict (bool): if True, raise an exception if line coordinates are not comprised within
             their region's boundaries; otherwise (default), the region value is automatically
             extended to encompass the line coordinates.
 
