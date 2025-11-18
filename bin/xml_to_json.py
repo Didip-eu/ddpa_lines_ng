@@ -23,7 +23,7 @@ from libs import seglib
 
 p = {
     'file_paths': set([]),
-    'output_format': ('json', 'stdout'),
+    'output_format': [('json', 'stdout'), "Output format"],
     'get_text': [1, "Extract text content of the line, if it exists"],
     'overwrite_existing': [0, "Overwrite an existing file."],
     "comment": ['',"A text string to be added to the <Comments> elt."],

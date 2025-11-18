@@ -185,8 +185,10 @@ class SegModel():
             model.net.load_state_dict( state_dict )
 
             if not reset_epochs:
-                model.epochs = epochs if not reset_epochs else []
+                model.epochs = epochs 
                 model.hyper_parameters = hyper_parameters
+            else:
+                model.epochs = []
             model.net.train()
             model.net.to( args.device )
             return model
