@@ -83,7 +83,7 @@ p = {
     'scheduler_factor': 0.8,
     'reset_epochs': 0,
     'resume_file': 'last.mlmodel',
-    'dry_run': [0, "1: Load dataset and model, but does not actually train: 2: same, but display the validation samples; 3: same as (2) but display also the test samples."],
+    'dry_run': [0, "1: Load dataset and model, but do not actually train; 2: same, but also display the validation samples."],
     'tensorboard': 1,
     'tormentor': 1,
     'device': 'cuda',
@@ -393,7 +393,7 @@ if __name__ == '__main__':
         epoch_losses = []
         batches = iter(dl_train)
         for imgs,targets in (pbar := tqdm(dl_train)):
-            if dry_run > 2 and args.device=='cpu':
+            if dry_run > 0 and args.device=='cpu':
                 fig, ax = plt.subplots(1,len(imgs))
                 for i, img, target in zip(range(len(imgs)),imgs,targets):
                     logger.debug(img.shape, target['path'])

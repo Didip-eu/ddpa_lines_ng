@@ -674,7 +674,11 @@ def segdict_sink_lines(segdict: dict):
     Args:
         segdict (dict): segmentation dictionary of the form::
 
-            {..., "lines": [ {"id":..., regions=[...]}, ... ], "regions": [ ... ] }
+                {..., "lines": [ {"id":..., "regions": [...]}, ... ], "regions": [ ... ] }
+
+            OR
+
+                {..., "lines": [ {"id":..., "region": "r0"}, ... ], "regions": [ ... ] }
 
     Returns:
         dict: a modified copy of the original dictionary::
@@ -682,17 +686,30 @@ def segdict_sink_lines(segdict: dict):
             {..., "regions": [ {"id":..., lines=[{"id": ... }, ... ]}, ... ] }
     """
     segdict = segdict.copy()
-    if 'lines' not in segdict:
+    if 'lines' not in segdict or not segdict['lines']:
         return segdict
+    # if no 'regions' entry for lines, assign to each line its proper region
+    if 'regions' not in segdict['lines'][0]:
+        for line in segdict['lines']:
+            if 'region' in line:
+                line['regions']=[ line['region'] ]
+                del line['region']
+            else:
+                for reg in segdict['regions']:
+                    if (line['coords'] >= np.min( reg['coords'], axis=0 )).all() and (line['coords'] <= np.max( reg['coords'], axis=0 )).all():
+                        print("Check coordinates")
+                        if 'regions' not in line:
+                            line['regions']=[]
+                    line['regions'].append( reg['id'] )
+
     for line in segdict['lines']:
-        if line['regions']:
-            this_reg=[ reg for reg in segdict['regions'] if reg['id']==line['regions'][0] ][0]
-            if 'lines' not in this_reg:
-                this_reg['lines']=[]
-            this_reg['lines'].append(line)
+        this_reg=[ reg for reg in segdict['regions'] if reg['id']==line['regions'][0] ][0] if ('regions' in line and line['regions']) else line['region']
+        if 'lines' not in this_reg:
+            this_reg['lines']=[]
+        this_reg['lines'].append(line)
+        del line['regions']
     del segdict['lines']
     return segdict
-
 
 def layout_regseg_to_crops( img: Image.Image, regseg: dict, region_labels: list[str], force_rgb=False ) -> tuple[list[Image.Image], list[str]]:
     """From a layout-app segmentation dictionary, return the regions with matching

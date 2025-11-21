@@ -8,7 +8,14 @@ Read a JSON segmentation file, with a choice of options:
 + remove transcription data
 + add a comment
 
-TODO: implement the conversion from legacy format.
+Legacy format (with a top-level 'lines' array) is silently converted to 
+the nested structure 
+
+    { 'regions': [
+        { 'coords': [ ... ], 
+          'lines': [{ ... }, ... ] }, ...
+      ]
+    }
 
 """
 
@@ -28,7 +35,6 @@ p = {
     'output_file': ['stdout', "Output file"],
     'overwrite_existing': [0, "Overwrite an existing output file."],
     'with_transcription': [1, "Extract line transcription, if it exists"],
-    'from_legacy_format': [1, "Convert an legacy format (top-level lines) to newer one."],
     "comment": ['',"A text string to be added to the <Comments> elt."],
 }
 
@@ -37,24 +43,30 @@ if __name__ == '__main__':
 
     args, _ = fargv.fargv( p )
 
-    if args.from_legacy_format:
-        print("-from legacy_format: NOT IMPLEMENTED")
-        sys.exit()
-
     for json_path in args.file_paths:
         json_path = Path( json_path )
 
         segdict = None
         with open( json_path, 'r') as json_if:
             segdict = json.load( json_if )
+
+            # automatic 
+            if 'lines' in segdict:
+                segdict = seglib.segdict_sink_lines( segdict )
+
             line_dicts = seglib.line_dicts_from_segmentation_dict( segdict )
+
+            # expand polygons
             if args.line_height_factor != 1.0:
                 line_polygons = seglib.line_polygons_from_segmentation_dict( segdict, polygon_key=args.polygon_key, factor=args.line_height_factor )
                 for polyg, line in zip( line_polygons, line_dicts ):
                     line[args.polygon_key]=polyg
+            # remove transcriptions
             for line in line_dicts: 
                 if not args.with_transcription and 'text' in line:
                     del line['text']
+
+            # insert metadata at the top
             regions = segdict['regions']
             del segdict['regions']
             if args.line_height_factor != 1.0:
@@ -62,6 +74,8 @@ if __name__ == '__main__':
             if args.comment:
                 segdict['comment']=args.comment
             segdict['regions']=regions
+
+        # output
         if segdict is not None:
             if args.output_file != 'stdout':
                 output_path = Path( output_file )
