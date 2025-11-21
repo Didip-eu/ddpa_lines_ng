@@ -224,7 +224,7 @@ if __name__ == "__main__":
                         binary_mask = None
                         # Inference from fixed-size patches
                         patch_size = check_patch_size_against_model( live_model, args.patch_size )
-                        binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold, device=args.device )
+                        binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold, device='cpu' if args.device=='cpu' else 'cuda' )
                         if binary_mask is None:
                             logger.warning("{}\tNo line mask found in crop {}: skipping item.".format( img_path, crop_idx ))
                             continue

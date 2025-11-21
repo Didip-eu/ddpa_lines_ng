@@ -113,7 +113,7 @@ def build_nn( backbone='resnet101'):
             box_head=box_head,)
 
 
-def predict( imgs: list[Union[str,Path,Image.Image,Tensor,np.ndarray]], live_model=None, model_file='best.mlmodel' ):
+def predict( imgs: list[Union[str,Path,Image.Image,Tensor,np.ndarray]], live_model=None, model_file='best.mlmodel', device='cpu' ):
     """
     Args:
         imgs (list[Union[Path,Tensor]]): lists of image filenames or tensors; in the latter case, images
@@ -134,7 +134,7 @@ def predict( imgs: list[Union[str,Path,Image.Image,Tensor,np.ndarray]], live_mod
         if not Path(model_file).exists():
             return []
         model = SegModel.load( model_file )
-    model.net.cpu()
+    model.net.to(device)
     model.net.eval()
 
     orig_sizes = []
@@ -154,7 +154,7 @@ def predict( imgs: list[Union[str,Path,Image.Image,Tensor,np.ndarray]], live_mod
             imgs_live = imgs
         imgs, orig_sizes = zip(*[ (tsf(img), (img.size)) for img in imgs_live ])
     else:
-        imgs, orig_sizes = [ tsf(img) for img in imgs ], [ img.shape[:0:-1] for img in imgs ]
+        imgs, orig_sizes = [ tsf(img).to( device ) for img in imgs ], [ img.shape[:0:-1] for img in imgs ]
         
     return (imgs, model.net( imgs ), orig_sizes)
     

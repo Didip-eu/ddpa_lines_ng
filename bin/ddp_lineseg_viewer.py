@@ -84,14 +84,15 @@ p = {
     'segfile': ['', "If a line segmentation file is provided, predicted lines are read from this file."],
     'patch_row_count': [ 0, "Process the image in <patch_row_count> rows."],
     'patch_col_count': [ 0, "Process the image in <patch_col_count> cols."],
-    'patch_size': [0, "Process the image by <patch_size>*<patch_size> patches"],
+    'patch_size': [1024, "Process the image by <patch_size>*<patch_size> patches"],
     'show': set(['polygons', 'centerlines', 'regions', 'labels', 'title']),
     'linewidth': 2,
     'output_file_path': ['', 'If path is a directory, save the plot in <output_file_path>/<img_name_stem>.png.; otherwise, save under the provided file path.'],
     'crop_x': [1.0, "crop-in ratio (x axis, centered)"],
     'crop_y': [1.0, "crop-in ratio (y axis, centered)"],
-    'raw_polygons': [1, "Show polygons as resulting from the NN (default); otherwise, show the abstract polygons constructed from centerlines."],
+    'raw_polygons': [0, "Show polygons as resulting from the NN; otherwise (default), show the abstract polygons constructed from the detected centerlines."],
     'line_height_factor': [1.0, "Factor (within ]0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"],
+    'device': [('cpu','gpu','cuda'), "Computing device"],
 
 }
 
@@ -133,7 +134,7 @@ if __name__ == '__main__':
                             logger.warning('The model being loaded is trained on {}x{} patches, but the script uses a {} patch size argument: overriding patch_size value with model-stored size.'.format( *live_model.hyper_parameters['img_size'], args.patch_size))
                             patch_size = live_model.hyper_parameters['img_size'][0]
                     logger.debug('Patch size: {} x {}'.format( patch_size, patch_size))
-                    binary_mask = lgm.binary_mask_from_fixed_patches( Image.open(img_path), patch_size=patch_size, model=live_model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
+                    binary_mask = lgm.binary_mask_from_fixed_patches( Image.open(img_path), patch_size=patch_size, model=live_model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold, device='cpu' if args.device=='cpu' else 'cuda' )
                 # Style 2: Inference M x N squares
                 else:
                     patch_row_count = args.patch_row_count if args.patch_row_count else 1
