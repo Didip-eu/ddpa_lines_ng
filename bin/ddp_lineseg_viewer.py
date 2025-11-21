@@ -64,7 +64,7 @@ from libs import segviz, seglib, list_utils as lu, line_geometry as lgm
 
 
 
-logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
+logging.basicConfig( level=logging.DEBUG, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
 logger = logging.getLogger(__name__)
 # tone down unwanted logging
 logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)#.disabled=True
@@ -118,9 +118,9 @@ if __name__ == '__main__':
         logger.info(img_path)
 
         if live_model: # False if segfile option passed
-            start = time.time()
+            time_start = time.time()
+            time_step = time_start
             mp, atts, path = None, None, None
-            start = time.time()
 
             if args.patch_size or args.patch_row_count or args.patch_col_count:
 
@@ -145,10 +145,14 @@ if __name__ == '__main__':
                     logger.info("Invalid mask: skipping img {}".format( img_path))
                     continue
 
-                logger.debug("Inference time: {:.5f}s".format( time.time()-start))
+                logger.debug("Inference time: {:.5f}s / total time: {:.5f}s".format( time.time()-time_step, time.time()-time_start))
+                time_step = time.time()
                 logger.debug("binary_mask.shape={}".format(binary_mask.shape))
                 segmentation_record = lgm.get_morphology( binary_mask, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor )
                 logger.debug("segmentation_record[0].shape={}".format(segmentation_record[0].shape))
+                logger.debug("Post-processing time: {:.5f}s / total time: {:.5f}s".format( time.time()-time_step, time.time()-time_start))
+                time_step= time.time()
+
                 mp, atts, path = segviz.batch_label_maps_to_img( [img_path], [segmentation_record], color_count=0 )[0]
 
             # Default: Page-wide inference
@@ -156,7 +160,7 @@ if __name__ == '__main__':
                 if 'train_style' in live_model.hyper_parameters and live_model.hyper_parameters['train_style'] == 'patch':
                     logger.warning('The model being loaded was trained on fixed-size patches: expect suboptimal results.')
                 imgs_t, preds, sizes = lsg.predict( [img_path], live_model=live_model)
-                logger.debug("Inference time: {:.5f}s".format( time.time()-start))
+                logger.debug("Inference time: {:.5f}s / total time: {:.5f}s".format( time.time()-time_step, time.time()-time_start))
                 if args.rescale:
                     logger.debug("Rescale")
                     binary_mask = lgm.post_process( preds[0], orig_size=sizes[0], box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
@@ -174,7 +178,7 @@ if __name__ == '__main__':
                         continue
                     segmentation_record = lgm.get_morphology( binary_mask, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor )
                     mp, atts, path = segviz.batch_label_maps_to_img( [ {'img':imgs_t[0], 'id':str(img_path)} ], [segmentation_record], color_count=0 )[0]
-            logger.debug("Rendering time: {:.5f}s".format( time.time()-start))
+            logger.debug("Rendering time: {:.5f}s / total time: {:.5f}s".format( time.time()-time_step, time.time()-time_start))
 
             height, width = mp.shape[:2]
             delta_x, delta_y = (1-args.crop_x)/2, (1-args.crop_y)/2
