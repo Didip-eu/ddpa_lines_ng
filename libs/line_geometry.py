@@ -16,8 +16,9 @@ Users:
 import logging
 from pathlib import Path
 import gzip
+from time import time
 
-from PIL import Image
+from PIL import Image, ImageDraw
 import skimage as ski
 import numpy as np
 import torch
@@ -57,6 +58,7 @@ def post_process( preds: dict, box_threshold=.75, mask_threshold=.6, orig_size=(
     if orig_size:
         page_wide_mask_1hw = ski.transform.resize( page_wide_mask_1hw, (1, orig_size[1], orig_size[0]))
     return page_wide_mask_1hw
+
 
 
 def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, contour_tolerance=4, raw_polygons=False, height_factor=1.0):
@@ -113,27 +115,49 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
 
     labeled_msk_regular_hw = None if raw_polygons else np.zeros(labeled_msk_hw.shape, dtype=labeled_msk_hw.dtype)
 
+    logger.debug("Label processing")
+    time_start = time()
     for lbl in labels:
+        time_step = time()
+        label_start = time_step
         boundaries_nyx = ski.measure.find_contours( labeled_msk_hw == lbl )[0].astype('int')
         # simplifying polygon
         approximate_coords = ski.measure.approximate_polygon( boundaries_nyx, tolerance=contour_tolerance )
         polygon_coords.append( approximate_coords if len(approximate_coords) > 10 else boundaries_nyx )
+        #logger.debug("\tapproximate_polygon: {:.5f}".format( time()-time_step ))
+        #time_step = time()
 
         # 1. Create box with simplified polygon
         min_y, min_x = np.min( polygon_coords[-1], axis=0)
         max_y, max_x = np.max( polygon_coords[-1], axis=0)
-        polygon_box = np.zeros((max_y-min_y+1, max_x-min_x+1)).astype('int8')
-        polyg_rr, polyg_cc = ski.draw.polygon( *(polygon_coords[-1] - np.array([min_y, min_x])).transpose())
-        polygon_box[ polyg_rr, polyg_cc ] = 1
+        coords = (polygon_coords[-1] - np.array([min_y, min_x]))
+
+        # PIL polygon fill is faster than skimage (by an order of magnitude)
+        #polygon_box_ski = ski.draw.polygon2mask((max_y-min_y+1, max_x-min_x+1), coords )
+        pil_img = Image.new('1', size=(max_y-min_y+1, max_x-min_x+1))
+        ImageDraw.Draw(pil_img).polygon( coords.flatten().tolist(), outline=1,fill=(1,) )
+        polygon_box = np.asarray( pil_img, dtype='bool' ).transpose()
+        pil_img.close()
+        
+        #logger.debug("\tpolygon -> mask: {:.5f}".format( time()-time_step ))
+        #time_step = time()
         
         # 2. Skeletonize and prune
         try:
+            # to fix a mysterious segmentation bug
+            polygon_box = polygon_box + np.zeros(polygon_box.shape)
             _, this_skeleton_yx = prune_skeleton( ski.morphology.skeletonize( polygon_box ))
+            #logger.debug("\tprune_skeleton: {:.5f}".format( time()-time_step ))
+            #time_step = time()
             # 3. Avg line height = area of polygon / length of skeleton
             line_heights.append( (np.sum(polygon_box) // len( this_skeleton_yx)).item() )
             this_skeleton_yx = fix_ends( this_skeleton_yx, line_heights[-1], polygon_box.shape[1] )
+            #logger.debug("\tfixing skeleton: {:.5f}".format( time()-time_step ))
+            #time_step = time()
             centroids.append( this_skeleton_yx[int(len(this_skeleton_yx)/2)] + np.array( [min_y, min_x] ))
             approximate_pagewide_skl_yx = ski.measure.approximate_polygon(this_skeleton_yx, tolerance=3) + np.array( [min_y, min_x] )
+            #logger.debug("\tapproximate_polygon: {:.5f}".format( time()-time_step ))
+            #time_step = time()
             skeleton_coords.append( approximate_pagewide_skl_yx )
 
             if not raw_polygons:
@@ -143,8 +167,13 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
                 #polygon_coords[-1] = regularize_polygon( skeleton_coords[-1], line_heights[-1], height_factor )
                 polyg_rr, polyg_cc = ski.draw.polygon( *(polygon_coords[-1]).transpose())
                 labeled_msk_regular_hw[ polyg_rr, polyg_cc ]=lbl
-        except (ValueError, IndexError) as e:
+                #logger.debug("\tregularize polygon: {:.5f}".format( time()-time_step ))
+        except Exception as e:
+        #except (ValueError, IndexError) as e:
             logger.warning("Failed to retrieve geometry from label mask #{}: {}".format(lbl, e))
+        logger.debug("Done processing label {} - time: {:.5f}".format( lbl, time()-label_start ))
+        time_step = time()
+    logger.debug("Total label processing time: {:.5f}".format( time_step - time_start ))
         
     # sort by centroids (y,x): 
     # - a very naive reading order heuristic, that does not work on multi-component, skewed lines
@@ -213,6 +242,7 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
         box_threshold (float): confidence score threshold for line bounding boxes.
         cached_prediction_prefix (str): a MD5 string for this image, to indicate that a prediction pickle should be checked for; a pickled prediction stores a list with one dictionary for each image crop.
         cached_prediction_path (Path): where to save the cached predictions.
+        device (str): computing device - 'cuda' or 'cpu' (default).
 
     Returns:
         np.ndarray: a (1,H,W) binary mask.
