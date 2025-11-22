@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 # nprenet@gmail.com
-# 10.2025
+# 11.2025
 
 """
 Line detection app, i.e. the specialized, fsdb-specific version:
@@ -53,6 +53,7 @@ import fargv
 src_root = Path(__file__).parents[1]
 sys.path.append( str( src_root ))
 from libs import seglib, list_utils as lu, line_geometry as lgm
+from libs.train_utils import duration_estimate
 from bin import ddp_lineseg_train as lsg
 
 
@@ -66,14 +67,13 @@ logging.getLogger('PIL').setLevel(logging.INFO)
 p = {
         "appname": "lines",
         "model_path": str(src_root.joinpath("best.mlmodel")),
-        #"img_paths": set([Path.home().joinpath("tmp/data/1000CV/AT-AES/d3a416ef7813f88859c305fb83b20b5b/207cd526e08396b4255b12fa19e8e4f8/4844ee9f686008891a44821c6133694d.img.jpg")]),
         "img_paths": set([]),
         "charter_dirs": set([]),
         "region_classes": [set(["Wr:OldText"]), "Names of the layout-app regions on which lines are to be detected. Eg. '[Wr:OldText']. If empty (default), detection is run on the entire page."],
         "img_suffix": [r".img.*p*g", "Image file suffix."],
         "layout_suffix": [".layout.pred.json", "Regions are given by segmentation file that is <img name stem><suffix>."],
         "line_attributes": [set(["centerline", "height"]), "Non-standard line properties to be included in the dictionary."],
-        "output_format": [("json", "xml", "stdout"), "Segmentation output: json=<JSON file>, xml=<PageXML file>, stdout=JSON on standard output."],
+        "output_format": [("json", "xml", "stdout", "quiet"), "Segmentation output: json=<JSON file>, xml=<PageXML file>, stdout=JSON on standard output, quiet=nothing (for testing and timing)"],
         "output_dir": ['', "Output directory; if not provided, defaults to the image path's parent."],
         'mask_threshold': [.6, "In the post-processing phase, threshold to use for line soft masks."],
         'box_threshold': [0.75, "Threshold used for line bounding boxes."],
@@ -83,6 +83,7 @@ p = {
         'line_height_factor': [1.0, "Factor (within ]0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"],
         'overwrite_existing': [1, "Write over existing output file (default)."],
         'timer': [0, "Aggregate performance metrics. A strictly positive integer <n> computes the mean time for every batch of <n> images."],
+        'timer_logs': ['stdout', "Filename for timer logs."],
 }
 
 
@@ -194,8 +195,18 @@ if __name__ == "__main__":
     # Store aggregate computation time for every batch of <args.timer> images 
     timer_means = []
     start_time = time()
+    timer_logs = sys.stdout
+    if args.timer > 0 and args.timer_logs != 'stdout':
+        try:
+            timer_logs = open( args.timer_logs, 'w') 
+            timer_logs.write("ImageIndex\tAvg/{}\tRunningAvg\n".format(args.timer))
+            timer_logs.close()
+        except IOError as e:
+            logger.warning("Failed to open timer logs '{}'".format( timer_logs ))
 
-    for img_idx, img_triplet in enumerate( pack_fsdb_inputs_outputs( args, args.layout_suffix )): 
+
+    charter_iterator = pack_fsdb_inputs_outputs( args, args.layout_suffix )
+    for img_idx, img_triplet in enumerate( charter_iterator ):
         img_path, layout_file_path, output_file_path = img_triplet
         logger.debug( "File path={}".format( img_triplet[0]))
         if not args.overwrite_existing and output_file_path.exists():
@@ -253,10 +264,20 @@ if __name__ == "__main__":
 
                 if args.timer > 0 and img_idx > 0 and img_idx % args.timer==0:
                     timer_means.append( (time()-start_time)/args.timer )
-                    logger.info("{}: {}s/img".format( img_idx, np.mean(timer_means)))
+                    running_avg = np.mean(timer_means)
+                    if timer_logs is sys.stdout:
+                        logger.info( "Batch {}/{} (size={}): {:.4f}s/img\t Running avg: {:.4f}\tEst. time to completion: {}".format( 
+                                    int(img_idx/args.timer), 
+                                    int(np.ceil(len(charter_iterator)/args.timer)), 
+                                    args.timer, 
+                                    timer_means[-1], 
+                                    running_avg, 
+                                    duration_estimate(img_idx, len(charter_iterator), running_avg)))
+                    else:
+                        with open( timer_logs, 'a') as timer_of:
+                            timer_of.write( "{}\t{:.4f}\t{:.4f}\n".format( img_idx, timer_means[-1], np.mean(timer_means)))
                     start_time = time()
 
         except Exception as e:
             logger.warning("{}".format( e ))
             continue
-            

@@ -118,14 +118,11 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
     logger.debug("Label processing")
     time_start = time()
     for lbl in labels:
-        time_step = time()
-        label_start = time_step
+        label_start = time()
         boundaries_nyx = ski.measure.find_contours( labeled_msk_hw == lbl )[0].astype('int')
         # simplifying polygon
         approximate_coords = ski.measure.approximate_polygon( boundaries_nyx, tolerance=contour_tolerance )
         polygon_coords.append( approximate_coords if len(approximate_coords) > 10 else boundaries_nyx )
-        #logger.debug("\tapproximate_polygon: {:.5f}".format( time()-time_step ))
-        #time_step = time()
 
         # 1. Create box with simplified polygon
         min_y, min_x = np.min( polygon_coords[-1], axis=0)
@@ -136,41 +133,27 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
         #polygon_box_ski = ski.draw.polygon2mask((max_y-min_y+1, max_x-min_x+1), coords )
         polygon_box=polygon_to_mask_pil( (max_y-min_y+1, max_x-min_x+1), coords )
         
-        #logger.debug("\tpolygon -> mask: {:.5f}".format( time()-time_step ))
-        #time_step = time()
-        
         # 2. Skeletonize and prune
         try:
-            # to fix a mysterious segmentation bug
-            #polygon_box = polygon_box + np.zeros(polygon_box.shape)
             _, this_skeleton_yx = prune_skeleton( ski.morphology.skeletonize( polygon_box ))
-            #logger.debug("\tprune_skeleton: {:.5f}".format( time()-time_step ))
-            #time_step = time()
             # 3. Avg line height = area of polygon / length of skeleton
             line_heights.append( (np.sum(polygon_box) // len( this_skeleton_yx)).item() )
             this_skeleton_yx = fix_ends( this_skeleton_yx, line_heights[-1], polygon_box.shape[1] )
-            #logger.debug("\tfixing skeleton: {:.5f}".format( time()-time_step ))
-            #time_step = time()
             centroids.append( this_skeleton_yx[int(len(this_skeleton_yx)/2)] + np.array( [min_y, min_x] ))
             approximate_pagewide_skl_yx = ski.measure.approximate_polygon(this_skeleton_yx, tolerance=3) + np.array( [min_y, min_x] )
-            #logger.debug("\tapproximate_polygon: {:.5f}".format( time()-time_step ))
-            #time_step = time()
             skeleton_coords.append( approximate_pagewide_skl_yx )
 
             if not raw_polygons:
                 polyg = strip_from_centerline( skeleton_coords[-1][:,::-1], line_heights[-1]*height_factor )[:,::-1]
                 polyg = boxed_in( polyg, (0,0,*[ d-1 for d in labeled_msk_hw.shape] ))
                 polygon_coords[-1] = polyg
-                #polygon_coords[-1] = regularize_polygon( skeleton_coords[-1], line_heights[-1], height_factor )
                 polyg_rr, polyg_cc = ski.draw.polygon( *(polygon_coords[-1]).transpose())
                 labeled_msk_regular_hw[ polyg_rr, polyg_cc ]=lbl
-                #logger.debug("\tregularize polygon: {:.5f}".format( time()-time_step ))
-        except Exception as e:
         #except (ValueError, IndexError) as e:
+        except Exception as e:
             logger.warning("Failed to retrieve geometry from label mask #{}: {}".format(lbl, e))
         logger.debug("Done processing label {} - time: {:.5f}".format( lbl, time()-label_start ))
-        time_step = time()
-    logger.debug("Total label processing time: {:.5f}".format( time_step - time_start ))
+    logger.debug("Total label processing time: {:.5f}".format( time() - time_start ))
         
     # sort by centroids (y,x): 
     # - a very naive reading order heuristic, that does not work on multi-component, skewed lines
@@ -492,7 +475,9 @@ def polygon_to_mask_pil( size: tuple, coords_n2: np.ndarray) -> np.ndarray:
     """
     img = Image.new('1', size=size)
     ImageDraw.Draw( img ).polygon( coords_n2.flatten().tolist(), outline=1,fill=(1,) )
-    polyg_hw = np.asarray( img.copy(), dtype='bool').T
-    return polyg_hw
+    polyg_hw = np.array( img, dtype='bool').T
+    # returning the original object or even a copy of it results in a mysterious
+    # segmentation fault when trying to skeletonize
+    return polyg_hw + np.zeros( polyg_hw.shape )
 
 
