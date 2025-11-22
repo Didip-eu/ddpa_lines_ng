@@ -243,7 +243,9 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
     # Safety valve :)
     if  len(tile_tls) > max_patches:
         logger.warning("Image slices into {} 1024-pixel patches: limit ({}) exceeded.".format(len(tile_tls), max_patches))
-        return None
+        img_hwc = ski.transform.resize( img_hwc, (int(new_height/2), int(new_width/2))) 
+        rescaled = True
+        #return None
 
     crop_preds = None
     cached_prediction_file = Path(cached_prediction_path).joinpath( '{}.pt.gz'.format( cached_prediction_prefix )) if (cached_prediction_path and cached_prediction_prefix) else None
