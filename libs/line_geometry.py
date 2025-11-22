@@ -31,6 +31,7 @@ logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(
 logger = logging.getLogger(__name__)
 
 
+
 def post_process( preds: dict, box_threshold=.75, mask_threshold=.6, orig_size=()):
     """
     Compute lines from predictions, by merging box masks.
@@ -58,7 +59,6 @@ def post_process( preds: dict, box_threshold=.75, mask_threshold=.6, orig_size=(
     if orig_size:
         page_wide_mask_1hw = ski.transform.resize( page_wide_mask_1hw, (1, orig_size[1], orig_size[0]))
     return page_wide_mask_1hw
-
 
 
 def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, contour_tolerance=4, raw_polygons=False, height_factor=1.0):
@@ -134,10 +134,7 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
 
         # PIL polygon fill is faster than skimage (by an order of magnitude)
         #polygon_box_ski = ski.draw.polygon2mask((max_y-min_y+1, max_x-min_x+1), coords )
-        pil_img = Image.new('1', size=(max_y-min_y+1, max_x-min_x+1))
-        ImageDraw.Draw(pil_img).polygon( coords.flatten().tolist(), outline=1,fill=(1,) )
-        polygon_box = np.asarray( pil_img, dtype='bool' ).transpose()
-        pil_img.close()
+        polygon_box=polygon_to_mask_pil( (max_y-min_y+1, max_x-min_x+1), coords )
         
         #logger.debug("\tpolygon -> mask: {:.5f}".format( time()-time_step ))
         #time_step = time()
@@ -145,7 +142,7 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
         # 2. Skeletonize and prune
         try:
             # to fix a mysterious segmentation bug
-            polygon_box = polygon_box + np.zeros(polygon_box.shape)
+            #polygon_box = polygon_box + np.zeros(polygon_box.shape)
             _, this_skeleton_yx = prune_skeleton( ski.morphology.skeletonize( polygon_box ))
             #logger.debug("\tprune_skeleton: {:.5f}".format( time()-time_step ))
             #time_step = time()
@@ -480,5 +477,22 @@ def prune_skeleton( skeleton_hw: np.ndarray, left_to_right=True )->np.ndarray:
         
     return ( pruned_skeleton, skeleton_coords_n2 )
 
+
+def polygon_to_mask_pil( size: tuple, coords_n2: np.ndarray) -> np.ndarray:
+    """
+    A small routine to substitute to ski.draw.polygon2mask, whose polygon-filling routine
+    is (on some inputs) terribly and misteriously inefficient.
+
+    Args:
+        size (tuple[int,int]): image array size.
+        coords_n2 (np.ndarray): list of of coordinates (order should match the image size).
+
+    Returns:
+        np.ndarray: a (H,W) binary array.
+    """
+    img = Image.new('1', size=size)
+    ImageDraw.Draw( img ).polygon( coords_n2.flatten().tolist(), outline=1,fill=(1,) )
+    polyg_hw = np.asarray( img.copy(), dtype='bool').T
+    return polyg_hw
 
 

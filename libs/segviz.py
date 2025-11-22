@@ -7,6 +7,7 @@ from typing import Union,Callable
 from pathlib import Path
 import json
 import logging
+from time import time
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -59,7 +60,7 @@ def batch_label_maps_to_img( inputs:list[Union[Tensor,dict,Path]], raw_maps: lis
         raw_maps (list[tuple[np.ndarray,dict]]): a list of tuples with
             - labeled map (1,H,W)
             - attributes: i.e. dictionary of morphological attributes (simply passed through, for use 
-              by a consumer, plotting function) og 
+              by a consumer, plotting function) 
     Returns:
         list[tuple[np.array, dict, str]]: a list of tuples (img_HWC, attributes, id)
     """
@@ -133,6 +134,8 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
         segfile = str(img_path).replace('.img.jpg', f'.{segfile_suffix}') 
     assert Path(segfile).exists()
 
+    start = time()
+
     plt.close()
     fig, ax = plt.subplots(figsize=(12,12))
 
@@ -156,12 +159,12 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
         if (img_hwc.shape[0] != segdict['image_height'] or img_hwc.shape[1] != segdict['image_width']):
             logger.info("The size of the provided image ({}) does not match the image properties defined in the segmentation file for {}: aborting.".format(Path(img_path).name, segdict['image_filename']))
             return
+    
 
     col_msk_hwc = np.zeros( img_hwc.shape, dtype=img_hwc.dtype )
     # for (older) JSON segmentation dictionaries, that have top-level 'lines' list.
     if 'lines' in segdict:
         segdict = seglib.segdict_sink_lines( segdict )
-    #regions = [segdict] if 'lines' in segdict else segdict['regions'] 
     for reg in segdict['regions']:
         color_count = len(reg['lines'])
         colors = get_n_color_palette( color_count )
@@ -169,10 +172,11 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
             col = np.array(colors[l % len(colors) ])
             if features['polygons']:
                 rr,cc = (np.array(line['coords']).T)[::-1]
-                coords = ski.draw.polygon( rr, cc )
-                col_msk_hwc[ coords ] = (col/255.0)
-                bm_hw[ coords ] = True
-                #plt.plot( cc,rr, linewidth=2 )
+                # this libs/line_geometry.py routine is ~ 20% slower (ski.draw.polygon seems to do fine on well-behaved segmentation dictionaries)
+                #polygon_mask = polygon_to_mask_pil( img_hwc.shape[:2], np.array(line['coords'])[:,::-1])
+                polygon_mask = ski.draw.polygon( rr, cc )
+                col_msk_hwc[ polygon_mask ] = (col/255.0)
+                bm_hw[ polygon_mask ] = True
 
             if features['baselines'] and 'baseline' in line:
                 baseline_arr = np.array( line['baseline'] )
@@ -190,6 +194,8 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
 
     composed_img_array_hwc = img_complementary_hwc + col_msk_hwc
 
+    logger.debug("Elapsed time: {:.5f}".format( time()-start))
+    
     #with plt.rc_context({'lines.linewidth': .2}):
     plt.imshow( composed_img_array_hwc )
     height, width = img_hwc.shape[:2]
