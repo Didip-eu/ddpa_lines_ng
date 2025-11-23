@@ -837,12 +837,12 @@ def polygon_pixel_metrics_from_img_segmentation_dict(img_whc: Image.Image, segme
     #polygon_img_gt: Tensor, polygon_img_pred: Tensor, mask: Tensor) -> Tensor:
     polygon_chw_pred, polygon_chw_gt = [ polygon_map_from_segmentation_dict( d ) for d in (segmentation_dict_pred, segmentation_dict_gt) ]
 
-    binary_mask = get_mask( img_whc )
+    binary_mask = get_binary_mask( img_whc )
 
     return polygon_pixel_metrics_from_polygon_maps_and_mask( polygon_chw_pred, polygon_chw_gt, binary_mask )
 
 
-def get_mask( img_whc: Image.Image, thresholding_alg: Callable=ski.filters.threshold_otsu ) -> Tensor:
+def get_binary_mask( img_whc: Image.Image, thresholding_alg: Callable=ski.filters.threshold_otsu ) -> Tensor:
     """Compute a binary mask from an image, using the given thresholding algorithm: FG=1s, BG=0s
 
     Args:

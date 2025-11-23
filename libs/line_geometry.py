@@ -17,6 +17,8 @@ import logging
 from pathlib import Path
 import gzip
 from time import time
+import random
+from typing import Union
 
 from PIL import Image, ImageDraw
 import skimage as ski
@@ -242,9 +244,22 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
     resize_factor = 1.5 
     while True:
         tile_tls = seglib.tile_img( (new_width, new_height), patch_size, constraint=int(overlap*max(width,height)) )
-        if  len(tile_tls) <= max_patches:
+
+        # small, single-patch images with a high estimated line count (>25) enlarged for better result
+        if len(tile_tls) == 1:
+            est_lc = line_count_estimate( img ) 
+            if est_lc < 25:
+                break
+            new_height, new_width = int(new_height*2), int(new_width*2)
+            img_hwc = ski.transform.resize( img_hwc, (new_height, new_width))
+            logger.debug("Enlarging single-patch image based on line count (estimate={}).".format( est_lc ))
+            rescaled=True
+            continue
+        # typical case: reasonable number of patches, no resizing
+        elif  len(tile_tls) <= max_patches:
             logger.debug("Sliced image: {} patches.".format( len(tile_tls)))
             break
+        # large images need to be reduced
         logger.debug("Image slices into {} 1024-pixel patches: limit ({}) exceeded.".format(len(tile_tls), max_patches))
         new_height, new_width = int(new_height/resize_factor), int(new_width/resize_factor)
         img_hwc = ski.transform.resize( img_hwc, (new_height, new_width)) 
@@ -487,3 +502,30 @@ def polygon_to_mask_pil( size: tuple, coords_n2: np.ndarray) -> np.ndarray:
     return polyg_hw + np.zeros( polyg_hw.shape )
 
 
+def line_count_estimate( img: Union[Image.Image,np.ndarray], sample_width=300, repeat=3) -> int:
+    """
+    Use FFT to compute a line count estimate for the image.
+
+    Args:
+        img (Union[Image.Image,np.ndarray]): an (W,H,C) image or (H,W,C) array.
+        sample_width (int): width of the vertical strip whose FG pixel projection should be used
+            for FFT.
+
+    Returns:
+        int: an estimate of the line count; return -1 if image is too small with respect to the
+            sample_width.
+    """
+    img_hwc = np.array( img ) if isinstance( img, Image.Image) else img
+    if img_hwc.shape[1] < sample_width * 1.5:
+        return -1
+    freq_maxs = []
+    img_binary_mask = seglib.get_binary_mask(img_hwc)
+    for offset in [ random.randrange( img_hwc.shape[1]-sample_width ) for i in range(repeat) ]:
+        vertical_projection = np.sum(np.array( img_binary_mask[10:-10, offset:offset+sample_width]), axis=1)
+        vert_fft = np.fft.fft( vertical_projection )
+        power_spectrum = np.abs( vert_fft )**2
+        freq_ps = list(zip( np.fft.fftfreq( len(vertical_projection) ), power_spectrum ))
+        freq_maxs.append( max([ (f,p) for (f,p) in freq_ps if f > 0], key=lambda x: x[1] )[0] )
+    return int(len(vertical_projection)*np.mean(freq_maxs))
+
+    

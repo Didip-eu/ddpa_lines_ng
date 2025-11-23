@@ -11,6 +11,6 @@ for path in Path('dataset').glob('*.jpg'):
         continue
     print(mask_path)
     img = Image.open( path, 'r' )
-    mask = seglib.get_mask( img )
+    mask = seglib.get_binary_mask( img )
     np.save(mask_path, mask)
 
