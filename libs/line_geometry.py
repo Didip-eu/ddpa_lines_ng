@@ -210,7 +210,7 @@ def binary_mask_from_patches( img: Image.Image, row_count=2, col_count=1, overla
     return page_mask[None,:]
 
 
-def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.04, model=None, mask_threshold=.25, box_threshold=.8, cached_prediction_prefix='', cached_prediction_path=Path('/tmp'), max_patches=25, device='cpu') -> np.ndarray:
+def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.04, model=None, mask_threshold=.25, box_threshold=.8, cached_prediction_prefix='', cached_prediction_path=Path('/tmp'), max_patches=16, device='cpu') -> np.ndarray:
     """
     Construct a single binary mask from predictions on patches of size <patch_size> x <patch_size>.
 
@@ -239,17 +239,17 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
         img_hwc = ski.transform.resize( img_hwc, (new_height, new_width ))
         rescaled = True
     # ( tile-cutting + resize) until manageable
+    resize_factor = 1.5 
     while True:
         tile_tls = seglib.tile_img( (new_width, new_height), patch_size, constraint=int(overlap*max(width,height)) )
-        # Safety valve :)
         if  len(tile_tls) <= max_patches:
+            logger.debug("Sliced image: {} patches.".format( len(tile_tls)))
             break
-        logger.warning("Image slices into {} 1024-pixel patches: limit ({}) exceeded.".format(len(tile_tls), max_patches))
-        logger.warning("Resizing to ({}, {})".format( int(new_height/2), int(new_width/2)))
-        new_height, new_width = int(new_height/2), int(new_width/2)
+        logger.debug("Image slices into {} 1024-pixel patches: limit ({}) exceeded.".format(len(tile_tls), max_patches))
+        new_height, new_width = int(new_height/resize_factor), int(new_width/resize_factor)
         img_hwc = ski.transform.resize( img_hwc, (new_height, new_width)) 
+        logger.debug("Resizing to ({}, {})".format( *img_hwc.shape[1::-1] ))
         rescaled = True
-        #return None
 
     crop_preds = None
     cached_prediction_file = Path(cached_prediction_path).joinpath( '{}.pt.gz'.format( cached_prediction_prefix )) if (cached_prediction_path and cached_prediction_prefix) else None
