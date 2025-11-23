@@ -238,12 +238,16 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
     if new_height != img_hwc.shape[0] or new_width != img_hwc.shape[1]:
         img_hwc = ski.transform.resize( img_hwc, (new_height, new_width ))
         rescaled = True
-    # cut into tiles
-    tile_tls = seglib.tile_img( (new_width, new_height), patch_size, constraint=int(overlap*max(width,height)) )
-    # Safety valve :)
-    if  len(tile_tls) > max_patches:
+    # ( tile-cutting + resize) until manageable
+    while True:
+        tile_tls = seglib.tile_img( (new_width, new_height), patch_size, constraint=int(overlap*max(width,height)) )
+        # Safety valve :)
+        if  len(tile_tls) <= max_patches:
+            break
         logger.warning("Image slices into {} 1024-pixel patches: limit ({}) exceeded.".format(len(tile_tls), max_patches))
-        img_hwc = ski.transform.resize( img_hwc, (int(new_height/2), int(new_width/2))) 
+        logger.warning("Resizing to ({}, {})".format( int(new_height/2), int(new_width/2)))
+        new_height, new_width = int(new_height/2), int(new_width/2)
+        img_hwc = ski.transform.resize( img_hwc, (new_height, new_width)) 
         rescaled = True
         #return None
 
