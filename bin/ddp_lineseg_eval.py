@@ -37,7 +37,7 @@ import fargv
 # local
 src_root = Path(__file__).parents[1]
 sys.path.append( str( src_root ))
-from bin import ddp_lineseg_train as lsg
+from libs import segmodel as sgm
 from libs import seglib, list_utils as lu, line_geometry as lgm 
 
 
@@ -118,7 +118,7 @@ if __name__ == '__main__':
             cache_subdir_path.mkdir( exist_ok=True )
             logger.info( 'Using cache subdirectory {}.'.format( cache_subdir_path ))
 
-    live_model = lsg.SegModel.load( args.model_path ) if (not args.segfile_suffix and not args.segfile) else None
+    live_model = sgm.SegModel.load( args.model_path ) if (not args.segfile_suffix and not args.segfile) else None
 
     files = []
     if args.random:
@@ -172,7 +172,7 @@ if __name__ == '__main__':
             # Default: Page-wide inference
             if 'train_style' in live_model.hyper_parameters and live_model.hyper_parameters['train_style'] == 'patch':
                 logger.warning('The model being loaded was trained on fixed-size patches: expect suboptimal results.')
-            imgs_t, preds, sizes = lsg.predict( [img_path], live_model=live_model)
+            imgs_t, preds, sizes = sgm.predict( [img_path], live_model=live_model)
             logger.debug("Inference time: {:.5f}s".format( time.time()-start))
             if args.rescale:
                 logger.debug("Rescale")

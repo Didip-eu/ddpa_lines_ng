@@ -56,7 +56,7 @@ import fargv
 src_root = Path(__file__).parents[1]
 sys.path.append( str( src_root ))
 from libs import seglib, list_utils as lu, line_geometry as lgm
-from bin import ddp_lineseg_train as lsg
+from libs import segmodel as sgm
 
 
 logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
@@ -253,7 +253,7 @@ if __name__ == "__main__":
 
     if not Path( args.model_path ).exists():
         raise FileNotFoundError("Could not find model file", args.model_path)
-    live_model = lsg.SegModel.load( args.model_path ) 
+    live_model = sgm.SegModel.load( args.model_path ) 
 
     if args.raw_polygons and args.line_height_factor != 1.0:
         logger.warning("'-raw_polygons' option set: ignoring the line height factor ({}).".format( args.line_height_factor))
@@ -326,7 +326,7 @@ if __name__ == "__main__":
                         elif cols > 1:
                             binary_mask = lgm.binary_mask_from_patches( crop_whc, col_count=cols, model=model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold) 
                         else:
-                            imgs_t, preds, sizes = lsg.predict( [crop_whc], live_model=live_model )
+                            imgs_t, preds, sizes = sgm.predict( [crop_whc], live_model=live_model )
                             binary_mask = lgm.post_process( preds[0], orig_size=sizes[0], box_threshold=args.box_threshold, mask_threshold=args.mask_threshold ) 
                     if binary_mask is None:
                         logger.warning("No line mask found for {}, crop {}: skipping item.".format( img_path, crop_idx ))
@@ -359,7 +359,7 @@ if __name__ == "__main__":
                 # case 3: process image as-is
                 else:
                     logger.debug("Page-wide processing")
-                    imgs_t, preds, sizes = lsg.predict( [img], live_model=live_model )
+                    imgs_t, preds, sizes = sgm.predict( [img], live_model=live_model )
                     binary_mask = lgm.post_process( preds[0], orig_size=sizes[0], box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
             segmentation_record = lgm.get_morphology( binary_mask, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor )
             segdict = build_segdict( img_metadata, segmentation_record, args.line_attributes )

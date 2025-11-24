@@ -54,7 +54,7 @@ src_root = Path(__file__).parents[1]
 sys.path.append( str( src_root ))
 from libs import seglib, list_utils as lu, line_geometry as lgm
 from libs.train_utils import duration_estimate
-from bin import ddp_lineseg_train as lsg
+from libs import segmodel as sgm
 
 logging_format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s"
 logging_levels = {0: logging.ERROR, 1: logging.WARNING, 2: logging.INFO, 3: logging.DEBUG }
@@ -191,7 +191,7 @@ if __name__ == "__main__":
 
     if not Path( args.model_path ).exists():
         raise FileNotFoundError("Could not find model file", args.model_path)
-    live_model = lsg.SegModel.load( args.model_path ) 
+    live_model = sgm.SegModel.load( args.model_path ) 
 
     if args.raw_polygons and args.line_height_factor != 1.0:
         logger.warning("'-raw_polygons' option set: ignoring the line height factor ({}).".format( args.line_height_factor))

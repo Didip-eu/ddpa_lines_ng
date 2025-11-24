@@ -80,7 +80,7 @@ if args.visual_check:
     sys.exit()
 
 if 'train' in args.subsets:
-    ds_train_cached = lsg.CachedDataset( data_source = ds_train )
+    ds_train_cached = lsgds.CachedDataset( data_source = ds_train )
     ds_train_cached.serialize( subdir='cached_train', repeat=args.repeat)
 
 # for validation and test, only crops
@@ -89,16 +89,16 @@ augCropCenter = tormentor.RandomCropTo.new_size( args.img_size, args.img_size )
 augCropLeft = tormentor.RandomCropTo.new_size( args.img_size, args.img_size ).override_distributions( center_x=tormentor.Uniform((0, .6)))
 augCropRight = tormentor.RandomCropTo.new_size( args.img_size, args.img_size ).override_distributions( center_x=tormentor.Uniform((.4, 1)))
 aug = ( augCropCenter ^ augCropLeft ^ augCropRight ).override_distributions(choice=tormentor.Categorical(probs=(.33, .34, .33)))
-ds_val = tormentor.AugmentedDs( ds_val, aug, computation_device='cpu', augment_sample_function=lsg.LineDetectionDataset.augment_with_bboxes )
+ds_val = tormentor.AugmentedDs( ds_val, aug, computation_device='cpu', augment_sample_function=lsgds.LineDetectionDataset.augment_with_bboxes )
 
 if 'val' in args.subsets:
-    ds_val_cached = lsg.CachedDataset( data_source = ds_val )
+    ds_val_cached = lsgds.CachedDataset( data_source = ds_val )
     ds_val_cached.serialize( subdir='cached_val', repeat=args.repeat)
 
-ds_test = lsg.LineDetectionDataset( imgs_test, lbls_test, min_size=args.img_size, polygon_key='coords')
-ds_test = tormentor.AugmentedDs( ds_test, aug, computation_device='cpu', augment_sample_function=lsg.LineDetectionDataset.augment_with_bboxes )
+ds_test = lsgds.LineDetectionDataset( imgs_test, lbls_test, min_size=args.img_size, polygon_key='coords')
+ds_test = tormentor.AugmentedDs( ds_test, aug, computation_device='cpu', augment_sample_function=lsgds.LineDetectionDataset.augment_with_bboxes )
 
 if 'test' in args.subsets:
-    ds_test_cached = lsg.CachedDataset( data_source = ds_test )
+    ds_test_cached = lsgds.CachedDataset( data_source = ds_test )
     ds_test_cached.serialize( subdir='cached_test', repeat=4)
 

@@ -25,7 +25,7 @@ import skimage as ski
 import numpy as np
 import torch
 
-from bin import ddp_lineseg_train as lsg
+from libs import segmodel as sgm
 from libs import seglib
 
 
@@ -201,7 +201,7 @@ def binary_mask_from_patches( img: Image.Image, row_count=2, col_count=1, overla
     logger.debug(crops_yyxx)
     img_hwc = np.array( img )
     img_crops = [ torch.from_numpy(img_hwc[ crop[0]:crop[1], crop[2]:crop[3] ]).permute(2,0,1) for crop in crops_yyxx ]
-    _, crop_preds, crop_sizes = lsg.predict( img_crops, live_model=model )
+    _, crop_preds, crop_sizes = sgm.predict( img_crops, live_model=model )
     page_mask = np.zeros((crops_yyxx[-1][1],crops_yyxx[-1][3]), dtype='bool')
     for i in range(len(crops_yyxx)):
         t,b,l,r = crops_yyxx[i]
@@ -285,7 +285,7 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
         img_crops = [ torch.from_numpy(img_hwc[y:y+patch_size,x:x+patch_size]).permute(2,0,1) for (y,x) in tile_tls ]
         logger.debug([ c.shape for c in img_crops ])
         
-        _, crop_preds, _ = lsg.predict( img_crops, live_model=model, device=device )
+        _, crop_preds, _ = sgm.predict( img_crops, live_model=model, device=device )
         logger.debug("Computed {} tile predictions".format(len(crop_preds)))
         if cached_prediction_prefix:
             zpf = gzip.GzipFile( cached_prediction_file, 'w')
