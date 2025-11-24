@@ -83,6 +83,7 @@ p = {
     'limit': [0, "How many files to display."],
     'random': [0, "If non-null, randomly pick <random> paths out of the <img_paths> list."],
     'segfile_suffix': ['', "If a line segmentation suffix is provided (ex. 'lines.pred.json'), predicted lines are read from <img_path>.<suffix>."],
+    'img_suffix': [".img.jpg", "Image file suffix."],
     'segfile': ['', "If a line segmentation file is provided, predicted lines are read from this file."],
     'patch_row_count': [ 0, "Process the image in <patch_row_count> rows."],
     'patch_col_count': [ 0, "Process the image in <patch_col_count> cols."],
