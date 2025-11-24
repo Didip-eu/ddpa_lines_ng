@@ -31,14 +31,14 @@ from libs.train_utils import split_set
 
 p = {
         'img_paths': set(list(Path("dataset").glob('*.img.jpg'))),
-        'repeat': (1, "Number of patch samples to generate from one image."),
+        'repeat': [1, "Number of patch samples to generate from one image."],
         'img_size': 1024,
         'subsets': set(['train', 'val']),
-        'log_tsv': 1,
-        'dummy': 0,
+        'log_tsv': True,
+        'dummy': False,
         'img_suffix': '.img.jpg',
         'lbl_suffix': '.lines.gt.json',
-        'visual_check': (0, "Dry-run: no serialization + visual check of transformed samples."),
+        'visual_check': [False, "Dry-run: no serialization + visual check of transformed samples."],
 }
 
 

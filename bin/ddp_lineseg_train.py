@@ -54,9 +54,10 @@ from libs.transforms import build_tormentor_augmentation_for_page_wide_training,
 from libs.train_utils import split_set, duration_estimate
 
 
-logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
+logging_format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s"
+logging_levels = {0: logging.ERROR, 1: logging.WARNING, 2: logging.INFO, 3: logging.DEBUG }
+logging.basicConfig( level=logging.INFO, format=logging_format, force=True )
 logger = logging.getLogger(__name__)
-#logger.propagate=False
 
 p = {
     'max_epoch': 250,
@@ -77,19 +78,20 @@ p = {
     'tensorboard_sample_size': 2,
     'mode': ('train','validate'),
     'weight_file': None,
-    'scheduler': 1,
+    'scheduler': True,
     'scheduler_patience': 10,
     'scheduler_cooldown': 5,
     'scheduler_factor': 0.8,
-    'reset_epochs': 0,
+    'reset_epochs': False,
     'resume_file': 'last.mlmodel',
     'dry_run': [0, "1: Load dataset and model, but do not actually train; 2: same, but also display the validation samples."],
-    'tensorboard': 1,
-    'tormentor': 1,
+    'tensorboard': True,
+    'tormentor': True,
     'device': 'cuda',
     'augmentations': [ set([]), "Pass one or more tormentor class names, to build a choice of training augmentations; by default, apply the hard-coded transformations."],
     'train_style': [('page','patch'), "Use page-wide sample images for training (default), or fixed-size patches."],
-    'cache_dir': ['', ("Location for sample, serialized as Torch tensors. It should contain two subfolders: 'train' and 'val'.") ]
+    'cache_dir': ['', ("Location for sample, serialized as Torch tensors. It should contain two subfolders: 'train' and 'val'.") ],
+    'verbosity': [2,"Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"],
 }
 
 
@@ -217,6 +219,9 @@ class SegModel():
 if __name__ == '__main__':
 
     args, _ = fargv.fargv( p )
+
+    if args.verbosity != 2:
+        logging.basicConfig( level=logging_levels[args.verbosity], format=logging_format, force=True )
 
     hyper_params={ varname:v for varname,v in vars(args).items() if varname in (
         'batch_size', 

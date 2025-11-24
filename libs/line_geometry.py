@@ -245,7 +245,7 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
     while True:
         tile_tls = seglib.tile_img( (new_width, new_height), patch_size, constraint=int(overlap*max(width,height)) )
 
-        # small, single-patch images with a high estimated line count (>25) enlarged for better result
+        # (a) small, single-patch images with a high estimated line count (>25) scaled up for better results
         if len(tile_tls) == 1:
             est_lc = line_count_estimate( img ) 
             if est_lc < 25:
@@ -255,16 +255,16 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
             logger.debug("Enlarging single-patch image based on line count (estimate={}).".format( est_lc ))
             rescaled=True
             continue
-        # typical case: reasonable number of patches, no resizing
-        elif  len(tile_tls) <= max_patches:
+        # (b) very large images scaled down
+        if  len(tile_tls) > max_patches:
+            logger.debug("Image slices into {} 1024-pixel patches: limit ({}) exceeded.".format(len(tile_tls), max_patches))
+            new_height, new_width = int(new_height/resize_factor), int(new_width/resize_factor)
+            img_hwc = ski.transform.resize( img_hwc, (new_height, new_width)) 
+            logger.debug("Resizing to ({}, {})".format( *img_hwc.shape[1::-1] ))
+            rescaled = True
+        else:
             logger.debug("Sliced image: {} patches.".format( len(tile_tls)))
             break
-        # large images need to be reduced
-        logger.debug("Image slices into {} 1024-pixel patches: limit ({}) exceeded.".format(len(tile_tls), max_patches))
-        new_height, new_width = int(new_height/resize_factor), int(new_width/resize_factor)
-        img_hwc = ski.transform.resize( img_hwc, (new_height, new_width)) 
-        logger.debug("Resizing to ({}, {})".format( *img_hwc.shape[1::-1] ))
-        rescaled = True
 
     crop_preds = None
     cached_prediction_file = Path(cached_prediction_path).joinpath( '{}.pt.gz'.format( cached_prediction_prefix )) if (cached_prediction_path and cached_prediction_prefix) else None

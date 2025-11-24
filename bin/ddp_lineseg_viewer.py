@@ -62,10 +62,12 @@ from bin import ddp_lineseg_train as lsg
 from libs import segviz, seglib, list_utils as lu, line_geometry as lgm
 
 
-
-
-logging.basicConfig( level=logging.DEBUG, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
+logging_format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s"
+logging_levels = {0: logging.ERROR, 1: logging.WARNING, 2: logging.INFO, 3: logging.DEBUG }
+logging.basicConfig( level=logging.INFO, format=logging_format, force=True )
 logger = logging.getLogger(__name__)
+
+
 # tone down unwanted logging
 logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)#.disabled=True
 logging.getLogger('PIL').setLevel(logging.INFO)
@@ -75,7 +77,7 @@ p = {
     'model_path': str(src_root.joinpath("best.mlmodel")),
     'box_threshold': [0.75, "Threshold used for line bounding boxes."],
     'mask_threshold': [0.6, "Threshold used for line masks--a tweak on the post-processing phase."],
-    'rescale': [0, "If True, display segmentation on original image; otherwise (default), get the image size from the model used for inference (ex. 1024 x 1024)."],
+    'rescale': [False, "If True, display segmentation on original image; otherwise (default), get the image size from the model used for inference (ex. 1024 x 1024)."],
     'img_paths': set([]), #set(Path('dataset').glob('*.jpg')),
     'color_count': [0, "Number of colors for polygon overlay: -1 for single color, n > 1 for fixed number of colors, 0 for 1 color/line."],
     'limit': [0, "How many files to display."],
@@ -88,11 +90,12 @@ p = {
     'show': set(['polygons', 'centerlines', 'regions', 'labels', 'title']),
     'linewidth': 2,
     'output_file_path': ['', 'If path is a directory, save the plot in <output_file_path>/<img_name_stem>.png.; otherwise, save under the provided file path.'],
-    'crop_x': [1.0, "crop-in ratio (x axis, centered)"],
-    'crop_y': [1.0, "crop-in ratio (y axis, centered)"],
-    'raw_polygons': [0, "Show polygons as resulting from the NN; otherwise (default), show the abstract polygons constructed from the detected centerlines."],
+    'crop_x': [1.0, "crop-in ratio on resulting plot (x axis, centered)"],
+    'crop_y': [1.0, "crop-in ratio on resulting plot (y axis, centered)"],
+    'raw_polygons': [False, "Show polygons as resulting from the NN; otherwise (default), show the abstract polygons constructed from the detected centerlines."],
     'line_height_factor': [1.0, "Factor (within ]0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"],
     'device': [('cpu','gpu','cuda'), "Computing device"],
+    'verbosity': [2,"Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"],
 
 }
 
@@ -101,7 +104,9 @@ p = {
 if __name__ == '__main__':
 
     args, _ = fargv.fargv(p)
-    logger.debug( args )
+
+    if args.verbosity != 2:
+        logging.basicConfig( level=logging_levels[args.verbosity], format=logging_format, force=True )
 
     live_model = lsg.SegModel.load( args.model_path ) if (not args.segfile_suffix and not args.segfile) else None
 
@@ -117,7 +122,16 @@ if __name__ == '__main__':
     for img_path in files:
         logger.info(img_path)
 
-        if live_model: # False if segfile option passed
+        # segmentation already provided: delegate to segviz lib
+        if args.segfile or args.segfile_suffix:
+                segfile_path = Path(args.segfile) if args.segfile else Path( re.sub(r'\.[^/]+$', args.segfile_suffix, str(img_path)) )
+                if not segfile_path.exists():
+                    logger.warning("Could not find a segmentation file {}: skipping item;".format( Path(segfile_path)))
+                    continue
+                segviz.display_segmentation_and_img( img_path, segfile=segfile_path, show={ k:True for k in args.show if k != 'labels'}, linewidth=args.linewidth, crop=(args.crop_x, args.crop_y), output_file_path=args.output_file_path )
+
+        # run the segmenter
+        elif live_model: 
             time_start = time.time()
             time_step = time_start
             mp, atts, path = None, None, None
@@ -206,10 +220,4 @@ if __name__ == '__main__':
                 plt.savefig( output_file_path, bbox_inches='tight')
             else:
                 plt.show()
-        elif args.segfile or args.segfile_suffix:
-                segfile_path = Path(args.segfile) if args.segfile else Path( re.sub(r'\.[^/]+$', args.segfile_suffix, str(img_path)) )
-                if not segfile_path.exists():
-                    logger.warning("Could not find a segmentation file {}: skipping item;".format( Path(segfile_path)))
-                    continue
-                segviz.display_segmentation_and_img( img_path, segfile=segfile_path, show={ k:True for k in args.show if k != 'labels'}, linewidth=args.linewidth, crop=(args.crop_x, args.crop_y), output_file_path=args.output_file_path )
 

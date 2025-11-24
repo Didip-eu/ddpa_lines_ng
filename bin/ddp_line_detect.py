@@ -56,11 +56,11 @@ from libs import seglib, list_utils as lu, line_geometry as lgm
 from libs.train_utils import duration_estimate
 from bin import ddp_lineseg_train as lsg
 
-
-logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
+logging_format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s"
+logging_levels = {0: logging.ERROR, 1: logging.WARNING, 2: logging.INFO, 3: logging.DEBUG }
+logging.basicConfig( level=logging.INFO, format=logging_format, force=True )
 logger = logging.getLogger(__name__)
 
-# tone down unwanted logging
 logging.getLogger('PIL').setLevel(logging.INFO)
 
 
@@ -78,12 +78,13 @@ p = {
         'mask_threshold': [.6, "In the post-processing phase, threshold to use for line soft masks."],
         'box_threshold': [0.75, "Threshold used for line bounding boxes."],
         'patch_size': [1024, "Process the image by <patch_size>*<patch_size> patches"],
-        'raw_polygons': [0, "Serialize polygons as resulting from the NN (default); otherwise, construct the abstract polygons from centerlines."],
+        'raw_polygons': [False, "Serialize polygons as resulting from the NN (default); otherwise, construct the abstract polygons from centerlines."],
         'device': [('cpu','gpu'), "Computing device."],
         'line_height_factor': [1.0, "Factor (within ]0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"],
-        'overwrite_existing': [1, "Write over existing output file (default)."],
+        'overwrite_existing': [True, "Write over existing output file (default)."],
         'timer': [0, "Aggregate performance metrics. A strictly positive integer <n> computes the mean time for every batch of <n> images."],
         'timer_logs': ['stdout', "Filename for timer logs."],
+        'verbosity': [2,"Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"],
 }
 
 
@@ -181,6 +182,9 @@ if __name__ == "__main__":
 
     args, _ = fargv.fargv( p )
 
+    if args.verbosity != 2:
+        logging.basicConfig( level=logging_levels[args.verbosity], format=logging_format, force=True )
+
     if not args.region_classes:
         logger.info("The 'region_classes' parameter must contain at least one valid region name (from the layout app).a)")
         sys.exit()
@@ -252,7 +256,7 @@ if __name__ == "__main__":
 
                 if args.output_format == 'stdout':
                     print(json.dumps(segdict))
-                if not output_file_path.exists() or args.overwrite_existing:
+                elif not output_file_path.exists() or args.overwrite_existing:
                     if args.output_format == 'json':
                         with open(output_file_path, 'w') as of:
                             #segdict['image_wh']=img.size
@@ -260,7 +264,8 @@ if __name__ == "__main__":
                     elif args.output_format == 'xml':
                         #segdict['image_wh']=img.size
                         seglib.xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
-                    logger.debug("Segmentation output saved in {}".format( output_file_path ))
+                    if args.output_format != 'quiet':
+                        logger.debug("Segmentation output saved in {}".format( output_file_path ))
 
                 if args.timer > 0 and img_idx > 0 and img_idx % args.timer==0:
                     timer_means.append( (time()-start_time)/args.timer )
