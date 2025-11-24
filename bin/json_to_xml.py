@@ -19,9 +19,9 @@ p = {
     'file_paths': set([]),
     'polygon_key': 'coords',
     'output_format': ('xml', 'stdout'),
-    'with_transcription': [True, "Extract line transcription, if it exists"],
+    'with_transcription': [1, "Extract line transcription, if it exists"],
     'line_height_factor': [1.0, "Factor to be applied to the original line strip height."],
-    'overwrite_existing': [False, "Overwrite an existing output file."],
+    'overwrite_existing': [0, "Overwrite an existing output file."],
     'comment': ['',"A text string to be added to the <Comments> elt."],
 }
 

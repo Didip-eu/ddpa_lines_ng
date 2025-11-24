@@ -82,11 +82,11 @@ p = {
         'patch_row_count': [ 0, "Process the image in <patch_row_count> rows."],
         'patch_col_count': [ 0, "Process the image in <patch_col_count> cols."],
         'patch_size': [1024, "Process the image by <patch_size>*<patch_size> patches"],
-        'cache_predictions': [False, "Cache prediction tensors for faster, repeated calls with various post-processing options."],
+        'cache_predictions': [0, "Cache prediction tensors for faster, repeated calls with various post-processing options."],
         'cached_prediction_root_dir': ['/tmp', "Where to save the cached predictions."],
-        'raw_polygons': [True, "Show polygons as resulting from the NN (default); otherwise, show the abstract polygons constructed from centerlines."],
+        'raw_polygons': [1, "Show polygons as resulting from the NN (default); otherwise, show the abstract polygons constructed from centerlines."],
         'line_height_factor': [1.0, "Factor (within ]0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"],
-        'overwrite_existing': [True, "Write over existing output file (default)."],
+        'overwrite_existing': [1, "Write over existing output file (default)."],
         'timer': [0, "Aggregate performance metrics. A strictly positive integer <n> computes the mean time for every batch of <n> images."],
 }
 

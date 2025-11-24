@@ -33,8 +33,8 @@ p = {
     'polygon_key': 'coords',
     'line_height_factor': [1.0, "Factor to be applied to the original line strip height."],
     'output_file': ['stdout', "Output file"],
-    'overwrite_existing': [False, "Overwrite an existing output file."],
-    'with_transcription': [True, "Extract line transcription, if it exists"],
+    'overwrite_existing': [0, "Overwrite an existing output file."],
+    'with_transcription': [1, "Extract line transcription, if it exists"],
     "comment": ['',"A text string to be added to the <Comments> elt."],
 }
 

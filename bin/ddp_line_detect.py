@@ -78,10 +78,10 @@ p = {
         'mask_threshold': [.6, "In the post-processing phase, threshold to use for line soft masks."],
         'box_threshold': [0.75, "Threshold used for line bounding boxes."],
         'patch_size': [1024, "Process the image by <patch_size>*<patch_size> patches"],
-        'raw_polygons': [False, "Serialize polygons as resulting from the NN (default); otherwise, construct the abstract polygons from centerlines."],
+        'raw_polygons': [0, "Serialize polygons as resulting from the NN (default); otherwise, construct the abstract polygons from centerlines."],
         'device': [('cpu','gpu'), "Computing device."],
         'line_height_factor': [1.0, "Factor (within ]0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"],
-        'overwrite_existing': [True, "Write over existing output file (default)."],
+        'overwrite_existing': [1, "Write over existing output file (default)."],
         'timer': [0, "Aggregate performance metrics. A strictly positive integer <n> computes the mean time for every batch of <n> images."],
         'timer_logs': ['stdout', "Filename for timer logs."],
         'verbosity': [2,"Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"],
@@ -212,8 +212,9 @@ if __name__ == "__main__":
     charter_iterator = pack_fsdb_inputs_outputs( args, args.layout_suffix )
     for img_idx, img_triplet in enumerate( charter_iterator ):
         img_path, layout_file_path, output_file_path = img_triplet
-        logger.debug( "File path={}".format( img_triplet[0]))
+        logger.debug( "File path={}, output path={}".format( img_path, output_file_path))
         if not args.overwrite_existing and output_file_path.exists():
+            logger.debug("File {} exists: skipped.".format( output_file_path ))
             continue
         try:
             with Image.open( img_path, 'r' ) as img:
@@ -245,6 +246,7 @@ if __name__ == "__main__":
                             continue
                         binary_masks.append( binary_mask )
                     try:
+                        # Post-processing: pixel maps → lines & polygons
                         segmentation_records = [ lgm.get_morphology( msk, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor ) for msk in binary_masks ]
                         segdict = build_segdict_composite( img_metadata, boxes, segmentation_records, args.line_attributes ) 
                     except (TypeError,ValueError) as e:
@@ -252,7 +254,6 @@ if __name__ == "__main__":
                         continue
 
                 ############ Output #################
-                logger.debug(f"Serializing segmentation for img.shape={img.size}")
 
                 if args.output_format == 'stdout':
                     print(json.dumps(segdict))
