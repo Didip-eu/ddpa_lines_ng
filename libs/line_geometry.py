@@ -159,12 +159,14 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
         
     # sort by centroids (y,x): 
     # - a very naive reading order heuristic, that does not work on multi-component, skewed lines
-    #   Eg. (les feuilles mortes) --> ! mortes feuilles Les
+    #   Eg. (les feuilles mortes) -->  *(mortes feuilles Les)
     #                         mortes
     #               feuilles
     #          Les 
     # - order that differs from labels may hint at messy reading order
     line_features = sorted( zip(labels, line_heights, skeleton_coords, polygon_coords, centroids), key=lambda t: t[4].tolist() )
+    # meant to filter out linear artefacts on the page (edges, non-textual lines...)
+    line_height_cutoff = np.mean( line_heights )-1.5*np.std( line_heights ) if not raw_polygons else 2
     return (labeled_msk_hw[None,:] if raw_polygons else labeled_msk_regular_hw[None,:], [{
                 'label': lbl,
                 'centroid': center_yx,
@@ -172,7 +174,7 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
                 'line_height': lh, 
                 'centerline': skc,
                 'baseline': skc + [lh/2,0],
-    } for lbl, lh, skc, plgc, center_yx in line_features ])
+    } for lbl, lh, skc, plgc, center_yx in line_features if lh>line_height_cutoff])
 
 
 
@@ -242,6 +244,11 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
         rescaled = True
     # ( tile-cutting + resize) until manageable
     resize_factor = 1.5 
+
+    #line_count_est = line_count_estimate( img, sample_width=200, repeat=5 )
+    #line_density = line_count_est / height
+    #logger.info("Lines: count={}, density={}".format( line_count_est, line_density ))
+
     while True:
         tile_tls = seglib.tile_img( (new_width, new_height), patch_size, constraint=int(overlap*max(width,height)) )
 
@@ -265,6 +272,9 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
         else:
             logger.debug("Sliced image: {} patches.".format( len(tile_tls)))
             break
+    
+    #line_density = line_count_est / new_height
+    #logger.info("After resizing: count={} density={}".format( line_count_est, line_density ))
 
     crop_preds = None
     cached_prediction_file = Path(cached_prediction_path).joinpath( '{}.pt.gz'.format( cached_prediction_prefix )) if (cached_prediction_path and cached_prediction_prefix) else None
