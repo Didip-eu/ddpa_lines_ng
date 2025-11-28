@@ -478,7 +478,7 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
     if 'regions' not in seg_dict:
         seg_dict['regions']=[{'id': 'r0', 'coords': [[0,0],[img_width-1,0],[img_width-1,img_height-1],[0,img_height-1]]}, ]
     for reg in seg_dict['regions']:
-        reg_xml_id = f"r{reg['id']}" if type(reg['id']) is int else f"{reg['id']}"
+        reg_xml_id = f"r{reg['id']}" if (type(reg['id']) is int or reg['id'][0]!='r') else reg['id']
         regElt = ET.SubElement( pageElt, 'TextRegion', attrib={'id': reg_xml_id})
         ET.SubElement(regElt, 'Coords', attrib={'points': boundary_to_point_string(reg['coords'])})
         # 3 cases: 
@@ -487,7 +487,8 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
         # - top-level regions with a list of lines in each
         lines = [ l for l in seg_dict['lines'] if (('region' in l and l['region']==reg['id']) or 'region' not in l) ] if 'lines' in seg_dict else reg['lines']
         for line in lines:
-            textLineElt = ET.SubElement( regElt, 'TextLine', attrib={'id': f"{reg_xml_id}l{line['id']}" if type(line['id']) is int else f"{reg['id']}{line['id']}"} )
+            line_xml_id = f"l{line['id']}" if type(line['id']) is int else line['id']
+            textLineElt = ET.SubElement( regElt, 'TextLine', attrib={'id': line_xml_id )
             ET.SubElement( textLineElt, 'Coords', attrib={'points': boundary_to_point_string(line[polygon_key])} )
             if 'baseline' in line:
                 ET.SubElement( textLineElt, 'Baseline', attrib={'points': boundary_to_point_string(line['baseline'])})
