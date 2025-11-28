@@ -462,8 +462,11 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
     lastChangeElt = ET.SubElement( metadataElt, 'LastChange')
     lastChangeElt.text=createdElt.text
     commentElt = ET.SubElement( metadataElt, 'Comments')
-    if 'comments' in seg_dict:
-        commentElt.text = seg_dict['comments']
+    if 'comments' in seg_dict['metadata']:
+        commentElt.text = seg_dict['metadata']['comments']
+    # for back-compatibility
+    elif 'comment' in seg_dict:
+        commentElt.text = seg_dict['comment']
     if 'line_height_factor' in seg_dict:
         lineHeightFactorElt = ET.SubElement( metadataElt, 'LineHeightFactor' )
         lineHeightFactorElt.text = str(seg_dict['line_height_factor'])

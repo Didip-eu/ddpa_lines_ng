@@ -32,9 +32,9 @@ p = {
     'file_path': ['', "Input file."],
     'polygon_key': 'coords',
     'line_height_factor': [1.0, "Factor to be applied to the original line strip height."],
-    'output_file': ['stdout', "Output file"],
+    'output_file': ['', "Output file (default: standard output)."],
     'overwrite_existing': [0, "Overwrite an existing output file."],
-    'with_transcription': [1, "Extract line transcription, if it exists"],
+    'drop_transcription': [0, "Extract line transcription, if it exists"],
     "comment": ['',"A text string to be added to the <Comments> elt."],
 }
 
@@ -55,6 +55,7 @@ if __name__ == '__main__':
             sys.exit()
 
     segdict = None
+
     with open( json_path, 'r') as json_if:
         segdict = json.load( json_if )
 
@@ -70,24 +71,27 @@ if __name__ == '__main__':
             for polyg, line in zip( line_polygons, line_dicts ):
                 line[args.polygon_key]=polyg
         # remove transcriptions
-        for line in line_dicts: 
-            if not args.with_transcription and 'text' in line:
-                del line['text']
+        if args.drop_transcription:
+            for line in line_dicts: 
+                if 'text' in line:
+                    del line['text']
 
         # insert metadata at the top
         regions = segdict['regions']
         del segdict['regions']
+        segdict['metadata'].update( {'created': str(datetime.now()), 'creator': __file__ })
+
         if args.line_height_factor != 1.0:
             segdict['line_height_factor']=args.line_height_factor
         if args.comment:
-            segdict['comment']=args.comment
+            segdict['metadata']['comments']=args.comment
         segdict['regions']=regions
 
-    # output
-    if segdict is not None:
-        if args.output_file != 'stdout':
-            with open( output_path,'w') as of:
-                of.write( json.dumps( segdict, indent=2))
-        else:
-            print( json.dumps( segdict, indent=2 ))
+        # output
+        if segdict is not None:
+            if args.output_file:
+                with open( output_path,'w') as of:
+                    of.write( json.dumps( segdict, indent=2))
+            else:
+                print( json.dumps( segdict, indent=2 ))
 

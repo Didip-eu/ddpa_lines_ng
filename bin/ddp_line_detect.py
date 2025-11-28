@@ -112,7 +112,7 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, line_att
     Return:
         dict: a segmentation dictionary
     """
-    segdict = { 'created': str(datetime.now()), 'creator': __file__, }
+    segdict = { 'metadata': {'created': str(datetime.now()), 'creator': __file__, }}
     segdict.update( img_metadata )
     segdict['line_height_factor']=line_height_factor
     segdict['regions']=[]
