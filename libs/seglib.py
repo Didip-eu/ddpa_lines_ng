@@ -1,11 +1,28 @@
+"""
+seglib.py
+
+Utility functions for segmentation tasks:
+
++ storing polygons on tensors (from dictionaries or pageXML outputs)
++ computing IoU and F1 scores over GT/predicted label maps
++ extracting image and masks segmentation metadata
++ format conversions (JSON <-> XML)
+
+A note about types:
+
++ PageXML or JSON: initial input (typically: from segmentation framework)
++ torch.Tensor: map storage and computations (eg. counting intersections)
++ np.ndarray: metrics and scores; initial mapping of labels: use 32-bit _signed_ integers
+  for storing compound (intersecting) labels, to ensure smooth conversion into
+  tensors.
+"""
 
 #stdlib
 from pathlib import Path
 import json
-from typing import Callable, Optional, Union, Mapping, Any
+from typing import Callable, Optional, Union, Any
 import itertools
 import re
-import copy
 import sys
 import math
 from datetime import datetime
@@ -18,27 +35,11 @@ import torch
 from torch import Tensor
 from torchvision.tv_tensors import Mask
 import numpy as np
-import numpy.ma as ma
 
 # local
-from . import line_geometry as lgm
+sys.path.append( str(Path(__file__).parents[0]))
+import line_geometry as lgm
 
-
-__LABEL_SIZE__=8
-
-"""Functions for segmentation output management
-
-+ storing polygons on tensors (from dictionaries or pageXML outputs)
-+ computing IoU and F1 scores over GT/predicted label maps
-
-A note about types:
-
-+ PageXML or JSON: initial input (typically: from segmentation framework)
-+ torch.Tensor: map storage and computations (eg. counting intersections)
-+ np.ndarray: metrics and scores; initial mapping of labels: use 32-bit _signed_ integers
-  for storing compound (intersecting) labels, to ensure smooth conversion into
-  tensors.
-"""
 
 
 def polygon_map_from_json_file(  segmentation_json: str) -> Tensor:
@@ -127,6 +128,7 @@ def line_binary_mask_from_json_file( segmentation_json: str, polygon_key='coords
     with open( segmentation_json, 'r' ) as json_file:
         return line_binary_mask_from_segmentation_dict( json.load( json_file ), polygon_key=polygon_key)
 
+
 def line_binary_mask_from_xml_file( page_xml: str ) -> Tensor:
     """From a PageXML file describing polygons, return a boolean mask where any pixel belonging
     to a polygon is 1 and the other pixels 0.
@@ -156,6 +158,7 @@ def line_binary_mask_from_segmentation_dict( segmentation_dict: dict, polygon_ke
     # create 2D boolean matrix
     mask_size = (segmentation_dict['image_width'], segmentation_dict['image_height'])
     return torch.tensor( np.sum( [ ski.draw.polygon2mask( mask_size, polyg ).transpose(1,0) for polyg in polygon_boundaries ], axis=0))
+
 
 def line_binary_mask_stack_from_json_file( segmentation_json: str, polygon_key='coords' ) -> Tensor:
     """From a JSON file describing polygons, return a stack of boolean masks where any pixel belonging
@@ -286,6 +289,7 @@ def line_images_from_img_json_files( img: str, segmentation_json: str, as_dictio
             return segmentation_dict
         return line_pairs
 
+
 def line_images_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dict: dict, polygon_key='coords', factor=1.0 ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From a segmentation dictionary describing polygons, return 
     a list of pairs (<line cropped BB>, <polygon mask>).
@@ -319,6 +323,7 @@ def line_images_from_img_segmentation_dict(img_whc: Image.Image, segmentation_di
 
     return pairs_line_bb_and_mask
 
+
 def line_images_from_img_polygon_map(img_wh: Image.Image, polygon_map_chw: Tensor) -> list[tuple[np.ndarray, np.ndarray]]:
     """From a tensor storing polygons, return a list of pairs (<line cropped BB>, <polygon mask>).
 
@@ -349,7 +354,6 @@ def line_images_from_img_polygon_map(img_wh: Image.Image, polygon_map_chw: Tenso
         pairs_line_bb_and_mask.append( (line_bbox, bb_label_mask) )
 
     return pairs_line_bb_and_mask
-
 
 
 def line_masks_from_img_xml_files(img: str, page_xml: str ) -> list[tuple[np.ndarray, np.ndarray]]:
@@ -384,6 +388,7 @@ def line_masks_from_img_json_files( img: str, segmentation_json: str, key='coord
     with Image.open(img, 'r') as img_wh, open( segmentation_json, 'r' ) as json_file:
         return line_masks_from_img_segmentation_dict( img_wh, json.load( json_file ), key=key)
 
+
 def line_masks_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dict: dict, polygon_key='coords' ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From a segmentation dictionary describing polygons, return 
     the bounding box coordinates and the boolean masks.
@@ -411,8 +416,6 @@ def line_masks_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dic
         masks.append( page_polyg_mask )
 
     return (np.stack( bbs ), np.stack( masks ))
-
-
 
 
 def expand_flat_tensor_to_n_channels( t_hw: Tensor, n: int ) -> np.ndarray:
@@ -715,6 +718,7 @@ def segdict_sink_lines(segdict: dict):
     del segdict['lines']
     return segdict
 
+
 def layout_regseg_to_crops( img: Image.Image, regseg: dict, region_labels: list[str], force_rgb=False ) -> tuple[list[Image.Image], list[str]]:
     """From a layout-app segmentation dictionary, return the regions with matching
     labels as a list of images.
@@ -898,6 +902,7 @@ def polygon_pixel_metrics_from_polygon_maps_and_mask(polygon_chw_pred: Tensor, p
 
     return metrics
 
+
 def polygon_pixel_metrics_two_flat_maps_and_mask(map_hw_1: Tensor, map_hw_2: Tensor, binary_hw_mask: Optional[Tensor]=None, label_distance=0) -> np.ndarray:
 
     """Compute pixel-based metrics from two tensors that each encode non-overlapping polygons
@@ -926,6 +931,7 @@ def polygon_pixel_metrics_two_flat_maps_and_mask(map_hw_1: Tensor, map_hw_2: Ten
     metrics = polygon_pixel_metrics_two_flat_maps( map_hw_fg_1, map_hw_fg_2, label_distance )
 
     return metrics
+
 
 def retrieve_polygon_mask_from_map( label_map_chw: Tensor, label: int) -> Tensor:
     """From a label map (that may have compound pixels representing polygon intersections),
@@ -1197,6 +1203,7 @@ def polygon_pixel_metrics_to_line_based_scores_icdar_2017( metrics: np.ndarray, 
         return np.array([threshold, TP, FP, FN, Precision, Recall, Jaccard, F1])
     return np.array([ threshold, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan ] )
 
+
 def polygon_pixel_metrics_to_line_based_scores( metrics_hwc: np.ndarray, threshold: float=.75 ) -> np.ndarray:
     """Classic evalution metrics, where mask are matched based on the best IoU.
 
@@ -1253,7 +1260,6 @@ def polygon_pixel_metrics_to_line_based_scores( metrics_hwc: np.ndarray, thresho
     return np.array([ threshold, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan ] )
 
 
-
 def mAP( pixel_metrics_list: list[np.ndarray] ):
     """
     mAP = (AP_.5 + AP.55 + ... + AP.95) / 10
@@ -1295,7 +1301,6 @@ def mAP( pixel_metrics_list: list[np.ndarray] ):
             'mAP75': precision[5], 
             'mAP50_95': np.sum(precision)/10, 
             'recall/precision': list(zip( recall.tolist(), precision.tolist()))}
-    
 
 
 def polygon_pixel_metrics_to_pixel_based_scores( metrics: np.ndarray) -> tuple[float, float]:
@@ -1416,7 +1421,6 @@ def mask_from_polygon_map_functional( polygon_map: Tensor, test: Callable) -> Te
         raise TypeError("Polygon map should have shape (4, m, n)")
 
     return torch.sum( test( polygon_map ), dim=0).type(torch.bool)
-
 
 
 def gt_masks_to_labeled_map( masks: Mask ) -> np.ndarray:
