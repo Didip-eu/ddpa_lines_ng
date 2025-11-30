@@ -3,7 +3,7 @@ line_geometry.py
 
 This module factors out 
 
-+ Functions that call the low-level line prediction routines on libs/ddp_lineseg_train.py and process their outcomes, made of boxes and a matching stack of soft masks.
++ Functions that call the low-level line prediction routines on libs/segmodel.py and process their outcomes: shortly put, out of boxes and a matching stack of soft masks, they make a flat map of labels, and construct a geometrical representation of the detected components.
 + More broadly, functions that handle conversions between pixels maps and polygons, or line-to-polygon and polygon-to-polygon transformations.
 
 Users:
