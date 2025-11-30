@@ -113,7 +113,7 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
     { 'regions': [ { 'coords': [[x1,y1], ...,], 'lines': [ {'coords': [[x1,y1], ...,] }, ... }]}
     ```
 
-    Optional, non-standard attributes for the line are handled: 'centerline', 'height'.
+    Optional, non-standard attributes for the line are handled: 'centerline', 'x-height'.
 
     Args:
         img_path (Path): image file

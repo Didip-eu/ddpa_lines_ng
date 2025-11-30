@@ -205,20 +205,20 @@ def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='
     if 'lines' in segmentation_dict:
         if factor==1.0:
             return [ line[polygon_key] for line in segmentation_dict['lines'] ]
-        #return [ (lgm.strip_from_baseline( line['baseline'], line['height']*factor, ltrb=tuple(np.array(line['regions'][0]['coords'])[[0,2]].flatten()) ) if 'height' in line else line[polygon_key]) for line in segmentation_dict['lines'] ]
+        #return [ (lgm.strip_from_baseline( line['baseline'], line['x-height']*factor, ltrb=tuple(np.array(line['regions'][0]['coords'])[[0,2]].flatten()) ) if 'x-height' in line else line[polygon_key]) for line in segmentation_dict['lines'] ]
         for line in segmentation_dict['lines']:
-            if 'height' in line:
+            if 'x-height' in line:
                 ltrb = tuple(np.array(line['regions'][0]['coords'])[[0,2]].flatten())
-                line_polygons.append( lgm.strip_from_baseline( line['baseline'], line['height']*factor, ltrb=ltrb) )
+                line_polygons.append( lgm.strip_from_baseline( line['baseline'], line['x-height']*factor, ltrb=ltrb) )
             else:
                 line_polygons.append( line[polygon_key] )
     elif 'regions' in segmentation_dict:
-        #return [ (lgm.strip_from_baseline( line['baseline'], line['height']*factor, ltrb=tuple(np.array(reg['coords'])[[0,2]].flatten()) ) if 'height' in line else line[polygon_key]) for reg in segmentation_dict['regions'] for line in reg['lines']]
+        #return [ (lgm.strip_from_baseline( line['baseline'], line['x-height']*factor, ltrb=tuple(np.array(reg['coords'])[[0,2]].flatten()) ) if 'x-height' in line else line[polygon_key]) for reg in segmentation_dict['regions'] for line in reg['lines']]
         if factor==1.0:
             return [ line[polygon_key] for reg in segmentation_dict['regions'] for line in reg['lines']] 
         for reg in segmentation_dict['regions']:
             ltrb=tuple(np.array(reg['coords'])[[0,2]].flatten())
-            line_polygons.extend([ lgm.strip_from_baseline( line['baseline'], line['height']*factor, ltrb=ltrb ) if 'height' in line else line[polygon_key] for line in reg['lines'] ] )
+            line_polygons.extend([ lgm.strip_from_baseline( line['baseline'], line['x-height']*factor, ltrb=ltrb ) if 'x-height' in line else line[polygon_key] for line in reg['lines'] ] )
     return line_polygons
     
 
@@ -488,7 +488,7 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
         lines = [ l for l in seg_dict['lines'] if (('region' in l and l['region']==reg['id']) or 'region' not in l) ] if 'lines' in seg_dict else reg['lines']
         for line in lines:
             line_xml_id = f"l{line['id']}" if type(line['id']) is int else line['id']
-            textLineElt = ET.SubElement( regElt, 'TextLine', attrib={'id': line_xml_id )
+            textLineElt = ET.SubElement( regElt, 'TextLine', attrib={'id': line_xml_id} )
             ET.SubElement( textLineElt, 'Coords', attrib={'points': boundary_to_point_string(line[polygon_key])} )
             if 'baseline' in line:
                 ET.SubElement( textLineElt, 'Baseline', attrib={'points': boundary_to_point_string(line['baseline'])})
@@ -734,13 +734,12 @@ def layout_regseg_to_crops( img: Image.Image, regseg: dict, region_labels: list[
     clsid_2_clsname = { i:n for (i,n) in enumerate( regseg['class_names'] )}
     to_keep = [ i for (i,v) in enumerate( regseg['rect_classes'] ) if clsid_2_clsname[v] in region_labels ]
 
-    
     if force_rgb and img.mode != 'RGB':
         img = img.convert('RGB')
 
-    return tuple(zip(*[ ( img.crop( regseg['rect_LTRB'][i] ), 
-                regseg['rect_LTRB'][i], 
-                clsid_2_clsname[ regseg['rect_classes'][i]]) for i in to_keep ]))
+    return tuple( zip(*[ ( img.crop( regseg['rect_LTRB'][i] ),
+                  regseg['rect_LTRB'][i],
+                  clsid_2_clsname[ regseg['rect_classes'][i]]) for i in to_keep ]))
 
 
 def layout_regseg_check_class(regseg: dict, region_labels: list[str] ) -> list[bool]:

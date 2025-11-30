@@ -72,7 +72,7 @@ p = {
         "region_classes": [set(["Wr:OldText"]), "Names of the layout-app regions on which lines are to be detected. Eg. '[Wr:OldText']. If empty (default), detection is run on the entire page."],
         "img_suffix": [r".img.*p*g", "Image file suffix."],
         "layout_suffix": [".layout.pred.json", "Regions are given by segmentation file that is <img name stem><suffix>."],
-        "line_attributes": [set(["centerline", "height"]), "Non-standard line properties to be included in the dictionary."],
+        "line_attributes": [set(["centerline", "x-height"]), "Non-standard line properties to be included in the dictionary."],
         "output_format": [("json", "xml", "stdout", "quiet"), "Segmentation output: json=<JSON file>, xml=<PageXML file>, stdout=JSON on standard output, quiet=nothing (for testing and timing)"],
         "output_dir": ['', "Output directory; if not provided, defaults to the image path's parent."],
         'mask_threshold': [.6, "In the post-processing phase, threshold to use for line soft masks."],
@@ -132,8 +132,8 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, line_att
             baseline += offset.astype(baseline.dtype)
             centerline += offset.astype(centerline.dtype)
             dict_line_entry = {'id': f'l{line_id}', 'coords': polygon_coords[:,::-1].astype('int').tolist(), 'baseline': baseline[:,::-1].astype('int').tolist() }
-            if 'height' in line_attributes:
-                dict_line_entry['height']=int(line_height)
+            if 'x-height' in line_attributes:
+                dict_line_entry['x-height']=int(line_height)
             if 'centerline' in line_attributes:
                 dict_line_entry['centerline']=centerline[:,::-1].tolist() # yx to xy
             this_region_lines.append( dict_line_entry )
