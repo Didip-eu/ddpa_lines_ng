@@ -552,6 +552,7 @@ def line_count_estimate_ng( img: Union[Image.Image,np.ndarray], sample_size=200,
         int: an estimate of the line count; return -1 if image is too small with respect to the
             sample_width.
     """
+    random.seed(46)
     img_hwc = np.array( img ) if isinstance( img, Image.Image) else img
     counts = []
     img_binary_mask = seglib.get_binary_mask(img_hwc)

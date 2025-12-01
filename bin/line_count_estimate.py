@@ -54,6 +54,8 @@ p = {
         "layout_suffix": [".layout.pred.json", "Regions are given by segmentation file that is <img name stem><suffix>."],
         "output_format": [("stdout", "json"), "Segmentation output: json=<JSON file>, stdout=TSV on standard output."],
         "output_dir": ['', "Output directory; if not provided, defaults to the image path's parent."],
+        "sample_size": [300, "Sample image with  <sample_size> x <sample_size> square patches."],
+        "sample_width": [0, "If strictly positive, sample image with  <sample_column> x <img_height> strips."],
         'overwrite_existing': [1, "Write over existing output file (default)."],
         'verbosity': [2,"Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"],
 }
@@ -151,8 +153,9 @@ if __name__ == "__main__":
                         max_reg_idx = np.argmax( [ (reg['coords'][1][0]-reg['coords'][0][0])*(reg['coords'][2][1]-reg['coords'][1][1]) for reg in seg_dict['regions']])
                         pred_line_count = len(seg_dict['regions'][max_reg_idx]['lines'])
 
+                    sample_size = args.sample_width if args.sample_width > 0 else (args.sample_size, args.sample_size)
 
-                    count_hat, variance = lgm.line_count_estimate_ng( crop_whc, sample_size=(300,300), repeat=15 )
+                    count_hat, variance = lgm.line_count_estimate_ng( crop_whc, sample_size=sample_size, repeat=15 )
                     line_estimates.append((img_path.name, gt_line_count, count_hat, pred_line_count, variance,ok))
 
                 ############ Output #################
