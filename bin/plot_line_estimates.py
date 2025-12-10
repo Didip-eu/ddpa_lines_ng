@@ -5,9 +5,17 @@ import pandas as pd
 import numpy as np
 import skimage as ski
 
-def stems( line_estimates ):
+def stems( line_estimates, normalize=False ):
     error_est = lest['Est']-lest['GTCnt']
     error_pred = lest['PredCnt']-lest['GTCnt']
+    ratios = None
+    if normalize:
+        error_est = error_est / lest['GTCnt']
+        error_pred = error_pred / lest['GTCnt']
+        ratios = np.abs(error_est / error_pred)
+        ratios = [ r if r <= 1.0 else 1/r for r in ratios ]
+    if normalize:
+        print(ratios)
 
     fig, ax = plt.subplots()
     x = range(len(lest['Est']))
@@ -43,12 +51,23 @@ def imgs( line_estimates, imgs, indexes ):
 
 
 lest = pd.read_csv('line_estimates.tsv', sep="\t", header=0)
+
+
 stems(lest)
 
-imgs(lest, ('900da0e1260c48cd89af8448730fa86c_crop.png', 
-            '995909b220d7c74ab594ea3eebda6de4_crop.png', 
-            'a9c1ee789b7ac45428ce23cc44a03dfb_crop.png'), (11,16,38))
+stems(lest, normalize=True)
 
+imgs(lest, (
+            #'900da0e1260c48cd89af8448730fa86c_crop.png',
+            '995909b220d7c74ab594ea3eebda6de4_crop.png',
+            'a9c1ee789b7ac45428ce23cc44a03dfb_crop.png',
+            '2a16ab81f18f7cc6d3310c52b6f3aa6a_crop.png',
+            ), (
+                #11,
+                16,
+                38,
+                88,
+                ))
 
 imgs(lest, ('581e7416d61362baba1dd2b0d5637aea_crop.png',
             'afaa5a3ed9f0ccd451e38638f61b4c4d_crop.png',

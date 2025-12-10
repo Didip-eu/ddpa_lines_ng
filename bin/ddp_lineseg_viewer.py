@@ -80,6 +80,7 @@ p = {
     'rescale': [0, "If True, display segmentation on original image; otherwise (default), get the image size from the model used for inference (ex. 1024 x 1024)."],
     'img_paths': set([]), #set(Path('dataset').glob('*.jpg')),
     'color_count': [0, "Number of colors for polygon overlay: -1 for single color, n > 1 for fixed number of colors, 0 for 1 color/line."],
+    'alpha': [0.4, "Transparency level of polygon overlay."],
     'limit': [0, "How many files to display."],
     'random': [0, "If non-null, randomly pick <random> paths out of the <img_paths> list."],
     'segfile_suffix': ['', "If a line segmentation suffix is provided (ex. 'lines.pred.json'), predicted lines are read from <img_path>.<suffix>."],
@@ -129,7 +130,7 @@ if __name__ == '__main__':
                 if not segfile_path.exists():
                     logger.warning("Could not find a segmentation file {}: skipping item;".format( Path(segfile_path)))
                     continue
-                segviz.display_segmentation_and_img( img_path, segfile=segfile_path, show={ k:True for k in args.show if k != 'labels'}, linewidth=args.linewidth, crop=(args.crop_x, args.crop_y), output_file_path=args.output_file_path )
+                segviz.display_segmentation_and_img( img_path, segfile=segfile_path, show={ k:True for k in args.show if k != 'labels'}, linewidth=args.linewidth, crop=(args.crop_x, args.crop_y), output_file_path=args.output_file_path, color_count=args.color_count, alpha=args.alpha )
 
         # run the segmenter
         elif live_model: 
@@ -192,7 +193,7 @@ if __name__ == '__main__':
                         logger.warning("No line mask found for {}: skipping.".format( img_path ))
                         continue
                     segmentation_record = lgm.get_morphology( binary_mask, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor )
-                    mp, atts, path = segviz.batch_label_maps_to_img( [ {'img':imgs_t[0], 'id':str(img_path)} ], [segmentation_record], color_count=0 )[0]
+                    mp, atts, path = segviz.batch_label_maps_to_img( [ {'img':imgs_t[0], 'id':str(img_path)} ], [segmentation_record], color_count=0, alpha=args.alpha )[0]
             logger.debug("Rendering time: {:.5f}s / total time: {:.5f}s".format( time.time()-time_step, time.time()-time_start))
 
             height, width = mp.shape[:2]

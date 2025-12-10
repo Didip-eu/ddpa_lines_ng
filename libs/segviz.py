@@ -105,7 +105,7 @@ def batch_label_maps_to_img( inputs:list[Union[Tensor,dict,Path]], raw_maps: lis
     
     return list(zip(maps, attr, ids))
 
-def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path,str]=None, segfile_suffix:str='lines.pred.json', show:dict={}, alpha=.4, linewidth=2, out_file='', crop=(1,1), output_file_path='' ):
+def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path,str]=None, segfile_suffix:str='lines.pred.json', show:dict={}, alpha=.4, linewidth=2, color_count=-1, out_file='', crop=(1,1), output_file_path='' ):
     """ Render segmentation data on an image.
     The segmentation dictionary is expected to have the following structure:
     
@@ -166,8 +166,8 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
     if 'lines' in segdict:
         segdict = seglib.segdict_sink_lines( segdict )
     for reg in segdict['regions']:
-        color_count = len(reg['lines'])
-        colors = get_n_color_palette( color_count )
+        if color_count>=0:
+            colors = get_n_color_palette( color_count ) if color_count > 0 else get_n_color_palette( len(reg['lines']))
         for l,line in enumerate(reg['lines']):
             col = np.array(colors[l % len(colors) ])
             if features['polygons']:
