@@ -512,7 +512,7 @@ def polygon_to_mask_pil( size: tuple, coords_n2: np.ndarray) -> np.ndarray:
     return polyg_hw + np.zeros( polyg_hw.shape )
 
 
-def line_count_estimate( img: Union[Image.Image,np.ndarray], sample_width=300, repeat=3) -> int:
+def line_count_estimate_legacy( img: Union[Image.Image,np.ndarray], sample_width=300, repeat=3) -> int:
     """
     Use FFT to compute a line count estimate for the image.
 
@@ -540,13 +540,13 @@ def line_count_estimate( img: Union[Image.Image,np.ndarray], sample_width=300, r
     return int(len(vertical_projection)*np.mean(freq_maxs))
 
     
-def line_count_estimate_ng( img: Union[Image.Image,np.ndarray], sample_size=200, repeat=5) -> int:
+def line_count_estimate( img: Union[Image.Image,np.ndarray], sample_size=200, repeat=5) -> int:
     """
-    Use FFT to compute a line count estimate for the image.
+    Use FFT to compute a line count estimate for the image, based
 
     Args:
         img (Union[Image.Image,np.ndarray]): an (W,H,C) image or (H,W,C) array.
-        sample_size (Union[tuple[int,int],int]): either the (W,H) size of the patch whose vertical projection should be computed, or the width of a top-to-bottom strip.
+        sample_size (Union[tuple[int,int],int]): either the (W,H) size of the patch whose vertical projection should be computed, or the width of a square sample patch.
 
     Returns:
         int: an estimate of the line count; return -1 if image is too small with respect to the
@@ -557,12 +557,10 @@ def line_count_estimate_ng( img: Union[Image.Image,np.ndarray], sample_size=200,
     counts = []
     img_binary_mask = seglib.get_binary_mask(img_hwc)
     vertical_projections = []
-    if type(sample_size) is tuple and len(sample_size)==2:
-        for (x_offset, y_offset) in [ (random.randrange( img_hwc.shape[1]-sample_size[1]), random.randrange( img_hwc.shape[0]-sample_size[0] )) for i in range(repeat) ]:
-            vertical_projections.append( np.sum(np.array( img_binary_mask[y_offset:y_offset+sample_size[1], x_offset:x_offset+sample_size[0]]), axis=1))
-    elif type(sample_size) is int:
-        for offset in [ random.randrange( img_hwc.shape[1]-sample_size ) for i in range(repeat) ]:
-            vertical_projections.append( np.sum(np.array( img_binary_mask[10:-10, offset:offset+sample_size]), axis=1))
+    if type(sample_size) is int:
+        sample_size = (sample_size, sample_size)
+    for (x_offset, y_offset) in [ (random.randrange( img_hwc.shape[1]-sample_size[1]), random.randrange( img_hwc.shape[0]-sample_size[0] )) for i in range(repeat) ]:
+        vertical_projections.append( np.sum(np.array( img_binary_mask[y_offset:y_offset+sample_size[1], x_offset:x_offset+sample_size[0]]), axis=1))
     for vertical_projection in vertical_projections:
         vert_fft = np.fft.fft( vertical_projection )
         power_spectrum = np.abs( vert_fft )**2

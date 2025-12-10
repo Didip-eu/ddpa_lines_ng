@@ -143,9 +143,9 @@ if __name__ == "__main__":
                         max_reg_idx = np.argmax( [ (reg['coords'][1][0]-reg['coords'][0][0])*(reg['coords'][2][1]-reg['coords'][1][1]) for reg in seg_dict['regions']])
                         pred_line_count = len(seg_dict['regions'][max_reg_idx]['lines'])
 
-                    sample_size = args.sample_width if args.sample_width > 0 else (args.sample_size, args.sample_size)
+                    sample_size = (args.sample_size, args.sample_width) if args.sample_width > 0 else args.sample_size
 
-                    count_hat, variance = lgm.line_count_estimate_ng( crop_whc, sample_size=sample_size, repeat=15 )
+                    count_hat, variance = lgm.line_count_estimate( crop_whc, sample_size=sample_size, repeat=15 )
                     line_estimates.append((str(img_path), gt_line_count, count_hat, pred_line_count, variance, *boxes[ biggest_reg_index ]))
 
                 ############ Output #################

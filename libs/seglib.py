@@ -238,6 +238,31 @@ def line_dicts_from_segmentation_dict( segmentation_dict: dict) -> list[dict]:
     return []
 
 
+def line_metrics_from_segmentation_dict( segmentation_dict: dict) -> dict:
+    """From a segmentation dictionary, return basic line metrics.
+
+    Args:
+        segmentation_dict (dict): a dictionary, typically constructed from a JSON file. The 'lines' entry is either
+        top-level key, or nested as in 'regions > region > lists'.
+    Returns:
+        dict: a list of dictionary.
+    """
+    lines = [ ld for ld in line_dicts_from_segmentation_dict( segmentation_dict ) if len(ld['baseline'])>=3 ]
+    x_heights = np.array([ l['x-height'] for l in lines ])
+    line_spacing = -1
+    if len(lines)>=3:
+        # subtract means of baseline's y-values 
+        line_spacings = [ np.abs(np.mean([ pt[1] for pt in lines[l]['baseline']])-np.mean([ pt[1] for pt in lines[l+1]['baseline']])) for l in range(len(lines)-1) ]
+    
+    metrics_dict = { 
+             'x_height_avg': np.mean( x_heights),
+             'x_height_std': np.var( x_heights ),
+             'line_spacing_avg': np.mean( line_spacings),
+             'line_spacing_std': np.std( line_spacings),
+            }
+    return { k:v.round().item() for k,v in metrics_dict.items() }
+
+
 def line_images_from_img_xml_files(img: str, page_xml: str, as_dictionary=False ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From an image file path and a segmentation PageXML file describing polygons, return
     a list of pairs (<line cropped BB>, <polygon mask>).
