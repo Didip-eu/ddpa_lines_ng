@@ -313,19 +313,20 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
     return page_mask[None,:]
 
 
-def strip_from_baseline(baseline_n2xy: list[tuple[int,int]], height: float, ltrb: tuple[int,int,int,int]=tuple()) -> list[tuple[int,int]]:
+def strip_from_baseline(baseline_n2xy: list[tuple[int,int]], x_height: int, factor: float, ltrb: tuple[int,int,int,int]=tuple()) -> list[tuple[int,int]]:
     """
     Given a baseline, construct the strip-shaped polygon with given height.
 
     Args:
         baseline_n2xy (list[tuple[int,int]]): a sequence of (x,y) points.
-        height (float): the strip height.
+        x_height (float): the line x_height.
+        factor (float): scaling factor
         ltrb (tuple[int,int,int,int]): LTRB constraint of containing region: if not empty (default),
             shift coordinates that would otherwise exceed the region's boundaries.
     Returns:
         list[tuple[int,int]]: a (N,2) clockwise sequence of (x,y) points.
     """
-    raw_polygon = strip_from_centerline( np.array( baseline_n2xy )-[0,height/2], height )
+    raw_polygon = strip_from_centerline( np.array( baseline_n2xy )-[0,x_height/2], int(x_height*factor) )
     if ltrb:
         return boxed_in( raw_polygon, ltrb ).tolist()
     return raw_polygon.tolist()

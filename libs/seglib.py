@@ -209,7 +209,7 @@ def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='
         for line in segmentation_dict['lines']:
             if 'x-height' in line:
                 ltrb = tuple(np.array(line['regions'][0]['coords'])[[0,2]].flatten())
-                line_polygons.append( lgm.strip_from_baseline( line['baseline'], line['x-height']*factor, ltrb=ltrb) )
+                line_polygons.append( lgm.strip_from_baseline( line['baseline'], line['x-height'], factor, ltrb=ltrb) )
             else:
                 line_polygons.append( line[polygon_key] )
     elif 'regions' in segmentation_dict:
@@ -218,7 +218,7 @@ def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='
             return [ line[polygon_key] for reg in segmentation_dict['regions'] for line in reg['lines']] 
         for reg in segmentation_dict['regions']:
             ltrb=tuple(np.array(reg['coords'])[[0,2]].flatten())
-            line_polygons.extend([ lgm.strip_from_baseline( line['baseline'], line['x-height']*factor, ltrb=ltrb ) if 'x-height' in line else line[polygon_key] for line in reg['lines'] ] )
+            line_polygons.extend([ lgm.strip_from_baseline( line['baseline'], line['x-height'], factor, ltrb=ltrb ) if 'x-height' in line else line[polygon_key] for line in reg['lines'] ] )
     return line_polygons
     
 
