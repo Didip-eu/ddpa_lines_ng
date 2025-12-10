@@ -19,6 +19,7 @@ import gzip
 from time import time
 import random
 from typing import Union
+import traceback
 
 from PIL import Image, ImageDraw
 import skimage as ski
@@ -90,6 +91,8 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
         if np.sum( labeled_msk_hw == lbl ) < polygon_area_threshold:
             labeled_msk_hw *= ~(labeled_msk_hw==lbl)
     labels = np.unique( labeled_msk_hw[ labeled_msk_hw > 0 ] )
+    if len(labels) == 0:
+        raise Exception("Could not retrieve labels from 1HW binary map".format(__file__))
     logger.debug("Found {} connected components on 1HW binary map ({}).".format( len(labels), labels))
 
     polygon_coords = []
@@ -254,8 +257,8 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
 
         # (a) small, single-patch images with a high estimated line count (>25) scaled up for better results
         if len(tile_tls) == 1:
-            est_lc = line_count_estimate( img ) 
-            if est_lc < 25:
+            est_lc = line_count_estimate( img )[0] 
+            if est_lc < 25 or est_lc<0:
                 break
             new_height, new_width = int(new_height*2), int(new_width*2)
             img_hwc = ski.transform.resize( img_hwc, (new_height, new_width))
@@ -541,16 +544,17 @@ def line_count_estimate_legacy( img: Union[Image.Image,np.ndarray], sample_width
     return int(len(vertical_projection)*np.mean(freq_maxs))
 
     
-def line_count_estimate( img: Union[Image.Image,np.ndarray], sample_size=200, repeat=5) -> int:
+def line_count_estimate( img: Union[Image.Image,np.ndarray], sample_size=200, repeat=10) -> int:
     """
     Use FFT to compute a line count estimate for the image, based
 
     Args:
         img (Union[Image.Image,np.ndarray]): an (W,H,C) image or (H,W,C) array.
         sample_size (Union[tuple[int,int],int]): either the (W,H) size of the patch whose vertical projection should be computed, or the width of a square sample patch.
+        repeat (int): sample the image <repeat> times.
 
     Returns:
-        int: an estimate of the line count; return -1 if image is too small with respect to the
+        Tuple[int, float]: an estimate of the line count and standard deviation; return -1 if image is too small with respect to the
             sample_width.
     """
     random.seed(46)
@@ -560,22 +564,32 @@ def line_count_estimate( img: Union[Image.Image,np.ndarray], sample_size=200, re
     vertical_projections = []
     if type(sample_size) is int:
         sample_size = (sample_size, sample_size)
-    for (x_offset, y_offset) in [ (random.randrange( img_hwc.shape[1]-sample_size[1]), random.randrange( img_hwc.shape[0]-sample_size[0] )) for i in range(repeat) ]:
-        vertical_projections.append( np.sum(np.array( img_binary_mask[y_offset:y_offset+sample_size[1], x_offset:x_offset+sample_size[0]]), axis=1))
-    for vertical_projection in vertical_projections:
-        vert_fft = np.fft.fft( vertical_projection )
-        power_spectrum = np.abs( vert_fft )**2
-        freq_ps = list(zip( np.fft.fftfreq( len(vertical_projection) ), power_spectrum ))
-        freq_max = max([ (f,p) for (f,p) in freq_ps if f > 0], key=lambda x: x[1] )[0] 
-        counts.append(  len(vertical_projection)*freq_max) 
+    try:
+        if sample_size[0] >= img_hwc.shape[1] or sample_size[1] >= img_hwc.shape[0]:
+            sample_size = ( int(min(img_hwc.shape)), int(min(img_hwc.shape)) )
+            vertical_projections.append( np.sum(np.array( img_binary_mask), axis=1))
+        else:
+            for (x_offset, y_offset) in [ (random.randrange( img_hwc.shape[1]-sample_size[0]), random.randrange( img_hwc.shape[0]-sample_size[1] )) for i in range(repeat) ]:
+                vertical_projections.append( np.sum(np.array( img_binary_mask[y_offset:y_offset+sample_size[1], x_offset:x_offset+sample_size[0]]), axis=1))
+        for vertical_projection in vertical_projections:
+            vert_fft = np.fft.fft( vertical_projection )
+            power_spectrum = np.abs( vert_fft )**2
+            freq_ps = list(zip( np.fft.fftfreq( len(vertical_projection) ), power_spectrum ))
+            freq_max = max([ (f,p) for (f,p) in freq_ps if f > 0], key=lambda x: x[1] )[0] 
+            counts.append(  len(vertical_projection)*freq_max) 
+        
+        std = np.std(counts)
+        var = np.var(counts)
+        mean = np.mean(counts)
+        # rescale line count, if sampling done on patches
+        if type(sample_size) is tuple:
+            mean = mean * img_hwc.shape[0]/sample_size[1]
+        return (int(mean), float(std/mean))
 
-    std = np.std(counts)
-    var = np.var(counts)
-    mean = np.mean(counts)
-    # rescale line count, if sampling done on patches
-    if type(sample_size) is tuple:
-        mean = mean * img_hwc.shape[0]/sample_size[1]
-    return (int(mean), float(var/mean))
+    except Exception as e:
+        logger.warning(e)
+        logger.warning(traceback.format_exc())
+        return (-1,-1)
 
 
     
