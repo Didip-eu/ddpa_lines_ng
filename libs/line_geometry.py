@@ -256,9 +256,9 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
         tile_tls = seglib.tile_img( (new_width, new_height), patch_size, constraint=int(overlap*max(width,height)) )
 
         # (a) small, single-patch images with a high estimated line count (>25) scaled up for better results
-        if len(tile_tls) == 1:
+        if len(tile_tls) < 4:
             est_lc = line_count_estimate( img )[0] 
-            if est_lc < 25 or est_lc<0:
+            if est_lc < 30 or est_lc<0:
                 break
             new_height, new_width = int(new_height*2), int(new_width*2)
             img_hwc = ski.transform.resize( img_hwc, (new_height, new_width))
