@@ -64,7 +64,7 @@ def post_process( preds: dict, box_threshold=.75, mask_threshold=.6, orig_size=(
     return page_wide_mask_1hw
 
 
-def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, contour_tolerance=4, raw_polygons=False, height_factor=1.0):
+def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, contour_tolerance=2, raw_polygons=False, height_factor=1.0):
     """
     From a page-wide line mask, extract a labeled map and a dictionary of features.
     
@@ -145,7 +145,7 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
             line_heights.append( (np.sum(polygon_box) // len( this_skeleton_yx)).item() )
             this_skeleton_yx = fix_ends( this_skeleton_yx, line_heights[-1], polygon_box.shape[1] )
             centroids.append( this_skeleton_yx[int(len(this_skeleton_yx)/2)] + np.array( [min_y, min_x] ))
-            approximate_pagewide_skl_yx = ski.measure.approximate_polygon(this_skeleton_yx, tolerance=3) + np.array( [min_y, min_x] )
+            approximate_pagewide_skl_yx = ski.measure.approximate_polygon(this_skeleton_yx, tolerance=contour_tolerance) + np.array( [min_y, min_x] )
             skeleton_coords.append( approximate_pagewide_skl_yx )
 
             if not raw_polygons:

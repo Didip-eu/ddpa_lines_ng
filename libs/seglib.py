@@ -8,6 +8,7 @@ import re
 import copy
 import sys
 import math
+import copy
 from datetime import datetime
 
 # 3rd-party
@@ -222,7 +223,7 @@ def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='
     return line_polygons
     
 
-def line_dicts_from_segmentation_dict( segmentation_dict: dict) -> list[dict]:
+def line_dicts_from_segmentation_dict( segmentation_dict: dict ) -> list[dict]:
     """From a segmentation dictionary, return a list of all line dictionaries.
 
     Args:
@@ -438,6 +439,42 @@ def line_masks_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dic
     return (np.stack( bbs ), np.stack( masks ))
 
 
+def promote_regions_from_json_file( filename: Path ):
+    """
+    From a segmentation dictionary, promote regions as new stand-alone images
+    and create 1+ dictionaries accordingly. Assumes that regions are top-level elements.
+
+
+    Returns:
+        list[tuple[Image,dict]]: a list of tuples (image,dictionary).
+    """
+    with open( filename, 'r') as json_if:
+        segdict = json.load( json_if )
+        dir_path = Path(filename).parent
+        region_list = []
+        for reg_idx, region in enumerate(segdict['regions']):
+            new_segdict = copy.deepcopy(segdict)
+            new_segdict['metadata']['created']=str(datetime.now())
+            new_segdict['regions'] = new_segdict['regions'][reg_idx:reg_idx+1] 
+            # new region coordinates (crop-wide)
+            new_segdict['regions'][0]['coords'] = (np.array( region['coords'] ) - region['coords'][0]).tolist()
+            # new image dimensions
+            new_segdict['image_width'], new_segdict['image_height']= new_segdict['regions'][0]['coords'][2]
+            x_offset, y_offset = region['coords'][0]
+            # offset lines
+            for line_idx, line in enumerate(region['lines']):
+                new_coords=np.array(line['coords'])-[x_offset, y_offset]
+                assert np.all( new_coords >= 0 )
+                new_segdict['regions'][0]['lines'][line_idx]['coords']=new_coords
+            # crop region
+            with Image.open( dir_path.joinpath( segdict['image_filename'] )) as page_img:
+                #print(np.array( region['coords'])[[0,2]].flatten())
+                region_img = page_img.crop( tuple(np.array( region['coords'])[[0,2]].flatten().tolist() ))
+                region_img_filename = re.sub('\.(img\.)?(png|jpg)$', f".r{reg_idx}"+r'\g<0>', segdict['image_filename'])
+                new_segdict['image_filename']=region_img_filename
+                assert( region_img.size == (new_segdict['image_width'], new_segdict['image_height']))
+            region_list.append( (region_img, new_segdict) )
+        return region_list
 
 
 def expand_flat_tensor_to_n_channels( t_hw: Tensor, n: int ) -> np.ndarray:
