@@ -39,6 +39,7 @@ p = {
     'overwrite_existing': [0, "Overwrite an existing output file."],
     'drop_transcription': [0, "Extract line transcription, if it exists."],
     'promote_regions': [0, "For each region, create one separate file."],
+    'delete_line_features': [set(), "Line items to be removed (used with caution!)"],
     "comment": ['',"A text string to be added to the <Comments> elt."],
 }
 
@@ -84,6 +85,14 @@ if __name__ == '__main__':
             segdict = seglib.segdict_sink_lines( segdict )
 
         line_dicts = seglib.line_dicts_from_segmentation_dict( segdict )
+
+        # delete unwanted features
+        for line in line_dicts:
+            for key in args.delete_line_features:
+                if key not in line:
+                    continue
+                del line[key]
+
 
         # expand polygons
         if args.line_height_factor != 1.0:
