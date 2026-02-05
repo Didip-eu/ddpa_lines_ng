@@ -68,7 +68,7 @@ if __name__ == '__main__':
             sys.exit()
 
     output_path = None
-    if args.output_file != 'stdout':
+    if args.output_file: 
         output_path = Path( args.output_file )
         if not args.overwrite_existing and output_path.exists():
             print("File {} exists: abort.".format(args.output_file))

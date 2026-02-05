@@ -767,6 +767,9 @@ def segdict_sink_lines(segdict: dict):
                         if 'regions' not in line:
                             line['regions']=[]
                     line['regions'].append( reg['id'] )
+    # fix old Kraken format
+    if type(segdict['regions']) is dict:
+        segdict['regions'] = segdict['regions']['text']
 
     for line in segdict['lines']:
         this_reg=[ reg for reg in segdict['regions'] if reg['id']==line['regions'][0] ][0] if ('regions' in line and line['regions']) else line['region']
@@ -775,6 +778,11 @@ def segdict_sink_lines(segdict: dict):
         this_reg['lines'].append(line)
         del line['regions']
     del segdict['lines']
+
+    # regions with no lines assigned are still valid
+    for reg in segdict['regions']:
+        if 'lines' not in reg:
+            reg['lines']=[]
     return segdict
 
 def layout_regseg_to_crops( img: Image.Image, regseg: dict, region_labels: list[str], force_rgb=False ) -> tuple[list[Image.Image], list[str]]:
