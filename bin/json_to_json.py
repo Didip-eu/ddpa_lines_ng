@@ -53,6 +53,7 @@ if __name__ == '__main__':
 
     json_path = Path( args.file_path )
 
+    # region-as-a-file extraction
     if args.promote_regions:
         from PIL import Image
         for reg_idx, region_tuple in enumerate( seglib.promote_regions_from_json_file( json_path )):

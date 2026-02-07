@@ -465,7 +465,7 @@ def promote_regions_from_json_file( filename: Path ):
             for line_idx, line in enumerate(region['lines']):
                 new_coords=np.array(line['coords'])-[x_offset, y_offset]
                 assert np.all( new_coords >= 0 )
-                new_segdict['regions'][0]['lines'][line_idx]['coords']=new_coords
+                new_segdict['regions'][0]['lines'][line_idx]['coords']=new_coords.tolist()
             # crop region
             with Image.open( dir_path.joinpath( segdict['image_filename'] )) as page_img:
                 #print(np.array( region['coords'])[[0,2]].flatten())
