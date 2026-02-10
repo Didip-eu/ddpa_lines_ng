@@ -81,7 +81,7 @@ if args.visual_check:
 
 if 'train' in args.subsets:
     ds_train_cached = lsgds.CachedDataset( data_source = ds_train )
-    ds_train_cached.serialize( subdir='cached_train', repeat=args.repeat)
+    ds_train_cached.serialize( subdir='cached/train', repeat=args.repeat)
 
 # for validation and test, only crops
 ds_val = lsgds.LineDetectionDataset( imgs_val, lbls_val, min_size=args.img_size, polygon_key='coords')
@@ -93,12 +93,12 @@ ds_val = tormentor.AugmentedDs( ds_val, aug, computation_device='cpu', augment_s
 
 if 'val' in args.subsets:
     ds_val_cached = lsgds.CachedDataset( data_source = ds_val )
-    ds_val_cached.serialize( subdir='cached_val', repeat=args.repeat)
+    ds_val_cached.serialize( subdir='cached/val', repeat=args.repeat)
 
 ds_test = lsgds.LineDetectionDataset( imgs_test, lbls_test, min_size=args.img_size, polygon_key='coords')
 ds_test = tormentor.AugmentedDs( ds_test, aug, computation_device='cpu', augment_sample_function=lsgds.LineDetectionDataset.augment_with_bboxes )
 
 if 'test' in args.subsets:
     ds_test_cached = lsgds.CachedDataset( data_source = ds_test )
-    ds_test_cached.serialize( subdir='cached_test', repeat=4)
+    ds_test_cached.serialize( subdir='cached/test', repeat=4)
 

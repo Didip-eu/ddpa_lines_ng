@@ -198,7 +198,7 @@ class CachedDataset( Dataset ):
                             for item in [ f for f in root_dir.iterdir() if not f.is_dir()]:
                                 item.unlink()
                         else:
-                            root_dir.mkdir()
+                            root_dir.mkdir(exist_ok=True, parents=True)
                 masks = target['masks']
                 #plt.imshow( (img * torch.sum(masks, axis=0)).permute(1,2,0))
                 #plt.show()
