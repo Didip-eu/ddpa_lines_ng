@@ -12,10 +12,10 @@ from torchvision import tv_tensors
 import skimage as ski
 
 default_tormentor_dists = {
-        'Rotate': tormentor.Uniform((math.radians(-25.0), math.radians(25.0))),
+        'Rotate': tormentor.Uniform((math.radians(-20.0), math.radians(20.0))),
         'Perspective': (tormentor.Uniform((0.85, 1.25)), tormentor.Uniform((.85,1.25))),
-        'Wrap': (tormentor.Uniform((0.1, 0.12)), tormentor.Uniform((0.64,0.66))), # no too rough, but intense (large-scale distortion)
-        'Zoom': tormentor.Uniform((1.1,1.6)),
+        'Wrap': (tormentor.Uniform((-0.001, 0.001)), tormentor.Uniform((-0.7,0.7))), # no too rough, but intense (large-scale distortion)
+        'Zoom': tormentor.Uniform((1.1,1.25)),
         'Brightness': tormentor.Uniform((-0.25,0.25)),
 }
 
@@ -158,8 +158,10 @@ def build_tormentor_augmentation_for_page_wide_training( dists=default_tormentor
     # experiment with wrap and crop on full images
     augWrap = tormentor.RandomWrap.override_distributions(roughness=dists['Wrap'][0], intensity=dists['Wrap'][1])
     augZoom = tormentor.RandomZoom.override_distributions( scales=dists['Zoom'])
-    augChoice = tormentor.RandomIdentity ^ tormentor.RandomFlipHorizontal ^ ( augWrap | augZoom ) 
-    augChoice.override_distributions( choice=tormentor.Categorical(probs=(.7,.15,.15)))
+    #augChoice = tormentor.RandomIdentity ^ tormentor.RandomFlipHorizontal ^ ( augWrap | augZoom ) 
+    #augChoice.override_distributions( choice=tormentor.Categorical(probs=(.7,.15,.15)))
+    augChoice = tormentor.RandomIdentity ^ ( augWrap | augZoom ) 
+    augChoice.override_distributions( choice=tormentor.Categorical(probs=(.65,.35)))
 
     return augChoice
     
