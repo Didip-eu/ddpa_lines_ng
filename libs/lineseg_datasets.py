@@ -4,6 +4,7 @@ from tqdm.auto import tqdm
 from pathlib import Path
 import json
 from typing import Union
+import re
 
 import numpy as np
 from torch.utils.data import Dataset
