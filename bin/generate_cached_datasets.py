@@ -80,7 +80,7 @@ if args.visual_check:
     sys.exit()
 
 if 'train' in args.subsets:
-    ds_train_cached = lsgds.CachedDataset( data_source = ds_train )
+    ds_train_cached = lsgds.CachedDataset( data_source = ds_aug )
     ds_train_cached.serialize( subdir='cached/train', repeat=args.repeat)
 
 # for validation and test, only crops

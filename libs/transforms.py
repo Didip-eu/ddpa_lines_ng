@@ -197,7 +197,8 @@ def build_tormentor_augmentation_for_crop_training( dists=default_tormentor_dist
         # transform page-wide, then crop:
         #             __Wrap__Zoom___Crop   (distort image-wide, zoom to get rid of BG, then crop)
         #           _|__Rotate_Zoom_| 
-        aug = (tormentor.RandomIdentity ^ ( augWrap | augZoom) ^ (augRotate | augZoom )).override_distributions( choice=tormentor.Categorical(probs=(.7,.15,.15))) | augCrop | augBrightness
+        #aug = (tormentor.RandomIdentity ^ ( augWrap | augZoom) ^ (augRotate | augZoom )).override_distributions( choice=tormentor.Categorical(probs=(.7,.15,.15))) | augCrop | augBrightness
+        aug = (tormentor.RandomIdentity ^ ( augWrap | augZoom)).override_distributions( choice=tormentor.Categorical(probs=(.65,.35))) | augBrightness | augCrop 
 
     return aug
 

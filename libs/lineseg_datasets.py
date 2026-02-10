@@ -173,7 +173,7 @@ class CachedDataset( Dataset ):
     def __getitem__( self, index ):
         """ Load an item from the serialized dataset"""
         assert len(self._img_paths)
-        img_chw = torch.load( self._img_paths[index] )
+        img_chw = torch.load( self._img_paths[index], weights_only=False )
         target = torch.load( self._label_paths[index], weights_only=False )
 
         #plt.imshow( (img_chw * torch.sum(target['masks'], axis=0)).permute(1,2,0))

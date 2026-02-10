@@ -24,6 +24,7 @@ from tqdm.auto import tqdm
 import torch
 from torch import Tensor
 from torch.utils.data import Dataset, DataLoader
+from torch.utils.tensorboard import SummaryWriter
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 # DiDip
@@ -75,7 +76,7 @@ p = {
     'tormentor': 1,
     'device': 'cuda',
     'augmentations': [ set([]), "Pass one or more tormentor class names, to build a choice of training augmentations; by default, apply the hard-coded transformations."],
-    'train_style': [('page','patch'), "Use page-wide sample images for training (default), or fixed-size patches."],
+    'train_style': [('patch','page'), "Use page-wide sample images for training, or fixed-size patches (default)."],
     'cache_dir': ['', ("Location for sample, serialized as Torch tensors. It should contain two subfolders: 'train' and 'val'.") ],
     'verbosity': [2,"Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"],
 }
