@@ -15,8 +15,8 @@ default_tormentor_dists = {
         'Rotate': tormentor.Uniform((math.radians(-20.0), math.radians(20.0))),
         'Perspective': (tormentor.Uniform((0.85, 1.25)), tormentor.Uniform((.85,1.25))),
         'Wrap': (tormentor.Uniform((-0.001, 0.001)), tormentor.Uniform((-0.7,0.7))), # no too rough, but intense (large-scale distortion)
-        'Zoom': tormentor.Uniform((1.1,1.25)),
-        'Brightness': tormentor.Uniform((-0.25,0.25)),
+        'Zoom': tormentor.Uniform((1.1,1.4)),
+        'Brightness': tormentor.Uniform((-0.12,0.12)),
 }
 
 
@@ -198,7 +198,7 @@ def build_tormentor_augmentation_for_crop_training( dists=default_tormentor_dist
         #             __Wrap__Zoom___Crop   (distort image-wide, zoom to get rid of BG, then crop)
         #           _|__Rotate_Zoom_| 
         #aug = (tormentor.RandomIdentity ^ ( augWrap | augZoom) ^ (augRotate | augZoom )).override_distributions( choice=tormentor.Categorical(probs=(.7,.15,.15))) | augCrop | augBrightness
-        aug = (tormentor.RandomIdentity ^ ( augWrap | augZoom)).override_distributions( choice=tormentor.Categorical(probs=(.65,.35))) | augBrightness | augCrop 
+        aug = (tormentor.RandomIdentity ^ ( augWrap | augZoom) ^ (augRotate | augZoom )).override_distributions( choice=tormentor.Categorical(probs=(.65,.2,.15))) | augBrightness | augCrop 
 
     return aug
 
