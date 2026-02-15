@@ -232,6 +232,11 @@ if __name__ == '__main__':
         return
 
     def validate(dry_run=False):
+        """
+        Returns:
+            tuple[dict,float]: a tuple with a dictionary of separate losses (objects, classes, boxes, masks) and
+            a scalar mean loss.
+        """
         #dict_keys(['loss_classifier', 'loss_box_reg', 'loss_mask', 'loss_objectness', 'loss_rpn_box_reg'])
         validation_losses, loss_classifier, loss_box_reg, loss_mask, loss_objectness = [ [] for i in range(5) ]
         batches = iter(dl_val)
@@ -254,11 +259,14 @@ if __name__ == '__main__':
             loss_classifier.append( loss_dict['loss_classifier'].detach())
             loss_box_reg.append( loss_dict['loss_box_reg'].detach())
             loss_mask.append( loss_dict['loss_mask'].detach())
-        logger.info( "Loss objectness: {}".format( torch.stack(loss_objectness).mean().item()))
-        logger.info( "Loss classifier: {}".format( torch.stack(loss_classifier).mean().item()))
-        logger.info( "Loss boxes (reg.): {}".format( torch.stack(loss_box_reg).mean().item()))
-        logger.info( "Loss masks: {}".format( torch.stack(loss_mask).mean().item()))
-        return torch.stack( validation_losses ).mean().item()    
+        individual_losses = {
+            'loss_objectness': torch.stack(loss_objectness).mean().item(),
+            'loss_classifier': torch.stack(loss_classifier).mean().item(),
+            'loss_boxes': torch.stack(loss_box_reg).mean().item(),
+            'loss_masks': torch.stack(loss_mask).mean().item()
+        }
+        logger.info('\n'.join(['']+[ f"{k}={v}" for (k,v) in individual_losses.items()] ))
+        return ( individual_losses, torch.stack( validation_losses ).mean().item()) 
 
     def train_epoch( epoch: int, dry_run=False ):
         
@@ -312,13 +320,14 @@ if __name__ == '__main__':
 
             epoch_start_time = time.time()
             mean_training_loss = train_epoch( epoch, dry_run=args.dry_run ) # this is where the action happens
-            mean_validation_loss = validate( args.dry_run )
+            sublosses, mean_validation_loss = validate( args.dry_run )
 
             update_tensorboard(writer, epoch, {'Loss/train': mean_training_loss, 'Loss/val': mean_validation_loss, 'Time': int(time.time()-start_time)})
 
             if hyper_params['scheduler']:
                 scheduler.step( mean_validation_loss )
             model.epochs.append( {
+                'sublosses': sublosses,
                 'training_loss': mean_training_loss, 
                 'validation_loss': mean_validation_loss,
                 'lr': scheduler.get_last_lr()[0],
