@@ -62,8 +62,8 @@ if args.log_tsv:
 if args.dummy:
     sys.exit()
 
-# for training, Torment at will
-ds_train = lsgds.LineDetectionDataset( imgs_train, lbls_train, min_size=args.img_size, polygon_key='coords')
+# for training, Torment at will (normalization applied by encapsulating AugmentedDS class)
+ds_train = lsgds.LineDetectionDataset( imgs_train, lbls_train, min_size=args.img_size, polygon_key='coords', normalize=False)
 aug = tsf.build_tormentor_augmentation_for_crop_training( crop_size=args.img_size, crop_before=False )
 ds_aug = tormentor.AugmentedDs( ds_train, aug, computation_device='cpu', augment_sample_function=lsgds.LineDetectionDataset.augment_with_bboxes )
 
@@ -84,7 +84,7 @@ if 'train' in args.subsets:
     ds_train_cached.serialize( subdir='cached/train', repeat=args.repeat)
 
 # for validation and test, only crops
-ds_val = lsgds.LineDetectionDataset( imgs_val, lbls_val, min_size=args.img_size, polygon_key='coords')
+ds_val = lsgds.LineDetectionDataset( imgs_val, lbls_val, min_size=args.img_size, polygon_key='coords', normalize=False)
 augCropCenter = tormentor.RandomCropTo.new_size( args.img_size, args.img_size )
 augCropLeft = tormentor.RandomCropTo.new_size( args.img_size, args.img_size ).override_distributions( center_x=tormentor.Uniform((0, .6)))
 augCropRight = tormentor.RandomCropTo.new_size( args.img_size, args.img_size ).override_distributions( center_x=tormentor.Uniform((.4, 1)))
