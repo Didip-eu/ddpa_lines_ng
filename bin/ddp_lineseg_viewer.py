@@ -157,7 +157,7 @@ if __name__ == '__main__':
                     patch_col_count = args.patch_col_count if args.patch_col_count else 1
                     logger.debug("Patches: {}x{}".format(patch_row_count, patch_col_count))
                     binary_mask = lgm.binary_mask_from_patches( Image.open(img_path), patch_row_count, patch_col_count, model=live_model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
-                if binary_mask is None:
+                if binary_mask is None or np.all(binary_mask == False):
                     logger.info("Invalid mask: skipping img {}".format( img_path))
                     continue
 

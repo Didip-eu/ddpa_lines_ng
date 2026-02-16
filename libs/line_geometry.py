@@ -25,6 +25,7 @@ from PIL import Image, ImageDraw
 import skimage as ski
 import numpy as np
 import torch
+import torchvision
 
 from libs import segmodel as sgm
 from libs import seglib
@@ -33,7 +34,7 @@ from libs import seglib
 logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
 logger = logging.getLogger(__name__)
 
-
+normalize = torchvision.transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
 
 def post_process( preds: dict, box_threshold=.75, mask_threshold=.6, orig_size=()):
     """
@@ -278,10 +279,11 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
     
     #line_density = line_count_est / new_height
     #logger.info("After resizing: count={} density={}".format( line_count_est, line_density ))
-
+    
     crop_preds = None
     cached_prediction_file = Path(cached_prediction_path).joinpath( '{}.pt.gz'.format( cached_prediction_prefix )) if (cached_prediction_path and cached_prediction_prefix) else None
     ignore_cached_file = True
+    logger.debug(f"ignore_cached_file={ignore_cached_file} ({cached_prediction_file})")
     if cached_prediction_file is not None and cached_prediction_file.exists():
         ignore_cached_file = False
         try:
@@ -293,6 +295,7 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
         if len(crop_preds) != len(tile_tls):
             logger.warning("The number of cached predictions and the number of tiles differ; this typically happens when text crops (as provided by the layout analyzer) or the tile size have changed: refreshing the cached file ({}) instead.".format(cached_prediction_file))
             ignore_cached_file = True
+    logger.debug(f"ignore_cached_file={ignore_cached_file}")
     if ignore_cached_file:
         logger.debug('Ignoring cached files.')
         img_crops = [ torch.from_numpy(img_hwc[y:y+patch_size,x:x+patch_size]).permute(2,0,1) for (y,x) in tile_tls ]
