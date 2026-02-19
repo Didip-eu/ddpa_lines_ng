@@ -3,7 +3,7 @@
 # Train on a grid of hyper-parameters
 #
 backbones="resnet50 resnet101"
-learning_rates=".0001 .0002 0005 .00075"
+learning_rates=".0001 .0002 .0005 .00075"
 scheduler_factors=".9 .8 .7"
 scheduler_patiences="8 6 4"
 
