@@ -173,7 +173,7 @@ class CachedDataset( Dataset ):
             else:
                 logger.warning('CachedDataset object has a data source but contains no cached data yet: call serialize() to generate them.')
         else:
-            logger.info("Could not identity data_source type")
+            logger.info("Could not identify data_source type")
 
     def __len__( self ):
         return len( self._img_paths )
