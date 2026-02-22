@@ -166,13 +166,14 @@ def build_tormentor_augmentation_for_page_wide_training( dists=default_tormentor
     return augChoice
     
 
-def build_tormentor_augmentation_for_crop_training( dists=default_tormentor_dists, crop_size=1024, crop_before=True ):
+def build_tormentor_augmentation_for_crop_training( dists=default_tormentor_dists, crop_size=1024, crop_before=True, style_idx=-1 ):
     """ Construct a Tormentor composite augmentation.
 
     Args:
         dists (dict): a dictionary of distribution parameter, whose keys are the primitive augmentation names.
         crop_size (int): size of the square crop to apply on the training samples
         crop_before (bool): image is cropped before any further augmentation is applied
+        style_idx (int): augmentation style index
     Returns:
         tormentor.AugmentationChoice: the augmentation object
     """
@@ -201,20 +202,21 @@ def build_tormentor_augmentation_for_crop_training( dists=default_tormentor_dist
         #           _|__Rotate_Zoom_| 
         #aug = (tormentor.RandomIdentity ^ ( augWrap | augZoom) ^ (augRotate | augZoom )).override_distributions( choice=tormentor.Categorical(probs=(.7,.15,.15))) | augCrop | augBrightness
         augs = [ 
-                # 1/3 transformed, with balance of elastic deformations and rotations
+                # 0: 1/3 transformed, with balance of elastic deformations and rotations (already computed)
                 (tormentor.RandomIdentity ^ ( augWrap | augZoom) ^ (augRotate | augZoom )).override_distributions( choice=tormentor.Categorical(probs=(.65,.2,.15))) | augBrightness | augCrop,
-                # 1/3 transformed, with balance of perspective and rotations
+                # 1: 1/3 transformed, with balance of perspective and rotations (computing on thalia)
                 (tormentor.RandomIdentity ^ ( augPerspective | augZoom) ^ (augRotate | augZoom )).override_distributions( choice=tormentor.Categorical(probs=(.65,.2,.15))) | augBrightness | augCrop,
-                # 1/2 transformed, with balance of elastic deformations and rotations
+                # 2: 1/2 transformed, with balance of elastic deformations and rotations (computed on workstation)
                 (tormentor.RandomIdentity ^ ( augWrap | augZoom) ^ (augRotate | augZoom )).override_distributions( choice=tormentor.Categorical(probs=(.5,.25,.25))) | augBrightness | augCrop,
-                # 1/2 transformed, with balance of perspective and rotations
+                # 3: 1/2 transformed, with balance of perspective and rotations (computing on workstation)
                 (tormentor.RandomIdentity ^ ( augPerspective | augZoom) ^ (augRotate | augZoom )).override_distributions( choice=tormentor.Categorical(probs=(.5,.25,.25))) | augBrightness | augCrop,
-                # 2/3 transformed, with balance of elastic deformations and rotations
+                # 4: 2/3 transformed, with balance of elastic deformations and rotations (computing on thalia)
                 (tormentor.RandomIdentity ^ ( augWrap | augZoom) ^ (augRotate | augZoom )).override_distributions( choice=tormentor.Categorical(probs=(.35,.35,.3))) | augBrightness | augCrop, 
-                # 2/3 transformed, with balance of perspective and rotations
+                # 5: 2/3 transformed, with balance of perspective and rotations
                 (tormentor.RandomIdentity ^ ( augPerspective | augZoom) ^ (augRotate | augZoom )).override_distributions( choice=tormentor.Categorical(probs=(.35,.35,.3))) | augBrightness | augCrop,
             ]
-        aug = augs[1]
+        aug = augs[style_idx if (style_idx >= 0 and style_idx < len(augs)) else 0]
+        print(aug)
 
     return aug
 

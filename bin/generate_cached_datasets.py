@@ -42,6 +42,7 @@ p = {
         'lbl_suffix': '.lines.gt.json',
         'device': [('cpu', 'cuda'), "Computing device"],
         'visual_check': [False, "Dry-run: no serialization + visual check of transformed samples."],
+        'aug_style': [0, "Augmentation style"],
 }
 
 
@@ -63,17 +64,19 @@ if args.log_tsv:
         with open( img_root_path.joinpath(log_tsv_file), 'w') as tsv:
             for path in subset:
                 tsv.write('{}\t{}\n'.format(path.name, path.name.replace(args.img_suffix, args.lbl_suffix)))
-if args.dummy:
-    sys.exit()
 
 # for training, Torment at will (normalization applied by encapsulating AugmentedDS class)
 ds_train = lsgds.LineDetectionDataset( imgs_train, lbls_train, min_size=args.img_size, polygon_key='coords', normalize=False)
-aug = tsf.build_tormentor_augmentation_for_crop_training( crop_size=args.img_size, crop_before=False )
+aug = tsf.build_tormentor_augmentation_for_crop_training( crop_size=args.img_size, crop_before=False, style_idx=args.aug_style )
 ds_aug = tormentor.AugmentedDs( ds_train, aug, computation_device=args.device, augment_sample_function=lsgds.LineDetectionDataset.augment_with_bboxes )
 
 
 transform_hash = hashlib.md5( repr(aug).encode('utf-8')).hexdigest()
-cache_path=img_root_path.joinpath(f'cached.{transform_hash}')
+cache_path=img_root_path.joinpath(f'cached.{transform_hash}.{args.aug_style}')
+print(f"Cache path: {cache_path}")
+if args.dummy:
+    sys.exit()
+
 cache_path.mkdir( exist_ok=True )
 with open( cache_path.joinpath('tormentor_parameters.txt'), 'w') as torm_if:
     torm_if.write( repr(aug) )
@@ -94,7 +97,7 @@ if args.visual_check:
 
 if 'train' in args.subsets:
     ds_train_cached = lsgds.CachedDataset( data_source = ds_aug )
-    ds_train_cached.serialize( subdir=f'cached.{transform_hash}/train', repeat=args.repeat)
+    ds_train_cached.serialize( subdir=f'{cache_path}/train', repeat=args.repeat)
 
 # for validation and test, only crops
 ds_val = lsgds.LineDetectionDataset( imgs_val, lbls_val, min_size=args.img_size, polygon_key='coords', normalize=False)
@@ -106,12 +109,12 @@ ds_val = tormentor.AugmentedDs( ds_val, aug, computation_device=args.device, aug
 
 if 'val' in args.subsets:
     ds_val_cached = lsgds.CachedDataset( data_source = ds_val )
-    ds_val_cached.serialize( subdir=f'cached.{transform_hash}/val', repeat=args.repeat)
+    ds_val_cached.serialize( subdir=f'{cache_path}/val', repeat=args.repeat)
 
 ds_test = lsgds.LineDetectionDataset( imgs_test, lbls_test, min_size=args.img_size, polygon_key='coords')
 ds_test = tormentor.AugmentedDs( ds_test, aug, computation_device=args.device, augment_sample_function=lsgds.LineDetectionDataset.augment_with_bboxes )
 
 if 'test' in args.subsets:
     ds_test_cached = lsgds.CachedDataset( data_source = ds_test )
-    ds_test_cached.serialize( subdir=f'cached.{transform_hash}/test', repeat=4)
+    ds_test_cached.serialize( subdir=f'{cache_path}/test', repeat=4)
 
