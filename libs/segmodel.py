@@ -41,7 +41,8 @@ def build_nn( backbone='resnet101'):
     if backbone == 'resnet50':
         return maskrcnn_resnet50_fpn_v2(weights=None, num_classes=2)
         
-    backbone = resnet_fpn_backbone(backbone_name='resnet101', weights=None)#weights=ResNet101_Weights.DEFAULT)
+    #backbone = resnet_fpn_backbone(backbone_name='resnet101', weights=None)#, trainable_layers=5)#weights=ResNet101_Weights.DEFAULT)
+    backbone = resnet_fpn_backbone(backbone_name='resnet101', trainable_layers=5, weights=ResNet101_Weights.DEFAULT)
     rpn_anchor_generator = _default_anchorgen()
     #rpn_anchor_generator = AnchorGenerator(sizes=((128,256,512),),
     #                               aspect_ratios=((1.0, 2.0, 4.0, 8.0),))
