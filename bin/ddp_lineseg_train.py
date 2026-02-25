@@ -70,6 +70,7 @@ p = {
     'scheduler_cooldown': 5,
     'scheduler_factor': 0.8,
     'reset_epochs': 0,
+    'resume_dir': '.',
     'resume_file': 'last.mlmodel',
     'dry_run': [0, "1: Load dataset and model, but do not actually train; 2: same, but also display the validation samples."],
     'tensorboard': 1,
@@ -111,9 +112,9 @@ if __name__ == '__main__':
         logger.info('Loading weights from {}'.format( args.weight_file))
         model.net.load_state_dict( torch.load(args.weight_file, weights_only=True))
     # resuming from dictionary
-    elif args.resume_file is not None and Path(args.resume_file).exists():
-        logger.info('Loading model parameters from resume file {}'.format(args.resume_file))
-        model = SegModel.resume( args.resume_file, device=args.device ) # reload hyper-parameters from there
+    elif args.resume_file is not None and Path(args.resume_dir, args.resume_file).exists():
+        logger.info('Loading model parameters from resume file {}/{}'.format(args.resume_dir, args.resume_file))
+        model = SegModel.resume( f'{args.resume_dir}/{args.resume_file}', device=args.device ) # reload hyper-parameters from there
         hyper_params.update( model.hyper_parameters )
     # TODO: partial overriding of param dictionary 
     # elif args.fine_tune
@@ -333,15 +334,15 @@ if __name__ == '__main__':
                 'lr': scheduler.get_last_lr()[0],
                 'duration': time.time()-epoch_start_time,
             } )
-            torch.save(model.net.state_dict() , 'last.pt')
-            model.save('last.mlmodel')
+            torch.save(model.net.state_dict() , f'{args.resume_dir}/last.pt')
+            model.save(f'{args.resume_dir}/last.mlmodel')
 
             if mean_validation_loss < best_loss:
                 logger.info("Mean validation loss ({}) < best loss ({}): updating best model.".format(mean_validation_loss, best_loss))
                 best_loss = mean_validation_loss
                 best_epoch = epoch
-                torch.save( model.net.state_dict(), 'best.pt')
-                model.save( 'best.mlmodel' )
+                torch.save( model.net.state_dict(), f'{args.resume_dir}/best.pt')
+                model.save( f'{args.resume_dir}/best.mlmodel' )
             logger.info('Training loss: {:.4f} (lr={}) - Validation loss: {:.4f} - Best epoch: {} (loss={:.4f}) - Time left: {}'.format(
                 mean_training_loss, 
                 scheduler.get_last_lr()[0],
