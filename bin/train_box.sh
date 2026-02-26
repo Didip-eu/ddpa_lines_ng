@@ -6,10 +6,10 @@ dv=$1
 resume_dir=$2
 ds=$3
 bs=$4
-echo $resume_dir $ds $bs
 bb="resnet101"
-sf=.9
-sp=6
+sf=$5
+sp=$6
+echo $resume_dir $ds $bs $sf $sp
 lr=0.00075
 export PYTHONPATH=.
 saved_model=${resume_dir}/best.lr${lr:1}.bb${bb}.sf${sf}.sp${sp}.bs${bs}.ds${ds}.mlmodel
