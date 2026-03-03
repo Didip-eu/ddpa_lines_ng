@@ -4,12 +4,14 @@ from tqdm.auto import tqdm
 from pathlib import Path
 import json
 from typing import Union
+import re
 
 import numpy as np
 from torch.utils.data import Dataset
 import torch
 import torchvision
 from torchvision.transforms import v2
+from torchvision.transforms import Normalize
 from torchvision.tv_tensors import BoundingBoxes, Mask
 from PIL import Image
 
@@ -35,7 +37,7 @@ class LineDetectionDataset(Dataset):
     + image
     + target dictionary: LHW segmentation mask tensor (1 mask for each of the L lines), L4 bounding box tensor, L label tensor.
     """
-    def __init__(self, img_paths, label_paths, polygon_key='coords', transforms=None, img_size=(1024,1024), min_size=0):
+    def __init__(self, img_paths, label_paths, polygon_key='coords', transforms=None, img_size=(1024,1024), min_size=0, normalize=True):
         """
         Constructor for the Dataset class.
 
@@ -57,6 +59,8 @@ class LineDetectionDataset(Dataset):
             ResizeMin( min_size ) if min_size else v2.Resize( img_size ), 
             v2.SanitizeBoundingBoxes(),
             v2.ToDtype(torch.float32, scale=True),])
+        # allow for preventing normalization (useful if encapsulating into AugmentedDS class)
+        self.normalize=normalize
 
         
     def __len__(self):
@@ -86,6 +90,8 @@ class LineDetectionDataset(Dataset):
         # Apply basic transformations (img -> tensor, resizing, scaling)
         if self._transforms:
             image, target = self._transforms(image, target)
+        if self.normalize:
+            image=Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))(image)
 
         #print("Image+masks after basic transform:", image.shape, target['masks'].shape)
         return image, target
@@ -116,7 +122,8 @@ class LineDetectionDataset(Dataset):
     @staticmethod
     def augment_with_bboxes( sample, aug, device ):
         """  Augment a sample (img + masks), and add bounding boxes to the target.
-        (For Tormentor only.)
+        Note: For Tormentor only; this function is called _after_ __get_item__().
+        Normalization should happen there.
 
         Args:
             sample (tuple[Tensor,dict]): tuple with image (as tensor) and label dictionary.
@@ -124,6 +131,8 @@ class LineDetectionDataset(Dataset):
         img, target = sample
         img = img.to(device)
         img = aug(img)
+        #logger.info(f"__augment_with_bboxes(): normalization step")
+        img = Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))( img )
         masks, labels = target['masks'].to(device), target['labels'].to(device)
         masks = torch.stack( [ aug(m, is_mask=True) for m in target['masks'] ], axis=0).to(device)
 
@@ -164,15 +173,17 @@ class CachedDataset( Dataset ):
             else:
                 logger.warning('CachedDataset object has a data source but contains no cached data yet: call serialize() to generate them.')
         else:
-            logger.info("Could not identity data_source type")
+            logger.info("Could not identify data_source type")
 
     def __len__( self ):
         return len( self._img_paths )
 
     def __getitem__( self, index ):
-        """ Load an item from the serialized dataset"""
+        """ Load an item from the serialized dataset. i
+        Assume that every cached tensor has been normalized before caching.
+        """
         assert len(self._img_paths)
-        img_chw = torch.load( self._img_paths[index] )
+        img_chw = torch.load( self._img_paths[index], weights_only=False )
         target = torch.load( self._label_paths[index], weights_only=False )
 
         #plt.imshow( (img_chw * torch.sum(target['masks'], axis=0)).permute(1,2,0))
@@ -197,7 +208,7 @@ class CachedDataset( Dataset ):
                             for item in [ f for f in root_dir.iterdir() if not f.is_dir()]:
                                 item.unlink()
                         else:
-                            root_dir.mkdir()
+                            root_dir.mkdir(exist_ok=True, parents=True)
                 masks = target['masks']
                 #plt.imshow( (img * torch.sum(masks, axis=0)).permute(1,2,0))
                 #plt.show()

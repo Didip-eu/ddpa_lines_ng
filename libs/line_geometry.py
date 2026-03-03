@@ -22,11 +22,13 @@ import gzip
 from time import time
 import random
 from typing import Union
+import traceback
 
 from PIL import Image, ImageDraw
 import skimage as ski
 import numpy as np
 import torch
+import torchvision
 
 from libs import segmodel as sgm
 from libs import seglib
@@ -35,7 +37,7 @@ from libs import seglib
 logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
 logger = logging.getLogger(__name__)
 
-
+normalize = torchvision.transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
 
 def post_process( preds: dict, box_threshold=.75, mask_threshold=.6, orig_size=()):
     """
@@ -66,7 +68,7 @@ def post_process( preds: dict, box_threshold=.75, mask_threshold=.6, orig_size=(
     return page_wide_mask_1hw
 
 
-def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, contour_tolerance=4, raw_polygons=False, height_factor=1.0):
+def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, contour_tolerance=2, raw_polygons=False, height_factor=1.0):
     """
     From a page-wide line mask, extract a labeled map and a dictionary of features.
     
@@ -93,6 +95,8 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
         if np.sum( labeled_msk_hw == lbl ) < polygon_area_threshold:
             labeled_msk_hw *= ~(labeled_msk_hw==lbl)
     labels = np.unique( labeled_msk_hw[ labeled_msk_hw > 0 ] )
+    if len(labels) == 0:
+        raise Exception("Could not retrieve labels from 1HW binary map".format(__file__))
     logger.debug("Found {} connected components on 1HW binary map ({}).".format( len(labels), labels))
 
     polygon_coords = []
@@ -145,7 +149,7 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
             line_heights.append( (np.sum(polygon_box) // len( this_skeleton_yx)).item() )
             this_skeleton_yx = fix_ends( this_skeleton_yx, line_heights[-1], polygon_box.shape[1] )
             centroids.append( this_skeleton_yx[int(len(this_skeleton_yx)/2)] + np.array( [min_y, min_x] ))
-            approximate_pagewide_skl_yx = ski.measure.approximate_polygon(this_skeleton_yx, tolerance=3) + np.array( [min_y, min_x] )
+            approximate_pagewide_skl_yx = ski.measure.approximate_polygon(this_skeleton_yx, tolerance=contour_tolerance) + np.array( [min_y, min_x] )
             skeleton_coords.append( approximate_pagewide_skl_yx )
 
             if not raw_polygons:
@@ -256,9 +260,9 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
         tile_tls = seglib.tile_img( (new_width, new_height), patch_size, constraint=int(overlap*max(width,height)) )
 
         # (a) small, single-patch images with a high estimated line count (>25) scaled up for better results
-        if len(tile_tls) == 1:
-            est_lc = line_count_estimate( img ) 
-            if est_lc < 25:
+        if len(tile_tls) < 4:
+            est_lc = line_count_estimate( img )[0] 
+            if est_lc < 30 or est_lc<0:
                 break
             new_height, new_width = int(new_height*2), int(new_width*2)
             img_hwc = ski.transform.resize( img_hwc, (new_height, new_width))
@@ -278,10 +282,11 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
     
     #line_density = line_count_est / new_height
     #logger.info("After resizing: count={} density={}".format( line_count_est, line_density ))
-
+    
     crop_preds = None
     cached_prediction_file = Path(cached_prediction_path).joinpath( '{}.pt.gz'.format( cached_prediction_prefix )) if (cached_prediction_path and cached_prediction_prefix) else None
     ignore_cached_file = True
+    logger.debug(f"ignore_cached_file={ignore_cached_file} ({cached_prediction_file})")
     if cached_prediction_file is not None and cached_prediction_file.exists():
         ignore_cached_file = False
         try:
@@ -293,6 +298,7 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
         if len(crop_preds) != len(tile_tls):
             logger.warning("The number of cached predictions and the number of tiles differ; this typically happens when text crops (as provided by the layout analyzer) or the tile size have changed: refreshing the cached file ({}) instead.".format(cached_prediction_file))
             ignore_cached_file = True
+    logger.debug(f"ignore_cached_file={ignore_cached_file}")
     if ignore_cached_file:
         logger.debug('Ignoring cached files.')
         img_crops = [ torch.from_numpy(img_hwc[y:y+patch_size,x:x+patch_size]).permute(2,0,1) for (y,x) in tile_tls ]
@@ -316,19 +322,20 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
     return page_mask[None,:]
 
 
-def strip_from_baseline(baseline_n2xy: list[tuple[int,int]], height: float, ltrb: tuple[int,int,int,int]=tuple()) -> list[tuple[int,int]]:
+def strip_from_baseline(baseline_n2xy: list[tuple[int,int]], x_height: int, factor: float, ltrb: tuple[int,int,int,int]=tuple()) -> list[tuple[int,int]]:
     """
     Given a baseline, construct the strip-shaped polygon with given height.
 
     Args:
         baseline_n2xy (list[tuple[int,int]]): a sequence of (x,y) points.
-        height (float): the strip height.
+        x_height (float): the line x_height.
+        factor (float): scaling factor
         ltrb (tuple[int,int,int,int]): LTRB constraint of containing region: if not empty (default),
             shift coordinates that would otherwise exceed the region's boundaries.
     Returns:
         list[tuple[int,int]]: a (N,2) clockwise sequence of (x,y) points.
     """
-    raw_polygon = strip_from_centerline( np.array( baseline_n2xy )-[0,height/2], height )
+    raw_polygon = strip_from_centerline( np.array( baseline_n2xy )-[0,x_height/2], int(x_height*factor) )
     if ltrb:
         return boxed_in( raw_polygon, ltrb ).tolist()
     return raw_polygon.tolist()
@@ -515,7 +522,7 @@ def polygon_to_mask_pil( size: tuple, coords_n2: np.ndarray) -> np.ndarray:
     return polyg_hw + np.zeros( polyg_hw.shape )
 
 
-def line_count_estimate( img: Union[Image.Image,np.ndarray], sample_width=300, repeat=3) -> int:
+def line_count_estimate_legacy( img: Union[Image.Image,np.ndarray], sample_width=300, repeat=3) -> int:
     """
     Use FFT to compute a line count estimate for the image.
 
@@ -523,6 +530,7 @@ def line_count_estimate( img: Union[Image.Image,np.ndarray], sample_width=300, r
         img (Union[Image.Image,np.ndarray]): an (W,H,C) image or (H,W,C) array.
         sample_width (int): width of the vertical strip whose FG pixel projection should be used
             for FFT.
+        repeat (int): sample the image <repeat> times.
 
     Returns:
         int: an estimate of the line count; return -1 if image is too small with respect to the
@@ -540,5 +548,54 @@ def line_count_estimate( img: Union[Image.Image,np.ndarray], sample_width=300, r
         freq_ps = list(zip( np.fft.fftfreq( len(vertical_projection) ), power_spectrum ))
         freq_maxs.append( max([ (f,p) for (f,p) in freq_ps if f > 0], key=lambda x: x[1] )[0] )
     return int(len(vertical_projection)*np.mean(freq_maxs))
+
+    
+def line_count_estimate( img: Union[Image.Image,np.ndarray], sample_size=200, repeat=10) -> int:
+    """
+    Use FFT to compute a line count estimate for the image, based
+
+    Args:
+        img (Union[Image.Image,np.ndarray]): an (W,H,C) image or (H,W,C) array.
+        sample_size (Union[tuple[int,int],int]): either the (W,H) size of the patch whose vertical projection should be computed, or the width of a square sample patch.
+        repeat (int): sample the image <repeat> times.
+
+    Returns:
+        Tuple[int, float]: an estimate of the line count and standard deviation; return -1 if image is too small with respect to the
+            sample_width.
+    """
+    random.seed(46)
+    img_hwc = np.array( img ) if isinstance( img, Image.Image) else img
+    counts = []
+    img_binary_mask = seglib.get_binary_mask(img_hwc)
+    vertical_projections = []
+    if type(sample_size) is int:
+        sample_size = (sample_size, sample_size)
+    try:
+        if sample_size[0] >= img_hwc.shape[1] or sample_size[1] >= img_hwc.shape[0]:
+            sample_size = ( int(min(img_hwc.shape)), int(min(img_hwc.shape)) )
+            vertical_projections.append( np.sum(np.array( img_binary_mask), axis=1))
+        else:
+            for (x_offset, y_offset) in [ (random.randrange( img_hwc.shape[1]-sample_size[0]), random.randrange( img_hwc.shape[0]-sample_size[1] )) for i in range(repeat) ]:
+                vertical_projections.append( np.sum(np.array( img_binary_mask[y_offset:y_offset+sample_size[1], x_offset:x_offset+sample_size[0]]), axis=1))
+        for vertical_projection in vertical_projections:
+            vert_fft = np.fft.fft( vertical_projection )
+            power_spectrum = np.abs( vert_fft )**2
+            freq_ps = list(zip( np.fft.fftfreq( len(vertical_projection) ), power_spectrum ))
+            freq_max = max([ (f,p) for (f,p) in freq_ps if f > 0], key=lambda x: x[1] )[0] 
+            counts.append(  len(vertical_projection)*freq_max) 
+        
+        std = np.std(counts)
+        var = np.var(counts)
+        mean = np.mean(counts)
+        # rescale line count, if sampling done on patches
+        if type(sample_size) is tuple:
+            mean = mean * img_hwc.shape[0]/sample_size[1]
+        return (int(mean), float(std/mean))
+
+    except Exception as e:
+        logger.warning(e)
+        logger.warning(traceback.format_exc())
+        return (-1,-1)
+
 
     

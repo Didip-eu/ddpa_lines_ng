@@ -12,11 +12,11 @@ from torchvision import tv_tensors
 import skimage as ski
 
 default_tormentor_dists = {
-        'Rotate': tormentor.Uniform((math.radians(-25.0), math.radians(25.0))),
+        'Rotate': tormentor.Uniform((math.radians(-20.0), math.radians(20.0))),
         'Perspective': (tormentor.Uniform((0.85, 1.25)), tormentor.Uniform((.85,1.25))),
-        'Wrap': (tormentor.Uniform((0.1, 0.12)), tormentor.Uniform((0.64,0.66))), # no too rough, but intense (large-scale distortion)
-        'Zoom': tormentor.Uniform((1.1,1.6)),
-        'Brightness': tormentor.Uniform((-0.25,0.25)),
+        'Wrap': (tormentor.Uniform((-0.001, 0.001)), tormentor.Uniform((-0.7,0.7))), # no too rough, but intense (large-scale distortion)
+        'Zoom': tormentor.Uniform((1.1,1.4)),
+        'Brightness': tormentor.Uniform((-0.12,0.12)),
 }
 
 
@@ -158,32 +158,37 @@ def build_tormentor_augmentation_for_page_wide_training( dists=default_tormentor
     # experiment with wrap and crop on full images
     augWrap = tormentor.RandomWrap.override_distributions(roughness=dists['Wrap'][0], intensity=dists['Wrap'][1])
     augZoom = tormentor.RandomZoom.override_distributions( scales=dists['Zoom'])
-    augChoice = tormentor.RandomIdentity ^ tormentor.RandomFlipHorizontal ^ ( augWrap | augZoom ) 
-    augChoice.override_distributions( choice=tormentor.Categorical(probs=(.7,.15,.15)))
+    #augChoice = tormentor.RandomIdentity ^ tormentor.RandomFlipHorizontal ^ ( augWrap | augZoom ) 
+    #augChoice.override_distributions( choice=tormentor.Categorical(probs=(.7,.15,.15)))
+    augChoice = tormentor.RandomIdentity ^ ( augWrap | augZoom ) 
+    augChoice.override_distributions( choice=tormentor.Categorical(probs=(.65,.35)))
 
     return augChoice
     
 
-def build_tormentor_augmentation_for_crop_training( dists=default_tormentor_dists, crop_size=1024, crop_before=True ):
+def build_tormentor_augmentation_for_crop_training( dists=default_tormentor_dists, crop_size=1024, crop_before=True, style_idx=-1 ):
     """ Construct a Tormentor composite augmentation.
 
     Args:
         dists (dict): a dictionary of distribution parameter, whose keys are the primitive augmentation names.
         crop_size (int): size of the square crop to apply on the training samples
         crop_before (bool): image is cropped before any further augmentation is applied
+        style_idx (int): augmentation style index
     Returns:
-        tormentor.AugmentationChoice: a random choice augmentation.
+        tormentor.AugmentationChoice: the augmentation object
     """
     aug = None
     augRotate = tormentor.RandomRotate.override_distributions(radians=dists['Rotate'])
     augWrap = tormentor.RandomWrap.override_distributions(roughness=dists['Wrap'][0], intensity=dists['Wrap'][1])
     augZoom = tormentor.RandomZoom.override_distributions( scales=dists['Zoom'])
     augBrightness = tormentor.RandomBrightness.override_distributions(brightness=dists['Brightness'])
+    augPerspective = tormentor.RandomPerspective.override_distributions( x_offset=dists['Perspective'][0], y_offset=dists['Perspective'][1] )
     augCropCenter = tormentor.RandomCropTo.new_size( crop_size, crop_size )
     # ensure that margins are well represented
     augCropLeft = tormentor.RandomCropTo.new_size( crop_size, crop_size ).override_distributions( center_x=tormentor.Uniform((0, .6)))
     augCropRight = tormentor.RandomCropTo.new_size( crop_size, crop_size ).override_distributions( center_x=tormentor.Uniform((.4, 1)))
     augCrop = (augCropCenter ^ augCropLeft ^ augCropRight).override_distributions(choice=tormentor.Categorical(probs=(.6,.2,.2)))
+
 
     if crop_before:
         # crop before wrap:
@@ -195,7 +200,23 @@ def build_tormentor_augmentation_for_crop_training( dists=default_tormentor_dist
         # transform page-wide, then crop:
         #             __Wrap__Zoom___Crop   (distort image-wide, zoom to get rid of BG, then crop)
         #           _|__Rotate_Zoom_| 
-        aug = (tormentor.RandomIdentity ^ ( augWrap | augZoom) ^ (augRotate | augZoom )).override_distributions( choice=tormentor.Categorical(probs=(.7,.15,.15))) | augCrop | augBrightness
+        #aug = (tormentor.RandomIdentity ^ ( augWrap | augZoom) ^ (augRotate | augZoom )).override_distributions( choice=tormentor.Categorical(probs=(.7,.15,.15))) | augCrop | augBrightness
+        augs = [ 
+                # 0: 1/3 transformed, with balance of elastic deformations and rotations (already computed)
+                (tormentor.RandomIdentity ^ ( augWrap | augZoom) ^ (augRotate | augZoom )).override_distributions( choice=tormentor.Categorical(probs=(.65,.2,.15))) | augBrightness | augCrop,
+                # 1: 1/3 transformed, with balance of perspective and rotations (computing on thalia)
+                (tormentor.RandomIdentity ^ ( augPerspective | augZoom) ^ (augRotate | augZoom )).override_distributions( choice=tormentor.Categorical(probs=(.65,.2,.15))) | augBrightness | augCrop,
+                # 2: 1/2 transformed, with balance of elastic deformations and rotations (computed on workstation)
+                (tormentor.RandomIdentity ^ ( augWrap | augZoom) ^ (augRotate | augZoom )).override_distributions( choice=tormentor.Categorical(probs=(.5,.25,.25))) | augBrightness | augCrop,
+                # 3: 1/2 transformed, with balance of perspective and rotations (computing on workstation)
+                (tormentor.RandomIdentity ^ ( augPerspective | augZoom) ^ (augRotate | augZoom )).override_distributions( choice=tormentor.Categorical(probs=(.5,.25,.25))) | augBrightness | augCrop,
+                # 4: 2/3 transformed, with balance of elastic deformations and rotations (computing on thalia)
+                (tormentor.RandomIdentity ^ ( augWrap | augZoom) ^ (augRotate | augZoom )).override_distributions( choice=tormentor.Categorical(probs=(.35,.35,.3))) | augBrightness | augCrop, 
+                # 5: 2/3 transformed, with balance of perspective and rotations
+                (tormentor.RandomIdentity ^ ( augPerspective | augZoom) ^ (augRotate | augZoom )).override_distributions( choice=tormentor.Categorical(probs=(.35,.35,.3))) | augBrightness | augCrop,
+            ]
+        aug = augs[style_idx if (style_idx >= 0 and style_idx < len(augs)) else 0]
+        print(aug)
 
     return aug
 

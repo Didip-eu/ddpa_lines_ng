@@ -25,6 +25,7 @@ import itertools
 import re
 import sys
 import math
+import copy
 from datetime import datetime
 
 # 3rd-party
@@ -212,7 +213,7 @@ def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='
         for line in segmentation_dict['lines']:
             if 'x-height' in line:
                 ltrb = tuple(np.array(line['regions'][0]['coords'])[[0,2]].flatten())
-                line_polygons.append( lgm.strip_from_baseline( line['baseline'], line['x-height']*factor, ltrb=ltrb) )
+                line_polygons.append( lgm.strip_from_baseline( line['baseline'], line['x-height'], factor, ltrb=ltrb) )
             else:
                 line_polygons.append( line[polygon_key] )
     elif 'regions' in segmentation_dict:
@@ -221,11 +222,11 @@ def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='
             return [ line[polygon_key] for reg in segmentation_dict['regions'] for line in reg['lines']] 
         for reg in segmentation_dict['regions']:
             ltrb=tuple(np.array(reg['coords'])[[0,2]].flatten())
-            line_polygons.extend([ lgm.strip_from_baseline( line['baseline'], line['x-height']*factor, ltrb=ltrb ) if 'x-height' in line else line[polygon_key] for line in reg['lines'] ] )
+            line_polygons.extend([ lgm.strip_from_baseline( line['baseline'], line['x-height'], factor, ltrb=ltrb ) if 'x-height' in line else line[polygon_key] for line in reg['lines'] ] )
     return line_polygons
     
 
-def line_dicts_from_segmentation_dict( segmentation_dict: dict) -> list[dict]:
+def line_dicts_from_segmentation_dict( segmentation_dict: dict ) -> list[dict]:
     """From a segmentation dictionary, return a list of all line dictionaries.
 
     Args:
@@ -239,6 +240,31 @@ def line_dicts_from_segmentation_dict( segmentation_dict: dict) -> list[dict]:
     elif 'regions' in segmentation_dict:
         return [ line for reg in segmentation_dict['regions'] for line in reg['lines']]
     return []
+
+
+def line_metrics_from_segmentation_dict( segmentation_dict: dict) -> dict:
+    """From a segmentation dictionary, return basic line metrics.
+
+    Args:
+        segmentation_dict (dict): a dictionary, typically constructed from a JSON file. The 'lines' entry is either
+        top-level key, or nested as in 'regions > region > lists'.
+    Returns:
+        dict: a list of dictionary.
+    """
+    lines = [ ld for ld in line_dicts_from_segmentation_dict( segmentation_dict ) if len(ld['baseline'])>=3 ]
+    x_heights = np.array([ l['x-height'] for l in lines ])
+    line_spacing = -1
+    if len(lines)>=3:
+        # subtract means of baseline's y-values 
+        line_spacings = [ np.abs(np.mean([ pt[1] for pt in lines[l]['baseline']])-np.mean([ pt[1] for pt in lines[l+1]['baseline']])) for l in range(len(lines)-1) ]
+    
+    metrics_dict = { 
+             'x_height_avg': np.mean( x_heights),
+             'x_height_std': np.var( x_heights ),
+             'line_spacing_avg': np.mean( line_spacings),
+             'line_spacing_std': np.std( line_spacings),
+            }
+    return { k:v.round().item() for k,v in metrics_dict.items() }
 
 
 def line_images_from_img_xml_files(img: str, page_xml: str, as_dictionary=False ) -> list[tuple[np.ndarray, np.ndarray]]:
@@ -417,6 +443,44 @@ def line_masks_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dic
 
     return (np.stack( bbs ), np.stack( masks ))
 
+
+def promote_regions_from_json_file( filename: Path ):
+    """
+    From a segmentation dictionary, promote regions as new stand-alone images
+    and create 1+ dictionaries accordingly. Assumes that regions are top-level elements.
+
+
+    Returns:
+        list[tuple[Image,dict]]: a list of tuples (image,dictionary).
+    """
+    with open( filename, 'r') as json_if:
+        segdict = json.load( json_if )
+        dir_path = Path(filename).parent
+        region_list = []
+        for reg_idx, region in enumerate(segdict['regions']):
+            new_segdict = copy.deepcopy(segdict)
+            new_segdict['metadata']['created']=str(datetime.now())
+            new_segdict['regions'] = new_segdict['regions'][reg_idx:reg_idx+1] 
+            # new region coordinates (crop-wide)
+            new_segdict['regions'][0]['coords'] = (np.array( region['coords'] ) - region['coords'][0]).tolist()
+            # new image dimensions
+            new_segdict['image_width'], new_segdict['image_height']= new_segdict['regions'][0]['coords'][2]
+            x_offset, y_offset = region['coords'][0]
+            # offset lines
+            for line_idx, line in enumerate(region['lines']):
+                for attr in ('coords', 'centerline', 'baseline'):
+                    new_coords=np.array(line[attr])-[x_offset, y_offset]
+                    assert np.all( new_coords >= 0 )
+                    new_segdict['regions'][0]['lines'][line_idx][attr]=new_coords.tolist()
+            # crop region
+            with Image.open( dir_path.joinpath( segdict['image_filename'] )) as page_img:
+                #print(np.array( region['coords'])[[0,2]].flatten())
+                region_img = page_img.crop( tuple(np.array( region['coords'])[[0,2]].flatten().tolist() ))
+                region_img_filename = re.sub('\.(img\.)?(png|jpg)$', f".r{reg_idx}"+r'\g<0>', segdict['image_filename'])
+                new_segdict['image_filename']=region_img_filename
+                assert( region_img.size == (new_segdict['image_width'], new_segdict['image_height']))
+            region_list.append( (region_img, new_segdict) )
+        return region_list
 
 def expand_flat_tensor_to_n_channels( t_hw: Tensor, n: int ) -> np.ndarray:
     """Expand a flat map by duplicating its only channel into n identical ones.
@@ -708,6 +772,9 @@ def segdict_sink_lines(segdict: dict):
                         if 'regions' not in line:
                             line['regions']=[]
                     line['regions'].append( reg['id'] )
+    # fix old Kraken format
+    if type(segdict['regions']) is dict:
+        segdict['regions'] = segdict['regions']['text']
 
     for line in segdict['lines']:
         this_reg=[ reg for reg in segdict['regions'] if reg['id']==line['regions'][0] ][0] if ('regions' in line and line['regions']) else line['region']
@@ -716,6 +783,11 @@ def segdict_sink_lines(segdict: dict):
         this_reg['lines'].append(line)
         del line['regions']
     del segdict['lines']
+
+    # regions with no lines assigned are still valid
+    for reg in segdict['regions']:
+        if 'lines' not in reg:
+            reg['lines']=[]
     return segdict
 
 
@@ -969,7 +1041,6 @@ def array_has_label( label_map_hw: np.ndarray, label: int ) -> bool:
     label_cube_chw = np.moveaxis(label_map_hw.view('uint8').reshape(label_map_hw.shape+(-1,)), 2, 0)
     return bool(np.any( label_cube_chw == label ))
 
-
 def polygon_pixel_metrics_two_flat_maps( map_hw_1: np.ndarray, map_hw_2: np.ndarray, label_distance=5) -> np.ndarray:
     """Provided two label maps that each encode _non-overlapping_ polygons, compute
     for each possible pair of labels (i_pred, j_gt) with i ∈  map1 and j ∈  map2.
@@ -1016,6 +1087,59 @@ def polygon_pixel_metrics_two_flat_maps( map_hw_1: np.ndarray, map_hw_2: np.ndar
             recall = intersection_count / label_2_count
         metrics_hwc[label2index_1[lbl1], label2index_2[lbl2]] = [intersection_count, union_count, precision, recall ]
     return metrics_hwc
+
+
+@torch.no_grad()
+def polygon_pixel_metrics_two_flat_maps_torch( map_hw_1: np.ndarray, map_hw_2: np.ndarray, label_distance=5, device='cpu') -> np.ndarray:
+    """Provided two label maps that each encode _non-overlapping_ polygons, compute
+    for each possible pair of labels (i_pred, j_gt) with i ∈  map1 and j ∈  map2.
+    + intersection and union counts
+    + precision and recall
+    This is the torch version.
+
+    Args:
+        map_hw_1 (np.ndarray): the predicted map, i.e. a flat map of labeled polygons.
+        map_hw_2 (np.ndarray): the GT map, i.e. a flat map of labeled polygons.
+
+    Returns:
+        np.ndarray: a 4 channel array, where each cell [i,j] stores respectively intersection and union
+            counts, as well as precision and recall for a pair of labels [i,j].
+    """
+    map_hw_1 = torch.tensor( map_hw_1 ).to(device)
+    map_hw_2 = torch.tensor( map_hw_2 ).to(device)
+
+    min_label_1, max_label_1 = int(torch.min( map_hw_1[ map_hw_1 > 0 ] ).item()), int(torch.max( map_hw_1 ).item())
+    min_label_2, max_label_2 = int(torch.min( map_hw_2[ map_hw_2 > 0 ] ).item()), int(torch.max( map_hw_2 ).item())
+    label2index_1 = { l:i for i,l in enumerate( range(min_label_1, max_label_1+1)) }
+    label2index_2 = { l:i for i,l in enumerate( range(min_label_2, max_label_2+1)) }
+    metrics_hwc = torch.zeros(( max_label_1-min_label_1+1, max_label_2-min_label_2+1, 4), dtype=torch.float32)
+    label_range_1, label_range_2 = range(min_label_1, max_label_1+1), range(min_label_2, max_label_2+1)
+    #print("Ranges: ({}->{}), ({}->{})".format(min_label_1, max_label_1, min_label_2, max_label_2))
+
+    # retrieve individual masks for each label and stack them up
+    label_matrices_1={ l:(map_hw_1 == l) for l in label_range_1 }
+    label_matrices_2={ l:(map_hw_2 == l) for l in label_range_2 }
+
+    #print(label_range_1, label_range_2)
+    label_counts_1 = { l:torch.sum(label_matrices_1[l]).item() for l in label_range_1 }
+    label_counts_2 = { l:torch.sum(label_matrices_2[l]).item() for l in label_range_2 }
+
+    for lbl1, lbl2 in itertools.product(label_range_1, label_range_2):
+        if label_distance > 0 and abs(lbl1-lbl2) > label_distance:
+            metrics_hwc[label2index_1[lbl1], label2index_2[lbl2]]=torch.tensor([ 0, label_counts_1[lbl1] + label_counts_2[lbl2], 0, 0 ])
+            continue
+        # intersection
+        intersection_count = torch.sum(label_matrices_1[ lbl1 ] * label_matrices_2[ lbl2 ]).item()
+        label_1_count, label_2_count = torch.sum(label_matrices_1[lbl1]), torch.sum(label_matrices_2[lbl2])  
+        union_count = label_1_count + label_2_count - intersection_count
+        # precision: true pred / all pred
+        if label_1_count != 0:
+            precision = intersection_count / label_1_count
+        # recall: true pred / all gt
+        if label_2_count !=0:
+            recall = intersection_count / label_2_count
+        metrics_hwc[label2index_1[lbl1], label2index_2[lbl2]] = torch.tensor([intersection_count, union_count, precision, recall ])
+    return np.asarray( metrics_hwc )
 
 
 def polygon_pixel_metrics_two_deep_maps( map_chw_1: Tensor, map_chw_2: Tensor, label_distance=5) -> np.ndarray:

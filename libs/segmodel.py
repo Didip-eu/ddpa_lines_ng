@@ -20,7 +20,7 @@ import numpy as np
 import torch
 from torch import Tensor
 from torch import nn 
-from torchvision.transforms import v2
+from torchvision.transforms import v2, Normalize
 from torchvision.models.detection import mask_rcnn
 from torchvision.models.detection import maskrcnn_resnet50_fpn_v2, MaskRCNN
 from torchvision.models.detection import MaskRCNN_ResNet50_FPN_V2_Weights
@@ -41,7 +41,8 @@ def build_nn( backbone='resnet101'):
     if backbone == 'resnet50':
         return maskrcnn_resnet50_fpn_v2(weights=None, num_classes=2)
         
-    backbone = resnet_fpn_backbone(backbone_name='resnet101', weights=None)#weights=ResNet101_Weights.DEFAULT)
+    #backbone = resnet_fpn_backbone(backbone_name='resnet101', weights=None)#, trainable_layers=5)#weights=ResNet101_Weights.DEFAULT)
+    backbone = resnet_fpn_backbone(backbone_name='resnet101', trainable_layers=5, weights=ResNet101_Weights.DEFAULT)
     rpn_anchor_generator = _default_anchorgen()
     #rpn_anchor_generator = AnchorGenerator(sizes=((128,256,512),),
     #                               aspect_ratios=((1.0, 2.0, 4.0, 8.0),))
@@ -87,6 +88,7 @@ def predict( imgs: list[Union[str,Path,Image.Image,Tensor,np.ndarray]], live_mod
         v2.ToImage(),
         v2.Resize([ width,height]),
         v2.ToDtype(torch.float32, scale=True),
+        Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
     ])
     # every input that is not a tensor needs both resizing and tensor-ification
     if not isinstance(imgs[0], Tensor):

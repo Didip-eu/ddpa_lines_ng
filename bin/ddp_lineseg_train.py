@@ -24,6 +24,7 @@ from tqdm.auto import tqdm
 import torch
 from torch import Tensor
 from torch.utils.data import Dataset, DataLoader
+from torch.utils.tensorboard import SummaryWriter
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 # DiDip
@@ -69,13 +70,14 @@ p = {
     'scheduler_cooldown': 5,
     'scheduler_factor': 0.8,
     'reset_epochs': 0,
+    'resume_dir': '.',
     'resume_file': 'last.mlmodel',
     'dry_run': [0, "1: Load dataset and model, but do not actually train; 2: same, but also display the validation samples."],
     'tensorboard': 1,
     'tormentor': 1,
     'device': 'cuda',
     'augmentations': [ set([]), "Pass one or more tormentor class names, to build a choice of training augmentations; by default, apply the hard-coded transformations."],
-    'train_style': [('page','patch'), "Use page-wide sample images for training (default), or fixed-size patches."],
+    'train_style': [('patch','page'), "Use page-wide sample images for training, or fixed-size patches (default)."],
     'cache_dir': ['', ("Location for sample, serialized as Torch tensors. It should contain two subfolders: 'train' and 'val'.") ],
     'verbosity': [2,"Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"],
 }
@@ -110,9 +112,9 @@ if __name__ == '__main__':
         logger.info('Loading weights from {}'.format( args.weight_file))
         model.net.load_state_dict( torch.load(args.weight_file, weights_only=True))
     # resuming from dictionary
-    elif args.resume_file is not None and Path(args.resume_file).exists():
-        logger.info('Loading model parameters from resume file {}'.format(args.resume_file))
-        model = SegModel.resume( args.resume_file, device=args.device ) # reload hyper-parameters from there
+    elif args.resume_file is not None and Path(args.resume_dir, args.resume_file).exists():
+        logger.info('Loading model parameters from resume file {}/{}'.format(args.resume_dir, args.resume_file))
+        model = SegModel.resume( f'{args.resume_dir}/{args.resume_file}', device=args.device ) # reload hyper-parameters from there
         hyper_params.update( model.hyper_parameters )
     # TODO: partial overriding of param dictionary 
     # elif args.fine_tune
@@ -231,6 +233,11 @@ if __name__ == '__main__':
         return
 
     def validate(dry_run=False):
+        """
+        Returns:
+            tuple[dict,float]: a tuple with a dictionary of separate losses (objects, classes, boxes, masks) and
+            a scalar mean loss.
+        """
         #dict_keys(['loss_classifier', 'loss_box_reg', 'loss_mask', 'loss_objectness', 'loss_rpn_box_reg'])
         validation_losses, loss_classifier, loss_box_reg, loss_mask, loss_objectness = [ [] for i in range(5) ]
         batches = iter(dl_val)
@@ -253,11 +260,14 @@ if __name__ == '__main__':
             loss_classifier.append( loss_dict['loss_classifier'].detach())
             loss_box_reg.append( loss_dict['loss_box_reg'].detach())
             loss_mask.append( loss_dict['loss_mask'].detach())
-        logger.info( "Loss objectness: {}".format( torch.stack(loss_objectness).mean().item()))
-        logger.info( "Loss classifier: {}".format( torch.stack(loss_classifier).mean().item()))
-        logger.info( "Loss boxes (reg.): {}".format( torch.stack(loss_box_reg).mean().item()))
-        logger.info( "Loss masks: {}".format( torch.stack(loss_mask).mean().item()))
-        return torch.stack( validation_losses ).mean().item()    
+        individual_losses = {
+            'loss_objectness': torch.stack(loss_objectness).mean().item(),
+            'loss_classifier': torch.stack(loss_classifier).mean().item(),
+            'loss_boxes': torch.stack(loss_box_reg).mean().item(),
+            'loss_masks': torch.stack(loss_mask).mean().item()
+        }
+        logger.info('\n'.join(['']+[ f"{k}={v}" for (k,v) in individual_losses.items()] ))
+        return ( individual_losses, torch.stack( validation_losses ).mean().item()) 
 
     def train_epoch( epoch: int, dry_run=False ):
         
@@ -311,27 +321,28 @@ if __name__ == '__main__':
 
             epoch_start_time = time.time()
             mean_training_loss = train_epoch( epoch, dry_run=args.dry_run ) # this is where the action happens
-            mean_validation_loss = validate( args.dry_run )
+            sublosses, mean_validation_loss = validate( args.dry_run )
 
             update_tensorboard(writer, epoch, {'Loss/train': mean_training_loss, 'Loss/val': mean_validation_loss, 'Time': int(time.time()-start_time)})
 
             if hyper_params['scheduler']:
                 scheduler.step( mean_validation_loss )
             model.epochs.append( {
+                'sublosses': sublosses,
                 'training_loss': mean_training_loss, 
                 'validation_loss': mean_validation_loss,
                 'lr': scheduler.get_last_lr()[0],
                 'duration': time.time()-epoch_start_time,
             } )
-            torch.save(model.net.state_dict() , 'last.pt')
-            model.save('last.mlmodel')
+            torch.save(model.net.state_dict() , f'{args.resume_dir}/last.pt')
+            model.save(f'{args.resume_dir}/last.mlmodel')
 
             if mean_validation_loss < best_loss:
                 logger.info("Mean validation loss ({}) < best loss ({}): updating best model.".format(mean_validation_loss, best_loss))
                 best_loss = mean_validation_loss
                 best_epoch = epoch
-                torch.save( model.net.state_dict(), 'best.pt')
-                model.save( 'best.mlmodel' )
+                torch.save( model.net.state_dict(), f'{args.resume_dir}/best.pt')
+                model.save( f'{args.resume_dir}/best.mlmodel' )
             logger.info('Training loss: {:.4f} (lr={}) - Validation loss: {:.4f} - Best epoch: {} (loss={:.4f}) - Time left: {}'.format(
                 mean_training_loss, 
                 scheduler.get_last_lr()[0],

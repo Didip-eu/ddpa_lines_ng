@@ -69,6 +69,7 @@ p = {
     'cache_predictions': [1, "Cache prediction tensors for faster, repeated calls with various post-processing optiosn."],
     'output_root_dir': ['/tmp', "Where to save the cached predictions."],
     'method': [ ('icdar2017', 'iou'), "Evaluation method: 'icdar2017' checks both prec. and rec. separately for find TPs; 'iou' checks best IoU."],
+    'device': [('cpu','gpu','cuda'), "Computing device"],
 }
 
 
@@ -158,15 +159,13 @@ if __name__ == '__main__':
                         logger.warning('The model being loaded is trained on {}x{} patches, but the script uses a {} patch size argument: overriding patch_size value with model-stored size.'.format( *live_model.hyper_parameters['img_size'], args.patch_size))
                         patch_size = live_model.hyper_parameters['img_size'][0]
                 logger.debug('Patch size: {} x {}'.format( patch_size, patch_size))
-                binary_mask = lgm.binary_mask_from_fixed_patches( Image.open(img_path), patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold, cached_prediction_prefix=img_md5, cached_prediction_path=cache_subdir_path )
+                binary_mask = lgm.binary_mask_from_fixed_patches( Image.open(img_path), patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold, cached_prediction_prefix=img_md5, cached_prediction_path=cache_subdir_path, device='cpu' if args.device=='cpu' else 'cuda' )
             # Style 2: Inference M x N squares
             else:
                 patch_row_count = args.patch_row_count if args.patch_row_count else 1
                 patch_col_count = args.patch_col_count if args.patch_col_count else 1
                 logger.debug("Patches: {}x{}".format(patch_row_count, patch_col_count))
-                binary_mask = lgm.binary_mask_from_patches( Image.open(img_path), patch_row_count, patch_col_count, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold )
-
-            logger.debug("Inference time: {:.5f}s".format( time.time()-start))
+                binary_mask = lgm.binary_mask_from_patches( Image.open(img_path), patch_row_count, patch_col_count, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold, device='cpu' if args.device=='cpu' else 'cuda' )
 
         else:
             # Default: Page-wide inference
@@ -181,8 +180,9 @@ if __name__ == '__main__':
                 logger.debug("Square")
                 # TODO: label binary map
                 binary_mask = lgm.post_process( preds[0], mask_threshold=args.mask_threshold , box_threshold=args.box_threshold)
-        if binary_mask is None:
-            logger.warning("No line mask found for {}: skipping item.".format( img_path ))
+                
+        if binary_mask is None or np.all( binary_mask == False ):
+            logger.warning("No line mask found for {}: skipping.".format( img_path ))
             continue
 
         # Step 2: flat map of integer labels
@@ -196,8 +196,11 @@ if __name__ == '__main__':
             img_fg_mask = np.load('dataset/binary/{}'.format( img_path.name.replace('.img.jpg','.bin.npy')))
             pixel_metrics = seglib.polygon_pixel_metrics_two_flat_maps_and_mask( label_map_hw, gt_map, img_fg_mask ) 
         else:
-            pixel_metrics = seglib.polygon_pixel_metrics_two_flat_maps( label_map_hw, gt_map ) 
-            
+            if args.device=='cpu':
+                pixel_metrics = seglib.polygon_pixel_metrics_two_flat_maps( label_map_hw, gt_map ) 
+            else:
+                pixel_metrics = seglib.polygon_pixel_metrics_two_flat_maps_torch( label_map_hw, gt_map ) 
+
         # pms is a list of 6-tuples (Match-threshold, TP, FP, FN, Jaccard, F1)
         pms.append( pixel_metrics )
 

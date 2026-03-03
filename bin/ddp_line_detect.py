@@ -39,6 +39,7 @@ import math
 import gzip
 from hashlib import md5
 from time import time
+import traceback
 
 # 3rd party
 from PIL import Image, UnidentifiedImageError
@@ -285,5 +286,6 @@ if __name__ == "__main__":
                     start_time = time()
 
         except Exception as e:
-            logger.warning("{}".format( e ))
+            logger.warning("{}: {}".format( img_path, e ))
+            logger.warning(traceback.format_exc())
             continue
