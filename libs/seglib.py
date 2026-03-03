@@ -463,9 +463,10 @@ def promote_regions_from_json_file( filename: Path ):
             x_offset, y_offset = region['coords'][0]
             # offset lines
             for line_idx, line in enumerate(region['lines']):
-                new_coords=np.array(line['coords'])-[x_offset, y_offset]
-                assert np.all( new_coords >= 0 )
-                new_segdict['regions'][0]['lines'][line_idx]['coords']=new_coords.tolist()
+                for attr in ('coords', 'centerline', 'baseline'):
+                    new_coords=np.array(line[attr])-[x_offset, y_offset]
+                    assert np.all( new_coords >= 0 )
+                    new_segdict['regions'][0]['lines'][line_idx][attr]=new_coords.tolist()
             # crop region
             with Image.open( dir_path.joinpath( segdict['image_filename'] )) as page_img:
                 #print(np.array( region['coords'])[[0,2]].flatten())
@@ -1033,7 +1034,6 @@ def array_has_label( label_map_hw: np.ndarray, label: int ) -> bool:
     label_cube_chw = np.moveaxis(label_map_hw.view('uint8').reshape(label_map_hw.shape+(-1,)), 2, 0)
     return bool(np.any( label_cube_chw == label ))
 
-
 def polygon_pixel_metrics_two_flat_maps( map_hw_1: np.ndarray, map_hw_2: np.ndarray, label_distance=5) -> np.ndarray:
     """Provided two label maps that each encode _non-overlapping_ polygons, compute
     for each possible pair of labels (i_pred, j_gt) with i ∈  map1 and j ∈  map2.
@@ -1080,6 +1080,59 @@ def polygon_pixel_metrics_two_flat_maps( map_hw_1: np.ndarray, map_hw_2: np.ndar
             recall = intersection_count / label_2_count
         metrics_hwc[label2index_1[lbl1], label2index_2[lbl2]] = [intersection_count, union_count, precision, recall ]
     return metrics_hwc
+
+
+@torch.no_grad()
+def polygon_pixel_metrics_two_flat_maps_torch( map_hw_1: np.ndarray, map_hw_2: np.ndarray, label_distance=5, device='cpu') -> np.ndarray:
+    """Provided two label maps that each encode _non-overlapping_ polygons, compute
+    for each possible pair of labels (i_pred, j_gt) with i ∈  map1 and j ∈  map2.
+    + intersection and union counts
+    + precision and recall
+    This is the torch version.
+
+    Args:
+        map_hw_1 (np.ndarray): the predicted map, i.e. a flat map of labeled polygons.
+        map_hw_2 (np.ndarray): the GT map, i.e. a flat map of labeled polygons.
+
+    Returns:
+        np.ndarray: a 4 channel array, where each cell [i,j] stores respectively intersection and union
+            counts, as well as precision and recall for a pair of labels [i,j].
+    """
+    map_hw_1 = torch.tensor( map_hw_1 ).to(device)
+    map_hw_2 = torch.tensor( map_hw_2 ).to(device)
+
+    min_label_1, max_label_1 = int(torch.min( map_hw_1[ map_hw_1 > 0 ] ).item()), int(torch.max( map_hw_1 ).item())
+    min_label_2, max_label_2 = int(torch.min( map_hw_2[ map_hw_2 > 0 ] ).item()), int(torch.max( map_hw_2 ).item())
+    label2index_1 = { l:i for i,l in enumerate( range(min_label_1, max_label_1+1)) }
+    label2index_2 = { l:i for i,l in enumerate( range(min_label_2, max_label_2+1)) }
+    metrics_hwc = torch.zeros(( max_label_1-min_label_1+1, max_label_2-min_label_2+1, 4), dtype=torch.float32)
+    label_range_1, label_range_2 = range(min_label_1, max_label_1+1), range(min_label_2, max_label_2+1)
+    #print("Ranges: ({}->{}), ({}->{})".format(min_label_1, max_label_1, min_label_2, max_label_2))
+
+    # retrieve individual masks for each label and stack them up
+    label_matrices_1={ l:(map_hw_1 == l) for l in label_range_1 }
+    label_matrices_2={ l:(map_hw_2 == l) for l in label_range_2 }
+
+    #print(label_range_1, label_range_2)
+    label_counts_1 = { l:torch.sum(label_matrices_1[l]).item() for l in label_range_1 }
+    label_counts_2 = { l:torch.sum(label_matrices_2[l]).item() for l in label_range_2 }
+
+    for lbl1, lbl2 in itertools.product(label_range_1, label_range_2):
+        if label_distance > 0 and abs(lbl1-lbl2) > label_distance:
+            metrics_hwc[label2index_1[lbl1], label2index_2[lbl2]]=torch.tensor([ 0, label_counts_1[lbl1] + label_counts_2[lbl2], 0, 0 ])
+            continue
+        # intersection
+        intersection_count = torch.sum(label_matrices_1[ lbl1 ] * label_matrices_2[ lbl2 ]).item()
+        label_1_count, label_2_count = torch.sum(label_matrices_1[lbl1]), torch.sum(label_matrices_2[lbl2])  
+        union_count = label_1_count + label_2_count - intersection_count
+        # precision: true pred / all pred
+        if label_1_count != 0:
+            precision = intersection_count / label_1_count
+        # recall: true pred / all gt
+        if label_2_count !=0:
+            recall = intersection_count / label_2_count
+        metrics_hwc[label2index_1[lbl1], label2index_2[lbl2]] = torch.tensor([intersection_count, union_count, precision, recall ])
+    return np.asarray( metrics_hwc )
 
 
 def polygon_pixel_metrics_two_deep_maps( map_chw_1: Tensor, map_chw_2: Tensor, label_distance=5) -> np.ndarray:

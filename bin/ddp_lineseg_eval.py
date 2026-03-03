@@ -196,8 +196,11 @@ if __name__ == '__main__':
             img_fg_mask = np.load('dataset/binary/{}'.format( img_path.name.replace('.img.jpg','.bin.npy')))
             pixel_metrics = seglib.polygon_pixel_metrics_two_flat_maps_and_mask( label_map_hw, gt_map, img_fg_mask ) 
         else:
-            pixel_metrics = seglib.polygon_pixel_metrics_two_flat_maps( label_map_hw, gt_map ) 
-            
+            if args.device=='cpu':
+                pixel_metrics = seglib.polygon_pixel_metrics_two_flat_maps( label_map_hw, gt_map ) 
+            else:
+                pixel_metrics = seglib.polygon_pixel_metrics_two_flat_maps_torch( label_map_hw, gt_map ) 
+
         # pms is a list of 6-tuples (Match-threshold, TP, FP, FN, Jaccard, F1)
         pms.append( pixel_metrics )
 
