@@ -264,9 +264,9 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
             est_lc = line_count_estimate( img )[0] 
             if est_lc < 30 or est_lc<0:
                 break
-            new_height, new_width = int(new_height*2), int(new_width*2)
+            new_height, new_width = int(new_height*1.5), int(new_width*1.5)
             img_hwc = ski.transform.resize( img_hwc, (new_height, new_width))
-            logger.debug("Enlarging single-patch image based on line count (estimate={}).".format( est_lc ))
+            logger.debug("Enlarging single-patch image based on line count (estimate={}); new size={}x{}".format( est_lc, new_width, new_height ))
             rescaled=True
             continue
         # (b) very large images scaled down
@@ -598,4 +598,19 @@ def line_count_estimate( img: Union[Image.Image,np.ndarray], sample_size=200, re
         return (-1,-1)
 
 
-    
+def thresholds_from_model( model_path: Path, defaults: dict):
+    """ Get recommended thresholds from model, if exist.
+    """
+    try:
+        model = torch.load(model_path, weights_only=False)
+        if 'production_environment' in model:
+            if 'mask_threshold' in model['production_environment']:
+                defaults['mask_threshold']=model['production_environment']['mask_threshold']
+                logger.debug(f"Updating default mask threshold with model's recommended value ({defaults['mask_threshold']})")
+            if 'box_threshold' in model['production_environment']:
+                defaults['box_threshold']=model['production_environment']['box_threshold']
+                logger.debug(f"Updating default box threshold with model's recommended value ({defaults['box_threshold']})")
+    except IOError as e:
+        logger.warning(f"{e} → Using default threshold parameters {defaults}")
+    finally:
+        return defaults 

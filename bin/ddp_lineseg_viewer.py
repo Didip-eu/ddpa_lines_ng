@@ -51,6 +51,7 @@ import re
 import matplotlib.pyplot as plt
 from PIL import Image
 import numpy as np
+import torch
 
 # DiDip
 import fargv
@@ -96,11 +97,10 @@ p = {
     'crop_y': [1.0, "crop-in ratio on resulting plot (y axis, centered)"],
     'raw_polygons': [0, "Show polygons as resulting from the NN; otherwise (default), show the abstract polygons constructed from the detected centerlines."],
     'line_height_factor': [1.0, "Factor (within ]0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"],
-    'device': [('cpu','gpu','cuda'), "Computing device"],
+    'device': [('cpu','gpu','cuda', 'cuda:0', 'cuda:1', 'cuda:2', 'cuda:3'), "Computing device -- 'cuda' or 'gpu' defaults to 'cuda:0'."],
     'verbosity': [2,"Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"],
 
 }
-
 
 
 if __name__ == '__main__':
@@ -110,7 +110,18 @@ if __name__ == '__main__':
     if args.verbosity != 2:
         logging.basicConfig( level=logging_levels[args.verbosity], format=logging_format, force=True )
 
+    thresholds = {'mask_threshold': args.mask_threshold, 'box_threshold': args.box_threshold }
+    if not args.segfile and not Path(args.model_path).exists():
+        raise FileNotFoundError(args.model_path)
+        thresholds = lgm.thresholds_from_model( args.model_path, thresholds )
+    
     live_model = sgm.SegModel.load( args.model_path ) if (not args.segfile_suffix and not args.segfile) else None
+
+    computing_device='cpu'
+    if args.device == 'cuda' or args.device == 'gpu':
+        computing_device='cuda:0'
+    else:
+        computing_device = args.device
 
     if args.raw_polygons and args.line_height_factor != 1.0:
         logger.warning("'-raw_polygons' option set: ignoring the line height factor ({}).".format( args.line_height_factor))
@@ -150,13 +161,13 @@ if __name__ == '__main__':
                             logger.warning('The model being loaded is trained on {}x{} patches, but the script uses a {} patch size argument: overriding patch_size value with model-stored size.'.format( *live_model.hyper_parameters['img_size'], args.patch_size))
                             patch_size = live_model.hyper_parameters['img_size'][0]
                     logger.debug('Patch size: {} x {}'.format( patch_size, patch_size))
-                    binary_mask = lgm.binary_mask_from_fixed_patches( Image.open(img_path), patch_size=patch_size, model=live_model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold, device='cpu' if args.device=='cpu' else 'cuda' )
+                    binary_mask = lgm.binary_mask_from_fixed_patches( Image.open(img_path), patch_size=patch_size, model=live_model, box_threshold=thresholds['box_threshold'], mask_threshold=thresholds['mask_threshold'], device=computing_device)
                 # Style 2: Inference M x N squares
                 else:
                     patch_row_count = args.patch_row_count if args.patch_row_count else 1
                     patch_col_count = args.patch_col_count if args.patch_col_count else 1
                     logger.debug("Patches: {}x{}".format(patch_row_count, patch_col_count))
-                    binary_mask = lgm.binary_mask_from_patches( Image.open(img_path), patch_row_count, patch_col_count, model=live_model, box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
+                    binary_mask = lgm.binary_mask_from_patches( Image.open(img_path), patch_row_count, patch_col_count, model=live_model, box_threshold=thresholds['box_threshold'], mask_threshold=thresholds['mask_threshold'] )
                 if binary_mask is None or np.all(binary_mask == False):
                     logger.info("Invalid mask: skipping img {}".format( img_path))
                     continue
@@ -179,7 +190,7 @@ if __name__ == '__main__':
                 logger.debug("Inference time: {:.5f}s / total time: {:.5f}s".format( time.time()-time_step, time.time()-time_start))
                 if args.rescale:
                     logger.debug("Rescale")
-                    binary_mask = lgm.post_process( preds[0], orig_size=sizes[0], box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
+                    binary_mask = lgm.post_process( preds[0], orig_size=sizes[0], box_threshold=thresholds['box_threshold'], mask_threshold=thresholds['mask_threshold'] )
                     if binary_mask is None:
                         logger.warning("No line mask found for {}: skipping.".format( img_path ))
                         continue
@@ -188,7 +199,7 @@ if __name__ == '__main__':
                     mp, atts, path = segviz.batch_label_maps_to_img( [img_path], [segmentation_record], color_count=0 )[0]
                 else:
                     logger.debug("Square")
-                    binary_mask = lgm.post_process( preds[0], box_threshold=args.box_threshold, mask_threshold=args.mask_threshold )
+                    binary_mask = lgm.post_process( preds[0], box_threshold=thresholds['box_threshold'], mask_threshold=thresholds['mask_threshold'] )
                     if binary_mask is None:
                         logger.warning("No line mask found for {}: skipping.".format( img_path ))
                         continue
