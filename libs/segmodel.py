@@ -147,7 +147,7 @@ class SegModel():
             del state_dict['hyper_parameters']
             # Keys that may not be stored in every model pickles
             state_dict.pop("epochs", None) # raw models only (training/eval time)
-            state_dict.pop('threshold_best', None) # production models only
+            state_dict.pop('production_environment', None) # production models only
 
             model = SegModel( hyper_parameters['backbone'] if 'backbone' in hyper_parameters else 'resnet101')
             model.net.load_state_dict( state_dict )

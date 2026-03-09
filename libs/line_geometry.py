@@ -600,12 +600,12 @@ def thresholds_from_model( model_path: Path, defaults: dict):
     """
     try:
         model = torch.load(model_path, weights_only=False)
-        if 'threshold_best' in model:
-            if 'mask_threshold' in model['threshold_best']:
-                defaults['mask_threshold']=model['threshold_best']['mask_threshold']
+        if 'production_environment' in model:
+            if 'mask_threshold' in model['production_environment']:
+                defaults['mask_threshold']=model['production_environment']['mask_threshold']
                 logger.debug(f"Updating default mask threshold with model's recommended value ({defaults['mask_threshold']})")
-            if 'box_threshold' in model['threshold_best']:
-                defaults['box_threshold']=model['threshold_best']['box_threshold']
+            if 'box_threshold' in model['production_environment']:
+                defaults['box_threshold']=model['production_environment']['box_threshold']
                 logger.debug(f"Updating default box threshold with model's recommended value ({defaults['box_threshold']})")
     except IOError as e:
         logger.warning(f"{e} → Using default threshold parameters {defaults}")

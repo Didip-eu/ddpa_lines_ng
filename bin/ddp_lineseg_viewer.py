@@ -103,20 +103,6 @@ p = {
 }
 
 
-#def thresholds_from_model( model_path: Path, defaults: dict):
-#    """ Get recommended thresholds from model, if exist.
-#    """
-#    model = torch.load(model_path, weights_only=False)
-#    if 'threshold_best' in model:
-#        if 'mask_threshold' in model['threshold_best']:
-#            defaults['mask_threshold']=model['threshold_best']['mask_threshold']
-#            logger.debug(f"Updating default mask threshold with model's recommended value ({defaults['mask_threshold']})")
-#        if 'box_threshold' in model['threshold_best']:
-#            defaults['box_threshold']=model['threshold_best']['box_threshold']
-#            logger.debug(f"Updating default box threshold with model's recommended value ({defaults['box_threshold']})")
-#    return defaults
-
-
 if __name__ == '__main__':
 
     args, _ = fargv.fargv(p)
@@ -124,10 +110,10 @@ if __name__ == '__main__':
     if args.verbosity != 2:
         logging.basicConfig( level=logging_levels[args.verbosity], format=logging_format, force=True )
 
-    if not Path(args.model_path).exists():
+    thresholds = {'mask_threshold': args.mask_threshold, 'box_threshold': args.box_threshold }
+    if not args.segfile and not Path(args.model_path).exists():
         raise FileNotFoundError(args.model_path)
-
-    thresholds = lgm.thresholds_from_model( args.model_path, {'mask_threshold': args.mask_threshold, 'box_threshold': args.box_threshold } )
+        thresholds = lgm.thresholds_from_model( args.model_path, thresholds )
     
     live_model = sgm.SegModel.load( args.model_path ) if (not args.segfile_suffix and not args.segfile) else None
 
