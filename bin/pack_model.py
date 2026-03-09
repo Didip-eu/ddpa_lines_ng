@@ -32,9 +32,6 @@ if invalid_keys:
     print(f"Incorrect threshold keys: {invalid_keys}: aborting.")
     sys.exit()
 
-print(threshold_dict)
-print(orig_md5)
-
 threshold_dict.update({'original_model_file': orig_md5})
 orig_m['production_environment']=threshold_dict
 
