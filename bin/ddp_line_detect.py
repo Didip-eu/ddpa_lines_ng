@@ -80,7 +80,7 @@ p = {
         'box_threshold': [0.75, "Threshold used for line bounding boxes."],
         'patch_size': [1024, "Process the image by <patch_size>*<patch_size> patches"],
         'raw_polygons': [0, "Serialize polygons as resulting from the NN (default); otherwise, construct the abstract polygons from centerlines."],
-        'device': [('cpu','gpu'), "Computing device."],
+        'device': [('cpu','gpu','cuda', 'cuda:0', 'cuda:1', 'cuda:2', 'cuda:3'), "Computing device -- 'cuda' or 'gpu' defaults to 'cuda:0'."],
         'line_height_factor': [1.0, "Factor (within ]0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"],
         'overwrite_existing': [1, "Write over existing output file (default)."],
         'timer': [0, "Aggregate performance metrics. A strictly positive integer <n> computes the mean time for every batch of <n> images."],
@@ -191,7 +191,9 @@ if __name__ == "__main__":
         sys.exit()
 
     if not Path( args.model_path ).exists():
-        raise FileNotFoundError("Could not find model file", args.model_path)
+        raise FileNotFoundError(args.model_path)
+
+    thresholds = lgm.thresholds_from_model( args.model_path, {'mask_threshold': args.mask_threshold, 'box_threshold': args.box_threshold } )
     live_model = sgm.SegModel.load( args.model_path ) 
 
     if args.raw_polygons and args.line_height_factor != 1.0:
@@ -209,6 +211,11 @@ if __name__ == "__main__":
         except IOError as e:
             logger.warning("Failed to open timer logs '{}'".format( timer_logs ))
 
+    computing_device='cpu'
+    if args.device == 'cuda' or args.device == 'gpu':
+        computing_device='cuda:0'
+    else:
+        computing_device = args.device
 
     charter_iterator = pack_fsdb_inputs_outputs( args, args.layout_suffix )
     for img_idx, img_triplet in enumerate( charter_iterator ):
@@ -241,7 +248,7 @@ if __name__ == "__main__":
                         binary_mask = None
                         # Inference from fixed-size patches
                         patch_size = check_patch_size_against_model( live_model, args.patch_size )
-                        binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold, device='cpu' if args.device=='cpu' else 'cuda' )
+                        binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=thresholds['mask_threshold'], box_threshold=thresholds['box_threshold'], device=computing_device)
                         if binary_mask is None:
                             logger.warning("{}\tNo line mask found in crop {}: skipping item.".format( img_path, crop_idx ))
                             continue

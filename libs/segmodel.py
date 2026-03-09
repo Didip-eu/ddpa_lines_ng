@@ -143,9 +143,11 @@ class SegModel():
     def load(file_name, **kwargs):
         if Path(file_name).exists():
             state_dict = torch.load(file_name, map_location="cpu")
-            del state_dict["epochs"]
             hyper_parameters = state_dict["hyper_parameters"]
             del state_dict['hyper_parameters']
+            # Keys that may not be stored in every model pickles
+            state_dict.pop("epochs", None) # raw models only (training/eval time)
+            state_dict.pop('threshold_best', None) # production models only
 
             model = SegModel( hyper_parameters['backbone'] if 'backbone' in hyper_parameters else 'resnet101')
             model.net.load_state_dict( state_dict )

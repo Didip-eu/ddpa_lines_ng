@@ -52,6 +52,7 @@ p = {
     'model_path': str(src_root.joinpath("best.mlmodel")),
     'mask_threshold': [0.25, "Threshold used for line masks--a tweak on the post-processing phase."],
     'box_threshold': [0.8, "Threshold used for line bounding boxes."],
+    'thresholds_from_model': [0, "If true, try to read the threshold values from the model dictionary."],
     'rescale': [0, "If True, display segmentation on original image; otherwise (default), get the image size from the model used for inference (ex. 1024 x 1024)."],
     'img_paths': set([]),
     'limit': [0, "How many files to display."],
@@ -69,7 +70,7 @@ p = {
     'cache_predictions': [1, "Cache prediction tensors for faster, repeated calls with various post-processing optiosn."],
     'output_root_dir': ['/tmp', "Where to save the cached predictions."],
     'method': [ ('icdar2017', 'iou'), "Evaluation method: 'icdar2017' checks both prec. and rec. separately for find TPs; 'iou' checks best IoU."],
-    'device': [('cpu','gpu','cuda'), "Computing device"],
+    'device': [('cpu','gpu','cuda', 'cuda:0', 'cuda:1', 'cuda:2', 'cuda:3'), "Computing device -- 'cuda' or 'gpu' defaults to 'cuda:0'."],
 }
 
 
@@ -119,7 +120,17 @@ if __name__ == '__main__':
             cache_subdir_path.mkdir( exist_ok=True )
             logger.info( 'Using cache subdirectory {}.'.format( cache_subdir_path ))
 
+    thresholds = {'mask_threshold': args.mask_threshold, 'box_threshold': args.box_threshold }
+    if args.thresholds_from_model:
+        thresholds = lgm.thresholds_from_model( args.model_path, thresholds )
+
     live_model = sgm.SegModel.load( args.model_path ) if (not args.segfile_suffix and not args.segfile) else None
+
+    computing_device='cpu'
+    if args.device == 'cuda' or args.device == 'gpu':
+        computing_device='cuda:0'
+    else:
+        computing_device = args.device
 
     files = []
     if args.random:
@@ -159,13 +170,13 @@ if __name__ == '__main__':
                         logger.warning('The model being loaded is trained on {}x{} patches, but the script uses a {} patch size argument: overriding patch_size value with model-stored size.'.format( *live_model.hyper_parameters['img_size'], args.patch_size))
                         patch_size = live_model.hyper_parameters['img_size'][0]
                 logger.debug('Patch size: {} x {}'.format( patch_size, patch_size))
-                binary_mask = lgm.binary_mask_from_fixed_patches( Image.open(img_path), patch_size=patch_size, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold, cached_prediction_prefix=img_md5, cached_prediction_path=cache_subdir_path, device='cpu' if args.device=='cpu' else 'cuda' )
+                binary_mask = lgm.binary_mask_from_fixed_patches( Image.open(img_path), patch_size=patch_size, model=live_model, mask_threshold=thresholds['mask_threshold'], box_threshold=thresholds['box_threshold'], cached_prediction_prefix=img_md5, cached_prediction_path=cache_subdir_path, device=computing_device)
             # Style 2: Inference M x N squares
             else:
                 patch_row_count = args.patch_row_count if args.patch_row_count else 1
                 patch_col_count = args.patch_col_count if args.patch_col_count else 1
                 logger.debug("Patches: {}x{}".format(patch_row_count, patch_col_count))
-                binary_mask = lgm.binary_mask_from_patches( Image.open(img_path), patch_row_count, patch_col_count, model=live_model, mask_threshold=args.mask_threshold, box_threshold=args.box_threshold, device='cpu' if args.device=='cpu' else 'cuda' )
+                binary_mask = lgm.binary_mask_from_patches( Image.open(img_path), patch_row_count, patch_col_count, model=live_model, mask_threshold=thresholds['mask_threshold'], box_threshold=thresholds['box_threshold'], device=computing_device)
 
         else:
             # Default: Page-wide inference
@@ -175,11 +186,11 @@ if __name__ == '__main__':
             logger.debug("Inference time: {:.5f}s".format( time.time()-start))
             if args.rescale:
                 logger.debug("Rescale")
-                binary_mask = lgm.post_process( preds[0], orig_size=sizes[0], mask_threshold=args.mask_threshold, box_threshold=args.box_threshold )
+                binary_mask = lgm.post_process( preds[0], orig_size=sizes[0], mask_threshold=thresholds['mask_threshold'], box_threshold=thresholds['box_threshold'] )
             else:
                 logger.debug("Square")
                 # TODO: label binary map
-                binary_mask = lgm.post_process( preds[0], mask_threshold=args.mask_threshold , box_threshold=args.box_threshold)
+                binary_mask = lgm.post_process( preds[0], mask_threshold=thresholds['mask_threshold'] , box_threshold=thresholds['box_threshold'])
                 
         if binary_mask is None or np.all( binary_mask == False ):
             logger.warning("No line mask found for {}: skipping.".format( img_path ))
@@ -213,10 +224,10 @@ if __name__ == '__main__':
     if args.save_file_scores:
         # insert box and mask threshold columns 
         arr = iou_tp_fp_fn_prec_rec_jaccard_f1_8n
-        arr = np.concatenate(( arr[:1], np.full((2,arr.shape[1]), [[args.box_threshold],[args.mask_threshold]] ), arr[1:]))
+        arr = np.concatenate(( arr[:1], np.full((2,arr.shape[1]), [[thresholds['box_threshold']],[thresholds['mask_threshold']]] ), arr[1:]))
         file_scores = zip( [ str(f) for f in files], arr.transpose().tolist())
         file_scores_str = '\n'.join([ '{}\t{}'.format(filename, '\t'.join([ str(s) for s in scores])) for filename, scores in file_scores ])
-        file_scores_filepath = Path(output_subdir_path, f'{args.file_scores_prefix}_{args.box_threshold}_{args.mask_threshold}.tsv')
+        file_scores_filepath = Path(output_subdir_path, f'{args.file_scores_prefix}_{thresholds["box_threshold"]}_{thresholds["mask_threshold"]}.tsv')
         logger.info("Saving file scores into {}".format(file_scores_filepath))
         with open( file_scores_filepath, 'w') as of:
             of.write('Img_path\tIoU\tB-Thr\tM-Thr\tTP\tFP\tFN\tPrecision\tRecall\tJaccard\tF1\n')
@@ -237,9 +248,9 @@ if __name__ == '__main__':
             logger.info('Evaluation metrics saved on {}'.format( output_file_path ))
             if of.tell() == 0: # add header on empty file 
                 of.write('IoU\tB-Thr\tM-Thr\tTP\tFP\tFN\tPrecision\tRecall\tJaccard\tF1\n')
-            of.write(f'{args.icdar_threshold}\t{args.box_threshold}\t{args.mask_threshold}\t{tps}\t{fps}\t{fns}\t{precs}\t{recs}\t{jaccard}\t{f1}\n')
+            of.write(f'{args.icdar_threshold}\t{thresholds["box_threshold"]}\t{thresholds["mask_threshold"]}\t{tps}\t{fps}\t{fns}\t{precs}\t{recs}\t{jaccard}\t{f1}\n')
     else:
         print('IoU\tB-Thr\tM-Thr\tTP\tFP\tFN\tPrecision\tRecall\tJaccard\tF1')
-        print(f'{args.icdar_threshold}\t{args.box_threshold}\t{args.mask_threshold}\t{tps}\t{fps}\t{fns}\t{precs}\t{recs}\t{jaccard}\t{f1}')
+        print(f'{args.icdar_threshold}\t{thresholds["box_threshold"]}\t{thresholds["mask_threshold"]}\t{tps}\t{fps}\t{fns}\t{precs}\t{recs}\t{jaccard}\t{f1}')
 
 
