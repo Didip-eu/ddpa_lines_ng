@@ -786,6 +786,26 @@ def segdict_sink_lines(segdict: dict):
             reg['lines']=[]
     return segdict
 
+def crops_from_segdict( img: Image.Image, segdict: dict, force_rgb=False ):
+    """From a segmentation dictionary, return the text regions and their
+    corresponding image crops.
+
+    Args:
+        img (Image.Image): Image to crop.
+        segdict (dict): a segmentatino dictionary
+        force_rgb (bool): convert binary/gray images to RGB (default: False).
+    Returns:
+        tuple[list[Image.Image], list[str]]: a tuple with
+            - a list of images (HWC)
+            - a list of box coordinates (LTRB)
+    """
+    if 'regions' not in segdict:
+        return tuple()
+    if force_rgb and img.mode != 'RGB':
+        img = img.convert('RGB')
+    return tuple( zip( *[ ( img.crop( tuple(r['coords'][0]+r['coords'][2])), r['coords'][0]+r['coords'][2], None) for r in segdict['regions']]) )
+
+
 def layout_regseg_to_crops( img: Image.Image, regseg: dict, region_labels: list[str], force_rgb=False ) -> tuple[list[Image.Image], list[str]]:
     """From a layout-app segmentation dictionary, return the regions with matching
     labels as a list of images.
@@ -794,6 +814,7 @@ def layout_regseg_to_crops( img: Image.Image, regseg: dict, region_labels: list[
         img (Image.Image): Image to crop.
         regseg (dict): the regional segmentation json, as given by the 'layout' app
         region_labels (list[str]): Labels to be extracted.
+        force_rgb (bool): convert binary/gray images to RGB (default: False).
 
     Returns:
         tuple[list[Image.Image], list[str]]: a tuple with 
@@ -802,15 +823,17 @@ def layout_regseg_to_crops( img: Image.Image, regseg: dict, region_labels: list[
             - a list of class names
 
     """
-    clsid_2_clsname = { i:n for (i,n) in enumerate( regseg['class_names'] )}
-    to_keep = [ i for (i,v) in enumerate( regseg['rect_classes'] ) if clsid_2_clsname[v] in region_labels ]
 
-    if force_rgb and img.mode != 'RGB':
-        img = img.convert('RGB')
+    if 'class_names' in regseg:
+        clsid_2_clsname = { i:n for (i,n) in enumerate( regseg['class_names'] )}
+        to_keep = [ i for (i,v) in enumerate( regseg['rect_classes'] ) if clsid_2_clsname[v] in region_labels ]
 
-    return tuple( zip(*[ ( img.crop( regseg['rect_LTRB'][i] ),
-                  regseg['rect_LTRB'][i],
-                  clsid_2_clsname[ regseg['rect_classes'][i]]) for i in to_keep ]))
+        if force_rgb and img.mode != 'RGB':
+            img = img.convert('RGB')
+        return tuple( zip(*[ ( img.crop( regseg['rect_LTRB'][i] ),
+                      regseg['rect_LTRB'][i],
+                      clsid_2_clsname[ regseg['rect_classes'][i]]) for i in to_keep ]))
+    return tuple()
 
 
 def layout_regseg_check_class(regseg: dict, region_labels: list[str] ) -> list[bool]:

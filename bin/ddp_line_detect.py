@@ -235,13 +235,19 @@ if __name__ == "__main__":
                     continue
                 
                 with open(layout_file_path, 'r') as regseg_if:
-                    regseg = json.load( regseg_if )
-                    # extract crops from layout analysis file
-                    layout_data = seglib.layout_regseg_to_crops( img, regseg, args.region_classes )
+                    layout_data = tuple()
+
+                    if str(layout_file_path)[-4:]=='.xml':
+                        logger.warning("Extracting text regions from PageXML file {}".format( input_file_path ))
+                        layout_data = seglib.crops_from_segdict( img, seglib.segmentation_dict_from_xml( layout_file_path ), force_rgb=True)
+                    else:
+                        regseg = json.load( regseg_if ) 
+                        # extract crops from layout analysis file
+                        layout_data = seglib.layout_regseg_to_crops( img, regseg, args.region_classes, force_rgb=True )
                     if not layout_data:
-                        logger.warning("Could not find region with name in {} in the layout segmentation file {}. Skipping item.".format( args.region_classes, layout_file_path ))
+                        logger.warning("Could not find relevant region in the layout segmentation file {}. Skipping item.".format( args.region_classes, layout_file_path ))
                         continue
-                    crops_pil, boxes, classes = seglib.layout_regseg_to_crops( img, regseg, args.region_classes, force_rgb=True )
+                    crops_pil, boxes, _ = layout_data 
 
                     binary_masks = []
                     for crop_idx, crop_whc in enumerate(crops_pil):
