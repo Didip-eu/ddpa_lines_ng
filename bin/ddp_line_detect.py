@@ -262,8 +262,12 @@ if __name__ == "__main__":
                     try:
                         # Post-processing: pixel maps → lines & polygons
                         segmentation_records = [ lgm.get_morphology( msk, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor ) for msk in binary_masks ]
+                        keep = [ i for i in range(len(segmentation_records)) if segmentation_records[i] is not None ]
+                        if not keep:
+                            continue
+                        boxes = [ b for i,b in enumerate(boxes) if i in keep ]
                         segdict = build_segdict_composite( img_metadata, boxes, segmentation_records, args.line_attributes ) 
-                    except (TypeError,ValueError) as e:
+                    except (TypeError, ValueError) as e:
                         logger.warning("{}\tFailed to polygonize line masks ({}): abort segmentation.".format( img_path, e ))
                         continue
 

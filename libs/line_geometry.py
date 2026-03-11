@@ -93,7 +93,9 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
             labeled_msk_hw *= ~(labeled_msk_hw==lbl)
     labels = np.unique( labeled_msk_hw[ labeled_msk_hw > 0 ] )
     if len(labels) == 0:
-        raise Exception("Could not retrieve labels from 1HW binary map".format(__file__))
+        #raise Exception("Could not retrieve labels from 1HW binary map".format(__file__))
+        logger.warning("Could not retrieve labels from 1HW binary map".format(__file__))
+        return None
     logger.debug("Found {} connected components on 1HW binary map ({}).".format( len(labels), labels))
 
     polygon_coords = []
