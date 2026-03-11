@@ -263,6 +263,7 @@ if __name__ == "__main__":
                         # Post-processing: pixel maps → lines & polygons
                         segmentation_records = [ lgm.get_morphology( msk, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor ) for msk in binary_masks ]
                         keep = [ i for i in range(len(segmentation_records)) if segmentation_records[i] is not None ]
+                        logger.warning("No valid segmentation record for regions {}.".format( set(range(len(segmentation_records)))-set(keep)))
                         if not keep:
                             continue
                         boxes = [ b for i,b in enumerate(boxes) if i in keep ]
