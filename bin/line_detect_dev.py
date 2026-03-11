@@ -296,7 +296,7 @@ if __name__ == "__main__":
                 # iterate over layout crops and segment
                 layout_data = tuple()
                 if str(layout_file_path)[-4:]=='.xml':
-                    logger.warning("Extracting text regions from PageXML file {}".format( input_file_path ))
+                    logger.warning("Extracting text regions from PageXML file {}".format( layout_file_path ))
                     layout_data = seglib.crops_from_segdict( img, seglib.segmentation_dict_from_xml( layout_file_path ), force_rgb=True)
                 else:
                     regseg = json.load( regseg_if )
