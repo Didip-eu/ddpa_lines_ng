@@ -303,7 +303,7 @@ if __name__ == "__main__":
                     # extract crops from layout analysis file
                     layout_data = seglib.layout_regseg_to_crops( img, regseg, args.region_classes, force_rgb=True )
                 if not layout_data:
-                    logger.warning("Could not find relevant region in the layout segmentation file {}. Skipping item.".format( args.region_classes, layout_file_path ))
+                    logger.warning("Could not find relevant region in the layout segmentation file {}. Skipping item.".format( layout_file_path ))
                     continue
                 crops_pil, boxes, _ = seglib.layout_regseg_to_crops( img, regseg, args.region_classes, force_rgb=True )
 
