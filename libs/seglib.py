@@ -786,7 +786,7 @@ def segdict_sink_lines(segdict: dict):
             reg['lines']=[]
     return segdict
 
-def crops_from_segdict( img: Image.Image, segdict: dict, force_rgb=False ):
+def crops_from_segdict( img: Image.Image, segdict: dict, force_rgb=False, ignore_empty_regions=False ):
     """From a segmentation dictionary, return the text regions and their
     corresponding image crops.
 
@@ -794,6 +794,8 @@ def crops_from_segdict( img: Image.Image, segdict: dict, force_rgb=False ):
         img (Image.Image): Image to crop.
         segdict (dict): a segmentatino dictionary
         force_rgb (bool): convert binary/gray images to RGB (default: False).
+        ignore_empty_regions (bool): ignore those regions that do not have any lines: useful
+            when re-segmenting with inherited PageXML as layout files (default: False).
     Returns:
         tuple[list[Image.Image], list[str]]: a tuple with
             - a list of images (HWC)
@@ -801,9 +803,11 @@ def crops_from_segdict( img: Image.Image, segdict: dict, force_rgb=False ):
     """
     if 'regions' not in segdict:
         return tuple()
+    # make it easier to check for empty regions
+    segdict = segdict_sink_lines( segdict )
     if force_rgb and img.mode != 'RGB':
         img = img.convert('RGB')
-    return tuple( zip( *[ ( img.crop( tuple(r['coords'][0]+r['coords'][2])), r['coords'][0]+r['coords'][2], None) for r in segdict['regions']]) )
+    return tuple( zip( *[ ( img.crop( tuple(r['coords'][0]+r['coords'][2])), r['coords'][0]+r['coords'][2], None) for r in segdict['regions'] if (not ignore_empty_regions or ('lines' in r and len(r['lines']))) ]) )
 
 
 def layout_regseg_to_crops( img: Image.Image, regseg: dict, region_labels: list[str], force_rgb=False ) -> tuple[list[Image.Image], list[str]]:
