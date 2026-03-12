@@ -3,6 +3,12 @@
 Given line prediction file (JSON) and an inherited HTR GT (PageXML),
 compute an alignment of predicted lines with the corresponding HTR strings.
 
+Example:
+
+```
+$ align_seg_htr.py U-17_0728_r.lines.pred.json 
+```
+
 Output:
 
 ```
