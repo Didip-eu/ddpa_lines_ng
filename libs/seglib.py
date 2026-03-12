@@ -568,6 +568,8 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
 
 def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True, strict=False) -> dict[str,Union[str,list[Any]]]:
     """Given a pageXML file name, return a JSON dictionary describing the lines.
+    The resulting dictionary is flat, with two separate entries for lines and regions.
+    Use the `segdict_sink_lines` routine to construct a nested dictionary, if needed.
 
     Args:
         page (str): path of a PageXML file.
