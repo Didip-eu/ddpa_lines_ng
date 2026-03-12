@@ -38,9 +38,12 @@ from numpy.polynomial import Polynomial, polynomial
 from libs import seglib
 
 
+import warnings 
+warnings.simplefilter('ignore', np.exceptions.RankWarning)
+
 USAGE=f"USAGE: {sys.argv[0]} <segfile>.lines.pred.json [ <segfile>.xml ]"
 
-if len(sys.argv)<2 or sys.argv[1]=='-h' or sys.argv[2]=='-h':
+if len(sys.argv)<2 or '-h' in sys.argv:
     print(USAGE)
     sys.exit()
 
@@ -63,7 +66,6 @@ if not reference_file_path.exists():
     raise FileNotFoundError()
 reference_dict = seglib.segmentation_dict_from_xml( reference_file_path, get_text=True )
 reference_dict = seglib.segdict_sink_lines( reference_dict)
-print(reference_dict)
 #print(reference_dict)
 
 # 1. Match regions
@@ -82,23 +84,46 @@ for pred_reg_idx, ref_reg in enumerate(pred_reg_to_ref_reg):
     domain=prediction_dict['regions'][pred_reg_idx]['coords'][0][0], prediction_dict['regions'][pred_reg_idx]['coords'][2][0]
     window=prediction_dict['regions'][pred_reg_idx]['coords'][0][1], prediction_dict['regions'][pred_reg_idx]['coords'][2][1]
     #print("domain={}, window={}".format( domain, window ))
+    #print(f"{len(predicted_lines)} predicted lines.")
+
     predicted_lines = prediction_dict['regions'][pred_reg_idx]['lines'] 
-    predicted_polynomials = [ Polynomial.fit( *(np.array(l['baseline']).T), deg=2, domain=domain, window=window ) for l in predicted_lines ]
-    #print(predicted_polynomials)
-
-
     reference_lines = pred_reg_to_ref_reg[pred_reg_idx]['lines']
+    if len(predicted_lines) != len(reference_lines):
+        continue
+
+
+    predicted_polynomials = [ Polynomial.fit( *(np.array(l['baseline']).T), deg=2, domain=domain, window=window ) for l in predicted_lines ]
     reference_polynomials = [ Polynomial.fit( *(np.array(l['baseline']).T), deg=2, domain=domain, window=window ) for l in reference_lines ]
-    #print(reference_polynomials)
+    print(f"{len(predicted_polynomials)} polynomials.")
 
     matches = []
     for p,ppn in enumerate(predicted_polynomials):
         for r,rpn in enumerate(reference_polynomials):
-            _, pred_y = ppn.linspace(50) 
-            _, ref_y = rpn.linspace(50) 
-            matches.append((p,r,((pred_y-ref_y)**2).sum()))
-    best_matches=sorted(matches,key=lambda x: x[2])[:len(predicted_polynomials)]
-    for m in sorted(best_matches, key=lambda x: x[0] ):
-        pred_lidx, ref_lidx, _ = m
-        print(pred_lidx, ref_reg['lines'][ref_lidx]['text'])
+            score = ((ppn.linspace(50)[1] - rpn.linspace(50)[1])**2).sum()
+            matches.append((p, r, score ))
+
+    matches = sorted( matches, key=lambda x: x[2])[:len(predicted_polynomials)]
+    print(f"{len(matches)} matches.")
+
+    # check that no given reference line is assigned to 2 predicted lines
+    assigned_reference_lines = set([ m[1] for m in matches ])
+    if len(assigned_reference_lines) < len(matches):
+        print("Assignment is not one to one! Abort.")
+        continue
+    # cases to handle:
+    # - a predicted line has no counterpart in the original
+    predicted_orphans = [ i for i, m in enumerate(matches) if m[0]==-1 ]
+    if predicted_orphans:
+        print(f"Predicted lines {predicted_orphans} have no match!")
+    # - a reference line has no counterpart in the prediction
+    difference = set( range( len( reference_lines ))) - assigned_reference_lines
+    if difference:
+        print(f"Reference lines {difference} have no counterpart in predictions.")
+    
+    for m in sorted(matches, key=lambda x: x[0]):
+        if m[0]>=0:
+            pred_lidx, ref_lidx, _ = m
+            print(pred_lidx, ref_lidx, ref_reg['lines'][ref_lidx]['text'][:100])
+            prediction_dict['regions'][pred_reg_idx]['lines'][pred_lidx]['text']=ref_reg['lines'][ref_lidx]['text']
+
 
