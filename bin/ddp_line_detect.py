@@ -78,6 +78,7 @@ p = {
         "output_dir": ['', "Output directory; if not provided, defaults to the image path's parent."],
         'mask_threshold': [.6, "In the post-processing phase, threshold to use for line soft masks."],
         'box_threshold': [0.75, "Threshold used for line bounding boxes."],
+        'apply_model_thresholds': [1, "If true, any threshold passed as parameter overrides model's built-in thresholds."],
         'patch_size': [1024, "Process the image by <patch_size>*<patch_size> patches"],
         'raw_polygons': [0, "Serialize polygons as resulting from the NN (default); otherwise, construct the abstract polygons from centerlines."],
         'device': [('cpu','gpu','cuda', 'cuda:0', 'cuda:1', 'cuda:2', 'cuda:3'), "Computing device -- 'cuda' or 'gpu' defaults to 'cuda:0'."],
@@ -193,7 +194,11 @@ if __name__ == "__main__":
     if not Path( args.model_path ).exists():
         raise FileNotFoundError(args.model_path)
 
-    thresholds = lgm.thresholds_from_model( args.model_path, {'mask_threshold': args.mask_threshold, 'box_threshold': args.box_threshold } )
+    thresholds = {'mask_threshold': args.mask_threshold, 'box_threshold': args.box_threshold }
+    if args.apply_model_thresholds:
+        thresholds = lgm.thresholds_from_model( args.model_path, thresholds )
+    logger.debug(f"Thresholds = {thresholds}")
+
     live_model = sgm.SegModel.load( args.model_path ) 
 
     if args.raw_polygons and args.line_height_factor != 1.0:

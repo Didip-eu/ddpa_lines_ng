@@ -34,12 +34,13 @@ import sys
 from pathlib import Path
 import numpy as np
 from numpy.polynomial import Polynomial, polynomial
+import matplotlib.pyplot as plt
 
 from libs import seglib
 
 
 import warnings 
-warnings.simplefilter('ignore', np.exceptions.RankWarning)
+#warnings.simplefilter('ignore', np.exceptions.RankWarning)
 
 USAGE=f"USAGE: {sys.argv[0]} <segfile>.lines.pred.json [ <segfile>.xml ]"
 
@@ -58,7 +59,24 @@ def iou( box1: np.ndarray, box2: np.ndarray ):
 	iou = interArea / float(box1Area + box2Area - interArea)
 	return iou
 
+def plot_polynoms( set1_l2n: np.ndarray, set2_l2n: np.ndarray, labels=('predicted', 'reference') ):
+    """
+    Args:
+        set1_l2n (np.ndarray): (L,2,N) array of function values
+        set2_l2n (np.ndarray): (L,2,N) array of function values
+    """
+    plt.close()
+    fig, ax = plt.subplots()
+    ax.plot( *(set1_l2n[0]), color='red', label=labels[0])
+    ax.plot( *(set2_l2n[0]), color='green', label=labels[1])
+    for l in set1_l2n[1:]:
+        ax.plot( *l, color='red')
+    for l in set2_l2n[1:]:
+        ax.plot( *l, color='green')
+    ax.legend()
+    plt.show()
 
+print(sys.argv[1])
 prediction_dict = json.load(open(sys.argv[1]))
 
 reference_file_path = Path(sys.argv[1].replace('.lines.pred.json', '.xml')) if len(sys.argv)<3 else Path(sys.argv[2])
@@ -88,18 +106,34 @@ for pred_reg_idx, ref_reg in enumerate(pred_reg_to_ref_reg):
 
     predicted_lines = prediction_dict['regions'][pred_reg_idx]['lines'] 
     reference_lines = pred_reg_to_ref_reg[pred_reg_idx]['lines']
-    if len(predicted_lines) != len(reference_lines):
-        continue
+    #if len(predicted_lines) != len(reference_lines):
+    #    continue
 
+    def polynoms_from_lines( lines ):
+        polynoms = []
+        for l in lines:
+            bl_arr = np.array(l['baseline'])
+            domain = bl_arr[[0,-1],0]
+            deg = 1 if len(bl_arr)<4 else 2
+            polynoms.append( Polynomial.fit( *(bl_arr.T), deg=deg, domain=domain, window=window) )
+        return polynoms
 
-    predicted_polynomials = [ Polynomial.fit( *(np.array(l['baseline']).T), deg=2, domain=domain, window=window ) for l in predicted_lines ]
-    reference_polynomials = [ Polynomial.fit( *(np.array(l['baseline']).T), deg=2, domain=domain, window=window ) for l in reference_lines ]
+    predicted_polynomials = polynoms_from_lines( predicted_lines ) #[ Polynomial.fit( *(np.array(l['baseline']).T), deg=2, domain=np.array(l['baseline'])[[0,-1],0], window=window ) for l in predicted_lines ]
+    reference_polynomials = polynoms_from_lines( reference_lines ) #[ Polynomial.fit( *(np.array(l['baseline']).T), deg=2, domain=np.array(l['baseline'])[[0,-1],0], window=window ) for l in reference_lines ]
+    #predicted_polynomials = [ Polynomial.fit( *(np.array(l['baseline']).T), deg=2, domain=domain, window=window ) for l in predicted_lines ]
+    #reference_polynomials = [ Polynomial.fit( *(np.array(l['baseline']).T), deg=2, domain=domain, window=window ) for l in reference_lines ]
     print(f"{len(predicted_polynomials)} polynomials.")
 
     matches = []
+
+    predicted_polynom_points = np.stack([ p.linspace(5) for p in predicted_polynomials ])
+    reference_polynom_points = np.stack([ p.linspace(5) for p in reference_polynomials ])
+
+    plot_polynoms( predicted_polynom_points, reference_polynom_points )
+
     for p,ppn in enumerate(predicted_polynomials):
         for r,rpn in enumerate(reference_polynomials):
-            score = ((ppn.linspace(50)[1] - rpn.linspace(50)[1])**2).sum()
+            score = ((predicted_polynom_points[p][1] - reference_polynom_points[r][1])**2).sum()
             matches.append((p, r, score ))
 
     matches = sorted( matches, key=lambda x: x[2])[:len(predicted_polynomials)]
