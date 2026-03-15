@@ -18,12 +18,18 @@ Output:
 3 ten ✳ ir zuͦsprùch zuͦ den genempten ✳ unsern frowen ingegēwùrtikeit i...
 4 nung, ✳ die selben unser frowen ✳ oder ir amptlùt hettent ein weg, d...
 ...
+
+Rules and assumptions:
+
++ inherited (PageXML) segmentation must be valid (no partial or invalid polygons, f.i.)
++ polygons are matched by finding pairs whose baseline 
+    - quadratic fits are closest
+    - baseline length close (+/- 10%)
 ```
 
 TODO:
 
 + library functions
-+ usable output (array)
 + warning for region with no match (in either input file)
 
 """
@@ -69,6 +75,7 @@ def plot_polynoms( set1_l2n: np.ndarray, set2_l2n: np.ndarray, labels=('predicte
     fig, ax = plt.subplots()
     ax.plot( *(set1_l2n[0]), color='red', label=labels[0])
     ax.plot( *(set2_l2n[0]), color='green', label=labels[1])
+    ax.yaxis.set_inverted(True)
     for l in set1_l2n[1:]:
         ax.plot( *l, color='red')
     for l in set2_l2n[1:]:
@@ -101,13 +108,9 @@ for r1 in prediction_dict['regions']:
 for pred_reg_idx, ref_reg in enumerate(pred_reg_to_ref_reg):
     domain=prediction_dict['regions'][pred_reg_idx]['coords'][0][0], prediction_dict['regions'][pred_reg_idx]['coords'][2][0]
     window=prediction_dict['regions'][pred_reg_idx]['coords'][0][1], prediction_dict['regions'][pred_reg_idx]['coords'][2][1]
-    #print("domain={}, window={}".format( domain, window ))
-    #print(f"{len(predicted_lines)} predicted lines.")
 
     predicted_lines = prediction_dict['regions'][pred_reg_idx]['lines'] 
     reference_lines = pred_reg_to_ref_reg[pred_reg_idx]['lines']
-    #if len(predicted_lines) != len(reference_lines):
-    #    continue
 
     def polynoms_from_lines( lines ):
         polynoms = []
@@ -118,11 +121,8 @@ for pred_reg_idx, ref_reg in enumerate(pred_reg_to_ref_reg):
             polynoms.append( Polynomial.fit( *(bl_arr.T), deg=deg, domain=domain, window=window) )
         return polynoms
 
-    predicted_polynomials = polynoms_from_lines( predicted_lines ) #[ Polynomial.fit( *(np.array(l['baseline']).T), deg=2, domain=np.array(l['baseline'])[[0,-1],0], window=window ) for l in predicted_lines ]
-    reference_polynomials = polynoms_from_lines( reference_lines ) #[ Polynomial.fit( *(np.array(l['baseline']).T), deg=2, domain=np.array(l['baseline'])[[0,-1],0], window=window ) for l in reference_lines ]
-    #predicted_polynomials = [ Polynomial.fit( *(np.array(l['baseline']).T), deg=2, domain=domain, window=window ) for l in predicted_lines ]
-    #reference_polynomials = [ Polynomial.fit( *(np.array(l['baseline']).T), deg=2, domain=domain, window=window ) for l in reference_lines ]
-    print(f"{len(predicted_polynomials)} polynomials.")
+    predicted_polynomials = polynoms_from_lines( predicted_lines )
+    reference_polynomials = polynoms_from_lines( reference_lines )
 
     matches = []
 
@@ -133,10 +133,12 @@ for pred_reg_idx, ref_reg in enumerate(pred_reg_to_ref_reg):
 
     for p,ppn in enumerate(predicted_polynomials):
         for r,rpn in enumerate(reference_polynomials):
+            length_p, length_r = [ l['baseline'][-1][0]-l['baseline'][0][0] for l in (predicted_lines[p], reference_lines[r]) ]
             score = ((predicted_polynom_points[p][1] - reference_polynom_points[r][1])**2).sum()
-            matches.append((p, r, score ))
+            matches.append((p, r, length_p, length_r, score ))
 
-    matches = sorted( matches, key=lambda x: x[2])[:len(predicted_polynomials)]
+    # keeping best <predicted number> matches, minus the ill-fitting ones (insufficient overlap)
+    matches = [ m for m in sorted( matches, key=lambda x: x[4])[:len(predicted_polynomials)] if abs((m[2] - m[3])/m[2]) <= .15]
     print(f"{len(matches)} matches.")
 
     # check that no given reference line is assigned to 2 predicted lines
@@ -156,8 +158,12 @@ for pred_reg_idx, ref_reg in enumerate(pred_reg_to_ref_reg):
     
     for m in sorted(matches, key=lambda x: x[0]):
         if m[0]>=0:
-            pred_lidx, ref_lidx, _ = m
-            print(pred_lidx, ref_lidx, ref_reg['lines'][ref_lidx]['text'][:100])
+            pred_lidx, ref_lidx, length_p , length_r, _= m
+            print(pred_lidx, ref_lidx, ref_reg['lines'][ref_lidx]['text'][:100], length_p, length_r)
             prediction_dict['regions'][pred_reg_idx]['lines'][pred_lidx]['text']=ref_reg['lines'][ref_lidx]['text']
+
+    prediction_dict['metadata']['comment']=f"Created by command: {Path(sys.argv[0]).name} {sys.argv[1]} (input PageXML: {reference_file_path.name})."
+
+    #print(json.dumps( prediction_dict ))
 
 
