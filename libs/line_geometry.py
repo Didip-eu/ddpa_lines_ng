@@ -74,7 +74,7 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
         polygon_area_threshold (int): minimum number of pixels for a polygon to survive.
         contour_tolerance (int): max. distance constraint for line/polygon approximations.
         raw_polygons (bool): if True, return the (approximated) polygon obtained from the page mask; otherwise (default),
-            return a reconstructed version of the polygon (baseline+height).
+            return a reconstructed version of the polygon (centerline-/+(x_height/2)).
         height_factor (float): factor (∈  ]0,1]) to be applied to the polygon height-unused if 'raw_polygons' set.
 
     Returns:
