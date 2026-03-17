@@ -59,7 +59,7 @@ logging.getLogger('PIL').setLevel(logging.INFO)
 p = {
         "segfile_path": ['', "A JSON line segmentation file (e.g <prefix>.lines.pred.json)."],
         "htr_path": ['', "A PageXML file with HTR strings (e.g. <prefix>.xml)."],
-        "output_file": ['stdout', "Output file (eg. <prefix>.htr.aligned.json)."],
+        "output_file": ['', "Output file;  if unset: <prefix>.htr.aligned.json; used 'stdout' for standard output."],
         "overwrite_existing": [0, "Do not overwrite existing output file"],
         "verbosity": [2, "Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"],
         "matching_iou": [.15, "Tolerance for lengths of matching baselines."],
@@ -113,11 +113,16 @@ if __name__ == "__main__":
     if args.verbosity != 2:
         logging.basicConfig( level=logging_levels[args.verbosity], format=logging_format, force=True )
 
-    logger.debug( args.segfile_path )
+    logger.info( args.segfile_path )
 
-    output_file_path = Path( args.segfile_path.replace('.lines.pred.json', '.htr.gt.json')) 
+    output_file_path = Path( args.segfile_path.replace('.lines.pred.json', '.htr.gt.json'))
+    # empty output_file_path <=> stdout
+    if args.output_file == 'stdout':
+        output_file_path = ''
+    elif args.output_file:
+        output_file_path = Path(args.output_file)
 
-    if args.output_file != 'stdout' and not args.overwrite_existing and output_file_path.exists():
+    if output_file_path and not args.overwrite_existing and output_file_path.exists():
         logger.info(f"Existing {output_file_path}: skipping." )
         sys.exit()
 
@@ -202,10 +207,11 @@ if __name__ == "__main__":
         cli_args = ' '.join(args_orig[1:])
         prediction_dict['metadata']['comment']=f"Created by command: {Path(args_orig[0]).name + cli_args} (input PageXML: {reference_file_path.name})."
 
-        if args.output_file == 'stdout':
+        if not output_file_path:
             print(json.dumps( prediction_dict ))
         else:
             with open( output_file_path, 'w') as of:
-                of.write( json.dumps( prediction_dict ))
+                of.write( json.dumps( prediction_dict, indent=2 ))
+                logger.info(f"Written {output_file_path}.")
 
 
