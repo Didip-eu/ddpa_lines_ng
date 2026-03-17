@@ -591,6 +591,8 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
              "regions": [{"id": ..., "coords": [ ... ]}, ... ] }
 
            Regions are stored as a top-element.
+    TODO:
+        - check that unhandled exception on U-17_0995_s01.xml (AttributeError) has been fixed.
 
     """
     def parse_coordinates( pts ):
@@ -618,9 +620,9 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
                 text_elt = line.find('./pc:TextEquiv', ns) 
                 if text_elt is not None:
                     line_custom_attribute = text_elt.get('custom') if 'custom' in text_elt.keys() else ''
-                unicode_elt = text_elt.find('./pc:Unicode', ns)
-                if unicode_elt is not None:
-                    line_text = unicode_elt.text 
+                    unicode_elt = text_elt.find('./pc:Unicode', ns)
+                    if unicode_elt is not None:
+                        line_text = unicode_elt.text 
             line_dict = {'id': line_id, 'baseline': baseline_points, 
                         'coords': polygon_points, 'regions': region_ids}
             if line_text and not re.match(r'\s*$', line_text):

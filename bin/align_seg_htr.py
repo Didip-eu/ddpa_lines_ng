@@ -156,6 +156,9 @@ if __name__ == "__main__":
         predicted_lines = prediction_dict['regions'][pred_reg_idx]['lines'] 
         reference_lines = pred_reg_to_ref_reg[pred_reg_idx]['lines']
 
+        if not predicted_lines or not reference_lines:
+            logger.info("Either the reference or the prediction has no line for this region: skipping.")
+            continue
 
         predicted_polynomials = polynoms_from_lines( predicted_lines, domain, window )
         reference_polynomials = polynoms_from_lines( reference_lines, domain, window )
@@ -178,17 +181,21 @@ if __name__ == "__main__":
         matches = [ m for m in sorted( matches, key=lambda x: x[4])[:len(predicted_polynomials)] if abs((m[2] - m[3])/m[2]) <= .15]
         logger.debug(f"{len(matches)} matches.")
         match_hash = {}
+        reference_matched = [False for r in range(len(reference_lines))]
         for m in sorted( matches, key=lambda x: x[0]):
-            if m[0] not in match_hash:
+            # ensure one-to-one assignment
+            if m[0] not in match_hash and not reference_matched[m[1]]:
                 match_hash[m[0]] = m
+                reference_matched[m[1]]=True
         for k,m in match_hash.items():
             logger.debug(f"{m}")
 
         # check that no given reference line is assigned to 2 predicted lines
         assigned_reference_lines = set([ m[1] for m in match_hash.values() ])
         if len(assigned_reference_lines) != len( match_hash.keys()):
-            logger.info("Assignment is not one to one! Removing sub-optimal pairs.")
-            # remove pairs that duplicate a reference line (eg. U-17_0169_r, U-17_0202_r...)
+            logger.info("Assignment is not one to one! Skipping region.")
+            # pairs that duplicate a reference line (eg. U-17_0169_r, U-17_0202_r...)
+            # should not exist at this point
             continue
         # cases to handle:
         # - a predicted line has no counterpart in the original
@@ -206,14 +213,14 @@ if __name__ == "__main__":
                 logger.debug(pred_lidx, ref_lidx, ref_reg['lines'][ref_lidx]['text'][:100], length_p, length_r)
                 prediction_dict['regions'][pred_reg_idx]['lines'][pred_lidx]['text']=ref_reg['lines'][ref_lidx]['text']
 
-        cli_args = ' '.join(args_orig[1:])
-        prediction_dict['metadata']['comment']=f"Created by command: {Path(args_orig[0]).name + cli_args} (input PageXML: {reference_file_path.name})."
+    cli_args = ' '.join(args_orig[1:])
+    prediction_dict['metadata']['comment']=f"Created by command: {Path(args_orig[0]).name + cli_args} (input PageXML: {reference_file_path.name})."
 
-        if not output_file_path:
-            print(json.dumps( prediction_dict ))
-        else:
-            with open( output_file_path, 'w') as of:
-                of.write( json.dumps( prediction_dict, indent=2 ))
-                logger.info(f"Written {output_file_path}.")
+    if not output_file_path:
+        print(json.dumps( prediction_dict ))
+    else:
+        with open( output_file_path, 'w') as of:
+            of.write( json.dumps( prediction_dict, indent=2 ))
+            logger.info(f"Written {output_file_path}.")
 
 
