@@ -57,9 +57,9 @@ logging.getLogger('PIL').setLevel(logging.INFO)
 
 
 p = {
-        "segfile_path": ['', "A JSON line segmentation file (expect <prefix>.lines.pred.json)."],
-        "htr_path": ['', "A JSON line segmentation file (default: <prefix>.xml)."],
-        "output_file": ['stdout', "Output file (default: <prefix>.htr.aligned.json)."],
+        "segfile_path": ['', "A JSON line segmentation file (e.g <prefix>.lines.pred.json)."],
+        "htr_path": ['', "A PageXML file with HTR strings (e.g. <prefix>.xml)."],
+        "output_file": ['stdout', "Output file (eg. <prefix>.htr.aligned.json)."],
         "overwrite_existing": [0, "Do not overwrite existing output file"],
         "verbosity": [2, "Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"],
         "matching_iou": [.15, "Tolerance for lengths of matching baselines."],
@@ -196,7 +196,7 @@ if __name__ == "__main__":
         for m in sorted(matches, key=lambda x: x[0]):
             if m[0]>=0:
                 pred_lidx, ref_lidx, length_p , length_r, _= m
-                print(pred_lidx, ref_lidx, ref_reg['lines'][ref_lidx]['text'][:100], length_p, length_r)
+                logger.debug(pred_lidx, ref_lidx, ref_reg['lines'][ref_lidx]['text'][:100], length_p, length_r)
                 prediction_dict['regions'][pred_reg_idx]['lines'][pred_lidx]['text']=ref_reg['lines'][ref_lidx]['text']
 
         cli_args = ' '.join(args_orig[1:])
@@ -206,6 +206,6 @@ if __name__ == "__main__":
             print(json.dumps( prediction_dict ))
         else:
             with open( output_file_path, 'w') as of:
-                of.write( json.dumps( prediction_str ))
+                of.write( json.dumps( prediction_dict ))
 
 

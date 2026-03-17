@@ -23,7 +23,9 @@ Example calls::
     # patch-trained model, exporting raw polygons (instead of abstract reconstructions)
     PYTHONPATH=. python3 ./bin/ddp_line_detect -img_paths "${FSDB_ROOT}"/*/*/d9ae9ea49832ed79a2238c2d87cd0765/*layout.crops/*OldText*.jpg -model_path best.mlmodel -region_classes Wr:OldText -raw_polygons 1
 
-TODO:
+Notes:
+
++ GPU can be an issue on very large images---use PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True.
 """
 # stdlib
 import sys
@@ -117,6 +119,7 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, line_att
     segdict = { 'metadata': {'created': str(datetime.now()), 'creator': __file__, }}
     segdict.update( img_metadata )
     segdict['line_height_factor']=line_height_factor
+    logger.debug(segdict)
     segdict['regions']=[]
 
     region_id = 0
@@ -152,16 +155,16 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, line_att
     return segdict
 
 
-def pack_fsdb_inputs_outputs( args:dict, segmentation_suffix:str ) -> list[tuple]:
+def pack_fsdb_inputs_outputs( args:dict, layout_suffix:str ) -> list[tuple]:
     """
     Compile image files and/or charter paths in the CLI arguments.
-    No existence check on the dependency (segmentation path).
+    No existence check on the dependency (layout segmentation path).
 
     Args:
         dict: the parsed arguments.
-        segmentation_suffix (str): suffix of the expected segmentation file.
+        layout_suffix (str): suffix of the expected layout segmentation file.
     Returns:
-        list[tuple]: a list of triplets (<img file path>, <segmentation file path>, <output file path>)
+        list[tuple]: a list of triplets (<img file path>, <layout file path>, <output file path>)
     """
     all_img_paths = set([ Path(p) for p in args.img_paths ])
 
@@ -173,9 +176,11 @@ def pack_fsdb_inputs_outputs( args:dict, segmentation_suffix:str ) -> list[tuple
     path_triplets = []
     for img_path in all_img_paths:
         img_stem = re.sub(r'{}$'.format( args.img_suffix), '', img_path.name )
-        segfile_path = Path( re.sub(r'{}$'.format( args.img_suffix), segmentation_suffix, str(img_path) ))
+        layout_path = Path( re.sub(r'{}$'.format( args.img_suffix), layout_suffix, str(img_path) ))
+        if layout_path == img_path:
+            raise FileNotFoundError( "Layout segmentation file {} cannot be identical to image path: check that the -img_suffix has been set correctly (suggestion: -img_suffix '{}')".format(layout_path, re.sub(r'^[^.]+(\..+)$', r'\1', img_path.name)))
         output_dir = img_path.parent if not args.output_dir else Path(args.output_dir)
-        path_triplets.append( ( img_path, segfile_path, output_dir.joinpath( f'{img_stem}.{args.appname}.pred.{args.output_format}')))
+        path_triplets.append( ( img_path, layout_path, output_dir.joinpath( f'{img_stem}.{args.appname}.pred.{args.output_format}')))
     #return path_triplets
     return sorted( path_triplets, key=lambda x: str(x))
 
@@ -225,7 +230,8 @@ if __name__ == "__main__":
     charter_iterator = pack_fsdb_inputs_outputs( args, args.layout_suffix )
     for img_idx, img_triplet in enumerate( charter_iterator ):
         img_path, layout_file_path, output_file_path = img_triplet
-        logger.debug( "File path={}, output path={}".format( img_path, output_file_path))
+        logger.info(f"image_path={img_path}")
+        logger.debug( "layout_path={}, output path={}".format(layout_file_path, output_file_path))
         if not args.overwrite_existing and output_file_path.exists():
             logger.debug("File {} exists: skipped.".format( output_file_path ))
             continue
@@ -259,10 +265,15 @@ if __name__ == "__main__":
                         binary_mask = None
                         # Inference from fixed-size patches
                         patch_size = check_patch_size_against_model( live_model, args.patch_size )
-                        binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=thresholds['mask_threshold'], box_threshold=thresholds['box_threshold'], device=computing_device)
-                        if binary_mask is None:
-                            logger.warning("{}\tNo line mask found in crop {}: skipping item.".format( img_path, crop_idx ))
-                            continue
+                        try:
+                            binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=thresholds['mask_threshold'], box_threshold=thresholds['box_threshold'], device=computing_device)
+                            if binary_mask is None:
+                                logger.warning("{}\tNo line mask found in crop {}: skipping item.".format( img_path, crop_idx ))
+                                continue
+                        except RuntimeError as e:
+                            logger.warning(e)
+                            logger.warning("→ falling back to CPU")
+                            binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=thresholds['mask_threshold'], box_threshold=thresholds['box_threshold'], device='cpu')
                         binary_masks.append( binary_mask )
                     try:
                         # Post-processing: pixel maps → lines & polygons
@@ -273,7 +284,7 @@ if __name__ == "__main__":
                         if not keep:
                             continue
                         boxes = [ b for i,b in enumerate(boxes) if i in keep ]
-                        segdict = build_segdict_composite( img_metadata, boxes, segmentation_records, args.line_attributes ) 
+                        segdict = build_segdict_composite( img_metadata, boxes, segmentation_records, args.line_attributes, line_height_factor=args.line_height_factor ) 
                     except (TypeError, ValueError) as e:
                         logger.warning("{}\tFailed to polygonize line masks ({}): abort segmentation.".format( img_path, e ))
                         continue

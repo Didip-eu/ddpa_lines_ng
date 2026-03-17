@@ -99,8 +99,7 @@ p = {
     'line_height_factor': [1.0, "Factor (within ]0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"],
     'device': [('cpu','gpu','cuda', 'cuda:0', 'cuda:1', 'cuda:2', 'cuda:3'), "Computing device -- 'cuda' or 'gpu' defaults to 'cuda:0'."],
     'verbosity': [2,"Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"],
-    'check_mark': [1.0, "Prompt for flag file (when reviewing results)."],
-
+    'check_mark': [0, "Prompt for flag file (when reviewing results)."],
 }
 
 
