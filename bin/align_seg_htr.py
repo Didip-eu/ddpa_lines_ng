@@ -34,9 +34,10 @@ TODO:
 """
 
 
-import json
 import sys
 from pathlib import Path
+import json
+
 import numpy as np
 from numpy.polynomial import Polynomial, polynomial
 import matplotlib.pyplot as plt
@@ -66,17 +67,17 @@ p = {
         'visual_check': [0, "Plot baseline estimate for visual checking."],
     }
 
-
+    
 def iou( box1: np.ndarray, box2: np.ndarray ):
-	x1 = max(box1[0], box2[0])
-	y1 = max(box1[1], box2[1])
-	x2 = min(box1[2], box2[2])
-	y2 = min(box1[3], box2[3])
-	interArea = max(0, x2 - x1 + 1) * max(0, y2 - y1 + 1)
-	box1Area = (box1[2] - box1[0] + 1) * (box1[3] - box1[1] + 1)
-	box2Area = (box2[2] - box2[0] + 1) * (box2[3] - box2[1] + 1)
-	iou = interArea / float(box1Area + box2Area - interArea)
-	return iou
+    x1 = max(box1[0], box2[0])
+    y1 = max(box1[1], box2[1])
+    x2 = min(box1[2], box2[2])
+    y2 = min(box1[3], box2[3])
+    interArea = max(0, x2 - x1 + 1) * max(0, y2 - y1 + 1)
+    box1Area = (box1[2] - box1[0] + 1) * (box1[3] - box1[1] + 1)
+    box2Area = (box2[2] - box2[0] + 1) * (box2[3] - box2[1] + 1)
+    iou = interArea / float(box1Area + box2Area - interArea)
+    return iou
 
 def plot_polynoms( set1_l2n: np.ndarray, set2_l2n: np.ndarray, labels=('predicted', 'reference') ):
     """
@@ -125,6 +126,7 @@ if __name__ == "__main__":
     if output_file_path and not args.overwrite_existing and output_file_path.exists():
         logger.info(f"Existing {output_file_path}: skipping." )
         sys.exit()
+
 
     prediction_dict = json.load(open( args.segfile_path ))
 
@@ -186,7 +188,7 @@ if __name__ == "__main__":
         assigned_reference_lines = set([ m[1] for m in match_hash.values() ])
         if len(assigned_reference_lines) != len( match_hash.keys()):
             logger.info("Assignment is not one to one! Removing sub-optimal pairs.")
-            # remove pairs that duplicate a reference line
+            # remove pairs that duplicate a reference line (eg. U-17_0169_r, U-17_0202_r...)
             continue
         # cases to handle:
         # - a predicted line has no counterpart in the original
