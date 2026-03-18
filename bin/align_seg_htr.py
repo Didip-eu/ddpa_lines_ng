@@ -65,6 +65,7 @@ p = {
         "verbosity": [2, "Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"],
         "matching_iou": [.15, "Tolerance for lengths of matching baselines."],
         'visual_check': [0, "Plot baseline estimate for visual checking."],
+        "keep_all_predictions": [0, "Keep predicted lines with no reference match."],
     }
 
     
@@ -150,6 +151,7 @@ if __name__ == "__main__":
     # 2. For each region: match lines
 
     for pred_reg_idx, ref_reg in enumerate(pred_reg_to_ref_reg):
+        logger.debug(f"Processing region {pred_reg_idx}")
         domain=prediction_dict['regions'][pred_reg_idx]['coords'][0][0], prediction_dict['regions'][pred_reg_idx]['coords'][2][0]
         window=prediction_dict['regions'][pred_reg_idx]['coords'][0][1], prediction_dict['regions'][pred_reg_idx]['coords'][2][1]
 
@@ -174,16 +176,23 @@ if __name__ == "__main__":
         for p,ppn in enumerate(predicted_polynomials):
             for r,rpn in enumerate(reference_polynomials):
                 length_p, length_r = [ l['baseline'][-1][0]-l['baseline'][0][0] for l in (predicted_lines[p], reference_lines[r]) ]
+                text = reference_lines[r]['text'] if 'text' in reference_lines[r] else ''
                 score = ((predicted_polynom_points[p][1] - reference_polynom_points[r][1])**2).sum()
-                matches.append((p, r, length_p, length_r, score ))
+                matches.append((p, r, length_p, length_r, score, text ))
 
         # keeping best <predicted number> matches, minus the ill-fitting ones (insufficient overlap)
-        matches = [ m for m in sorted( matches, key=lambda x: x[4])[:len(predicted_polynomials)] if abs((m[2] - m[3])/m[2]) <= .15]
+        matches = [ m for m in sorted( matches, key=lambda x: x[4])[:len(predicted_polynomials)] if abs((m[2] - m[3])/m[2]) <= args.matching_iou]
         logger.debug(f"{len(matches)} matches.")
+        #for m in sorted(matches,key=lambda x: x[0]):
+        #    logger.debug(m)
         match_hash = {}
         reference_matched = [False for r in range(len(reference_lines))]
         for m in sorted( matches, key=lambda x: x[0]):
-            # ensure one-to-one assignment
+            # ensure one-to-one assignment; first cond. discards lines with no text
+            if not m[-1]:
+                logger.warning(f"Discarding pair {m[0],m[1]} (no text)") 
+                logger.warning(f"text={reference_lines[m[1]]['text']}")
+                continue
             if m[0] not in match_hash and not reference_matched[m[1]]:
                 match_hash[m[0]] = m
                 reference_matched[m[1]]=True
@@ -199,19 +208,20 @@ if __name__ == "__main__":
             continue
         # cases to handle:
         # - a predicted line has no counterpart in the original
-        predicted_orphans = [ i for i, m in enumerate(matches) if m[0]==-1 ]
+        predicted_orphans = set( range(len( predicted_lines))) - set( match_hash.keys() )
         if predicted_orphans:
             logger.warning(f"Predicted lines {predicted_orphans} have no match!")
         # - a reference line has no counterpart in the prediction
-        difference = set( range( len( reference_lines ))) - assigned_reference_lines
-        if difference:
-            logger.warning(f"Reference lines {difference} have no counterpart in predictions.")
+        reference_orphans = set( range( len( reference_lines ))) - assigned_reference_lines
+        if reference_orphans:
+            logger.warning(f"Reference lines {reference_orphans} have no match!")
         
-        for m in sorted(matches, key=lambda x: x[0]):
-            if m[0]>=0:
-                pred_lidx, ref_lidx, length_p , length_r, _= m
-                logger.debug(pred_lidx, ref_lidx, ref_reg['lines'][ref_lidx]['text'][:100], length_p, length_r)
-                prediction_dict['regions'][pred_reg_idx]['lines'][pred_lidx]['text']=ref_reg['lines'][ref_lidx]['text']
+        for m in match_hash.values():
+            pred_lidx, ref_lidx, length_p , length_r, _, text= m
+            #logger.debug("{} {} {} {} {}".format(pred_lidx, ref_lidx, text[:100], length_p, length_r))
+            predicted_lines[pred_lidx]['text']=ref_reg['lines'][ref_lidx]['text']
+        if not args.keep_all_predictions:
+            prediction_dict['regions'][pred_reg_idx]['lines']=[ l for i,l in enumerate(predicted_lines) if i in match_hash.keys() ]
 
     cli_args = ' '.join(args_orig[1:])
     prediction_dict['metadata']['comment']=f"Created by command: {Path(args_orig[0]).name + cli_args} (input PageXML: {reference_file_path.name})."
