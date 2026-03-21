@@ -58,15 +58,21 @@ logging.getLogger('PIL').setLevel(logging.INFO)
 
 
 p = {
-        "segfile_path": ['', "A JSON line segmentation file (e.g <prefix>.lines.pred.json)."],
-        "htr_path": ['', "A PageXML file with HTR strings (e.g. <prefix>.xml)."],
-        "output_file": ['', "Output file;  if unset: <prefix>.htr.aligned.json; used 'stdout' for standard output."],
+        "segfile_paths": [set(), "A JSON line segmentation file (e.g <prefix>.lines.pred.json)."],
+        "segfile_suffix": ['.lines.pred.json', "Segmentation file default suffix."],
+        "htr_suffix": ['.xml', "Default suffix for the HTR file."],
+        "output_suffix": ['', "Output file suffix; if empty, write on standard output."],  
         "overwrite_existing": [0, "Do not overwrite existing output file"],
         "verbosity": [2, "Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"],
         "matching_iou": [.15, "Tolerance for lengths of matching baselines."],
         'visual_check': [0, "Plot baseline estimate for visual checking."],
         "keep_all_predictions": [0, "Keep predicted lines with no reference match."],
     }
+
+args_orig = sys.argv.copy() # keep for logging
+args, _ = fargv.fargv( p )
+if args.verbosity != 2:
+    logging.basicConfig( level=logging_levels[args.verbosity], format=logging_format, force=True )
 
     
 def iou( box1: np.ndarray, box2: np.ndarray ):
@@ -110,127 +116,119 @@ def polynoms_from_lines( lines, domain, window ):
 
 if __name__ == "__main__":
 
-    args_orig = sys.argv.copy() # keep for logging
-    args, _ = fargv.fargv( p )
-    if args.verbosity != 2:
-        logging.basicConfig( level=logging_levels[args.verbosity], format=logging_format, force=True )
-
-    logger.info( args.segfile_path )
-
-    output_file_path = Path( args.segfile_path.replace('.lines.pred.json', '.htr.gt.json'))
-    # empty output_file_path <=> stdout
-    if args.output_file == 'stdout':
-        output_file_path = ''
-    elif args.output_file:
-        output_file_path = Path(args.output_file)
-
-    if output_file_path and not args.overwrite_existing and output_file_path.exists():
-        logger.info(f"Existing {output_file_path}: skipping." )
-        sys.exit()
 
 
-    prediction_dict = json.load(open( args.segfile_path ))
+    for segfile_path in args.segfile_paths:
+        segfile_path = Path( segfile_path )
+        output_file_path = Path( str(segfile_path).replace( args.segfile_suffix, args.output_suffix )) if args.output_suffix else None
+        logger.info( "{} → {}".format(segfile_path, output_file_path if output_file_path else 'stdout'))
 
-    reference_file_path = Path(args.segfile_path.replace('.lines.pred.json', '.xml')) if not args.htr_path else Path( args.htr_path )
-    if not reference_file_path.exists():
-        raise FileNotFoundError()
-    reference_dict = seglib.segmentation_dict_from_xml( reference_file_path, get_text=True )
-    reference_dict = seglib.segdict_sink_lines( reference_dict)
-    #print(reference_dict)
-
-    # 1. Match regions
-    pred_reg_to_ref_reg = []
-    for r1 in prediction_dict['regions']:
-        for r2 in reference_dict['regions']:
-            box1 = np.array( r1['coords'][0]+r1['coords'][2] )
-            box2 = np.array( r2['coords'][0]+r2['coords'][2] )
-            if iou( box1, box2 ) > .85:
-                pred_reg_to_ref_reg.append( r2 )
-                break
-
-    # 2. For each region: match lines
-
-    for pred_reg_idx, ref_reg in enumerate(pred_reg_to_ref_reg):
-        logger.debug(f"Processing region {pred_reg_idx}")
-        domain=prediction_dict['regions'][pred_reg_idx]['coords'][0][0], prediction_dict['regions'][pred_reg_idx]['coords'][2][0]
-        window=prediction_dict['regions'][pred_reg_idx]['coords'][0][1], prediction_dict['regions'][pred_reg_idx]['coords'][2][1]
-
-        predicted_lines = prediction_dict['regions'][pred_reg_idx]['lines'] 
-        reference_lines = pred_reg_to_ref_reg[pred_reg_idx]['lines']
-
-        if not predicted_lines or not reference_lines:
-            logger.info("Either the reference or the prediction has no line for this region: skipping.")
+        if output_file_path and not args.overwrite_existing and output_file_path.exists():
+            logger.info(f"Existing {output_file_path}: skipping." )
             continue
 
-        predicted_polynomials = polynoms_from_lines( predicted_lines, domain, window )
-        reference_polynomials = polynoms_from_lines( reference_lines, domain, window )
+        prediction_dict = json.load(open( segfile_path ))
 
-        matches = []
+        reference_file_path = Path( str(segfile_path).replace( args.segfile_suffix, args.htr_suffix)) 
+        if not reference_file_path.exists():
+            raise FileNotFoundError()
+        reference_dict = seglib.segmentation_dict_from_xml( reference_file_path, get_text=True )
+        reference_dict = seglib.segdict_sink_lines( reference_dict)
+        #print(reference_dict)
 
-        predicted_polynom_points = np.stack([ p.linspace(5) for p in predicted_polynomials ])
-        reference_polynom_points = np.stack([ p.linspace(5) for p in reference_polynomials ])
+        # 1. Match regions
+        pred_reg_to_ref_reg = []
+        for r1 in prediction_dict['regions']:
+            for r2 in reference_dict['regions']:
+                box1 = np.array( r1['coords'][0]+r1['coords'][2] )
+                box2 = np.array( r2['coords'][0]+r2['coords'][2] )
+                if iou( box1, box2 ) > .85:
+                    pred_reg_to_ref_reg.append( r2 )
+                    break
 
-        if args.visual_check:
-            plot_polynoms( predicted_polynom_points, reference_polynom_points )
+        # 2. For each region: match lines
 
-        for p,ppn in enumerate(predicted_polynomials):
-            for r,rpn in enumerate(reference_polynomials):
-                length_p, length_r = [ l['baseline'][-1][0]-l['baseline'][0][0] for l in (predicted_lines[p], reference_lines[r]) ]
-                text = reference_lines[r]['text'] if 'text' in reference_lines[r] else ''
-                score = ((predicted_polynom_points[p][1] - reference_polynom_points[r][1])**2).sum()
-                matches.append((p, r, length_p, length_r, score, text ))
+        for pred_reg_idx, ref_reg in enumerate(pred_reg_to_ref_reg):
+            logger.debug(f"Processing region {pred_reg_idx}")
+            domain=prediction_dict['regions'][pred_reg_idx]['coords'][0][0], prediction_dict['regions'][pred_reg_idx]['coords'][2][0]
+            window=prediction_dict['regions'][pred_reg_idx]['coords'][0][1], prediction_dict['regions'][pred_reg_idx]['coords'][2][1]
 
-        # keeping best <predicted number> matches, minus the ill-fitting ones (insufficient overlap)
-        matches = [ m for m in sorted( matches, key=lambda x: x[4])[:len(predicted_polynomials)] if abs((m[2] - m[3])/m[2]) <= args.matching_iou]
-        logger.debug(f"{len(matches)} matches.")
-        #for m in sorted(matches,key=lambda x: x[0]):
-        #    logger.debug(m)
-        match_hash = {}
-        reference_matched = [False for r in range(len(reference_lines))]
-        for m in sorted( matches, key=lambda x: x[0]):
-            # ensure one-to-one assignment; first cond. discards lines with no text
-            if not m[-1]:
-                logger.warning(f"Discarding pair {m[0],m[1]} (no text)") 
-                logger.warning(f"text={reference_lines[m[1]]['text']}")
+            predicted_lines = prediction_dict['regions'][pred_reg_idx]['lines'] 
+            reference_lines = pred_reg_to_ref_reg[pred_reg_idx]['lines']
+
+            if not predicted_lines or not reference_lines:
+                logger.info("Either the reference or the prediction has no line for this region: skipping.")
                 continue
-            if m[0] not in match_hash and not reference_matched[m[1]]:
-                match_hash[m[0]] = m
-                reference_matched[m[1]]=True
-        for k,m in match_hash.items():
-            logger.debug(f"{m}")
 
-        # check that no given reference line is assigned to 2 predicted lines
-        assigned_reference_lines = set([ m[1] for m in match_hash.values() ])
-        if len(assigned_reference_lines) != len( match_hash.keys()):
-            logger.info("Assignment is not one to one! Skipping region.")
-            # pairs that duplicate a reference line (eg. U-17_0169_r, U-17_0202_r...)
-            # should not exist at this point
-            continue
-        # cases to handle:
-        # - a predicted line has no counterpart in the original
-        predicted_orphans = set( range(len( predicted_lines))) - set( match_hash.keys() )
-        if predicted_orphans:
-            logger.warning(f"Predicted lines {predicted_orphans} have no match!")
-        # - a reference line has no counterpart in the prediction
-        reference_orphans = set( range( len( reference_lines ))) - assigned_reference_lines
-        if reference_orphans:
-            logger.warning(f"Reference lines {reference_orphans} have no match!")
-        
-        for m in match_hash.values():
-            pred_lidx, ref_lidx, length_p , length_r, _, text= m
-            #logger.debug("{} {} {} {} {}".format(pred_lidx, ref_lidx, text[:100], length_p, length_r))
-            predicted_lines[pred_lidx]['text']=ref_reg['lines'][ref_lidx]['text']
-        if not args.keep_all_predictions:
-            prediction_dict['regions'][pred_reg_idx]['lines']=[ l for i,l in enumerate(predicted_lines) if i in match_hash.keys() ]
+            predicted_polynomials = polynoms_from_lines( predicted_lines, domain, window )
+            reference_polynomials = polynoms_from_lines( reference_lines, domain, window )
 
-    cli_args = ' '.join(args_orig[1:])
-    prediction_dict['metadata']['comment']=f"Created by command: {Path(args_orig[0]).name + cli_args} (input PageXML: {reference_file_path.name})."
+            matches = []
 
-    if not output_file_path:
-        print(json.dumps( prediction_dict ))
-    else:
-        with open( output_file_path, 'w') as of:
-            of.write( json.dumps( prediction_dict, indent=2 ))
-            logger.info(f"Written {output_file_path}.")
+            predicted_polynom_points = np.stack([ p.linspace(5) for p in predicted_polynomials ])
+            reference_polynom_points = np.stack([ p.linspace(5) for p in reference_polynomials ])
+
+            if args.visual_check:
+                plot_polynoms( predicted_polynom_points, reference_polynom_points )
+
+            for p,ppn in enumerate(predicted_polynomials):
+                for r,rpn in enumerate(reference_polynomials):
+                    length_p, length_r = [ l['baseline'][-1][0]-l['baseline'][0][0] for l in (predicted_lines[p], reference_lines[r]) ]
+                    text = reference_lines[r]['text'] if 'text' in reference_lines[r] else ''
+                    score = ((predicted_polynom_points[p][1] - reference_polynom_points[r][1])**2).sum()
+                    matches.append((p, r, length_p, length_r, score, text ))
+
+            # keeping best <predicted number> matches, minus the ill-fitting ones (insufficient overlap)
+            matches = [ m for m in sorted( matches, key=lambda x: x[4])[:len(predicted_polynomials)] if abs((m[2] - m[3])/m[2]) <= args.matching_iou]
+            logger.debug(f"{len(matches)} matches.")
+            #for m in sorted(matches,key=lambda x: x[0]):
+            #    logger.debug(m)
+            match_hash = {}
+            reference_matched = [False for r in range(len(reference_lines))]
+            for m in sorted( matches, key=lambda x: x[0]):
+                # ensure one-to-one assignment; first cond. discards lines with no text
+                if not m[-1]:
+                    logger.warning(f"Discarding pair {m[0],m[1]} (no text)") 
+                    logger.warning(f"text={reference_lines[m[1]]['text']}")
+                    continue
+                if m[0] not in match_hash and not reference_matched[m[1]]:
+                    match_hash[m[0]] = m
+                    reference_matched[m[1]]=True
+            for k,m in match_hash.items():
+                logger.debug(f"{m}")
+
+            # check that no given reference line is assigned to 2 predicted lines
+            assigned_reference_lines = set([ m[1] for m in match_hash.values() ])
+            if len(assigned_reference_lines) != len( match_hash.keys()):
+                logger.info("Assignment is not one to one! Skipping region.")
+                # pairs that duplicate a reference line (eg. U-17_0169_r, U-17_0202_r...)
+                # should not exist at this point
+                continue
+            # cases to handle:
+            # - a predicted line has no counterpart in the original
+            predicted_orphans = set( range(len( predicted_lines))) - set( match_hash.keys() )
+            if predicted_orphans:
+                logger.warning(f"Predicted lines {predicted_orphans} have no match!")
+            # - a reference line has no counterpart in the prediction
+            reference_orphans = set( range( len( reference_lines ))) - assigned_reference_lines
+            if reference_orphans:
+                logger.warning(f"Reference lines {reference_orphans} have no match!")
+            
+            for m in match_hash.values():
+                pred_lidx, ref_lidx, length_p , length_r, _, text= m
+                #logger.debug("{} {} {} {} {}".format(pred_lidx, ref_lidx, text[:100], length_p, length_r))
+                predicted_lines[pred_lidx]['text']=ref_reg['lines'][ref_lidx]['text']
+            if not args.keep_all_predictions:
+                prediction_dict['regions'][pred_reg_idx]['lines']=[ l for i,l in enumerate(predicted_lines) if i in match_hash.keys() ]
+
+        cli_args = ' '.join(args_orig[1:])
+        prediction_dict['metadata']['comment']=f"Created by command: {Path(args_orig[0]).name + cli_args} (input PageXML: {reference_file_path.name})."
+
+        if not output_file_path:
+            print(json.dumps( prediction_dict ))
+        else:
+            with open( output_file_path, 'w') as of:
+                of.write( json.dumps( prediction_dict, indent=2 ))
+                logger.info(f"Written {output_file_path}.")
 
 
