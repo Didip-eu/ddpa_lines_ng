@@ -37,6 +37,7 @@ TODO:
 import sys
 from pathlib import Path
 import json
+import re
 
 import numpy as np
 from numpy.polynomial import Polynomial, polynomial
@@ -115,8 +116,6 @@ def polynoms_from_lines( lines, domain, window ):
     return polynoms
 
 if __name__ == "__main__":
-
-
 
     for segfile_path in args.segfile_paths:
         segfile_path = Path( segfile_path )
@@ -222,7 +221,8 @@ if __name__ == "__main__":
                 prediction_dict['regions'][pred_reg_idx]['lines']=[ l for i,l in enumerate(predicted_lines) if i in match_hash.keys() ]
 
         cli_args = ' '.join(args_orig[1:])
-        prediction_dict['metadata']['comment']=f"Created by command: {Path(args_orig[0]).name + cli_args} (input PageXML: {reference_file_path.name})."
+        abbr_args = re.sub( r'-segfile_paths( +[^\- ][^ ]+)+ +-', f'-segfile_paths {segfile_path} -', cli_args)
+        prediction_dict['metadata']['comment']=f"Created by command: {Path(args_orig[0]).name + abbr_args} (input PageXML: {reference_file_path.name})."
 
         if not output_file_path:
             print(json.dumps( prediction_dict ))
