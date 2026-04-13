@@ -17,12 +17,14 @@ import tormentor
 import math
 from pathlib import Path
 import sys
-import fargv
 import random
 import hashlib
 
 import torch
 import matplotlib.pyplot as plt
+
+import fargv
+from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
 
 sys.path.append( str(Path(__file__).parents[1] ))
 
@@ -32,21 +34,21 @@ from libs.train_utils import split_set
 
 
 p = {
-        'img_paths': set(list(Path("dataset").glob('*.img.jpg'))),
+        'img_paths': FargvPositional(default=list(Path("dataset").glob('*.img.jpg'))),
         'repeat': [1, "Number of patch samples to generate from one image."],
         'img_size': 1024,
-        'subsets': set(['train', 'val']),
+        'subsets': ['train', 'val'],
         'log_tsv': True,
         'dummy': False,
         'img_suffix': '.img.jpg',
         'lbl_suffix': '.lines.gt.json',
-        'device': [('cpu', 'cuda'), "Computing device"],
+        'device': FargvChoice(default=['cpu', 'cuda', 'cuda:0', 'cuda:1', 'cuda:2', 'cuda:3'], description="Computing device"),
         'visual_check': [False, "Dry-run: no serialization + visual check of transformed samples."],
-        'aug_style': [0, "Augmentation style"],
+        'aug_style': (0, "Augmentation style"),
 }
 
 
-args, _ = fargv.fargv( p )
+args, _ = fargv.parse( p )
 
 
 random.seed(46)

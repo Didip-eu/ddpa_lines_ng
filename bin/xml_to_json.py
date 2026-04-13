@@ -7,14 +7,14 @@ The original function is in ddpa_lines_ng/libs/seglib.
 
 import sys
 import json
-import fargv
 import re
 from pathlib import Path
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from typing import Union, Any
 
-
+import fargv
+from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
 
 src_root = Path(__file__).parents[1]
 sys.path.append( str( src_root ))
@@ -22,17 +22,17 @@ from libs import seglib
 
 
 p = {
-    'file_paths': set([]),
-    'output_format': [('json', 'stdout'), "Output format"],
-    'get_text': [1, "Extract text content of the line, if it exists"],
-    'overwrite_existing': [0, "Overwrite an existing file."],
-    "comment": ['',"A text string to be added to the <Comments> elt."],
+    'file_paths': FargvPositional(default=[]),
+    'output_format': FargvChoice(['json', 'stdout'], description="Output format"),
+    'get_text': (True, "Extract text content of the line, if it exists"),
+    'overwrite_existing': (False, "Overwrite an existing file."),
+    "comment": ('',"A text string to be added to the <Comments> elt."),
 }
 
 
 if __name__ == '__main__':
 
-    args, _ = fargv.fargv( p )
+    args, _ = fargv.parse( p )
 
     for xml_path in args.file_paths:
 

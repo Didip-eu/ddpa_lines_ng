@@ -15,25 +15,25 @@ Examples:
     With image used as-is (no layout analysis), on-the-fly prediction and display:
 
     ```
-    PYTHONPATH=. bin/ddp_lineseg_viewer.py -random 10 -model_path ./models/best_101_1024_bsz4.mlmodel -rescale 1 -img_paths ./dataset/*.jpg 
+    PYTHONPATH=. bin/ddp_lineseg_viewer.py --random 10 --model_path ./models/best_101_1024_bsz4.mlmodel --rescale 1 --img_paths ./dataset/*.jpg 
     ```
 
     Display an existing segmentation:
 
     ```
-    PYTHONPATH=. bin/ddp_lineseg_viewer.py -random 10 -segfile_suffix lines.pred.json  -img_paths ./dataset/*.jpg
+    PYTHONPATH=. bin/ddp_lineseg_viewer.py --random 10 --segfile_suffix lines.pred.json  --img_paths ./dataset/*.jpg
     ```
 
     High-quality segmentation of a COUS (Charter of Unusual Size), running inference separately on 3x1 patches:
 
     ```
-    PYTHONPATH=. bin/ddp_lineseg_viewer.py -img_paths data/hard_cases/591e0762397178ee89e4c8b356be0da3.Wr_OldText.3.img.jpg -model_path ./models/best_101_1024_bsz4.mlmodel -patch_row_count 3
+    PYTHONPATH=. bin/ddp_lineseg_viewer.py --img_paths data/hard_cases/591e0762397178ee89e4c8b356be0da3.Wr_OldText.3.img.jpg --model_path ./models/best_101_1024_bsz4.mlmodel --patch_row_count 3
     ```
 
     Assuming the model has been trained on fixed-size crops of the charter image, inference can be run accordingly:
 
     ```
-    PYTHONPATH=. bin/ddp_lineseg_viewer.py -img_paths data/hard_cases/591e0762397178ee89e4c8b356be0da3.Wr_OldText.3.img.jpg -model_path ./models/best_patch_1024.mlmodel -patch_size 1024
+    PYTHONPATH=. bin/ddp_lineseg_viewer.py --img_paths data/hard_cases/591e0762397178ee89e4c8b356be0da3.Wr_OldText.3.img.jpg --model_path ./models/best_patch_1024.mlmodel --patch_size 1024
     ```
 
 For proper segmentation and recording of a region-based segmentation (crops), see `ddp_line_detect.py`.'
@@ -55,6 +55,7 @@ import torch
 
 # DiDip
 import fargv
+from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple, FargvVariadic
 
 # local
 src_root = Path(__file__).parents[1]
@@ -76,36 +77,36 @@ logging.getLogger('PIL').setLevel(logging.INFO)
 
 p = {
     'model_path': str(src_root.joinpath("best.mlmodel")),
-    'box_threshold': [0.75, "Threshold used for line bounding boxes."],
-    'mask_threshold': [0.6, "Threshold used for line masks--a tweak on the post-processing phase."],
-    'rescale': [0, "If True, display segmentation on original image; otherwise (default), get the image size from the model used for inference (ex. 1024 x 1024)."],
-    'img_paths': set([]), #set(Path('dataset').glob('*.jpg')),
-    'color_count': [0, "Number of colors for polygon overlay: -1 for single color, n > 1 for fixed number of colors, 0 for 1 color/line."],
-    'alpha': [0.4, "Transparency level of polygon overlay."],
-    'limit': [0, "How many files to display."],
-    'random': [0, "If non-null, randomly pick <random> paths out of the <img_paths> list."],
-    'segfile_suffix': ['', "If a line segmentation suffix is provided (ex. 'lines.pred.json'), predicted lines are read from <img_path>.<suffix>."],
-    'img_suffix': [".img.jpg", "Image file suffix."],
-    'segfile': ['', "If a line segmentation file is provided, predicted lines are read from this file."],
-    'patch_row_count': [ 0, "Process the image in <patch_row_count> rows."],
-    'patch_col_count': [ 0, "Process the image in <patch_col_count> cols."],
-    'patch_size': [1024, "Process the image by <patch_size>*<patch_size> patches"],
-    'show': set(['polygons', 'centerlines', 'regions', 'labels', 'title']),
-    'linewidth': 2,
-    'output_file_path': ['', 'If path is a directory, save the plot in <output_file_path>/<img_name_stem>.png.; otherwise, save under the provided file path.'],
-    'crop_x': [1.0, "crop-in ratio on resulting plot (x axis, centered)"],
-    'crop_y': [1.0, "crop-in ratio on resulting plot (y axis, centered)"],
-    'raw_polygons': [0, "Show polygons as resulting from the NN; otherwise (default), show the abstract polygons constructed from the detected centerlines."],
-    'line_height_factor': [1.0, "Factor (within ]0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"],
-    'device': [('cpu','gpu','cuda', 'cuda:0', 'cuda:1', 'cuda:2', 'cuda:3'), "Computing device -- 'cuda' or 'gpu' defaults to 'cuda:0'."],
-    'verbosity': [2,"Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"],
-    'check_mark': [0, "Prompt for flag file (when reviewing results)."],
+    'box_threshold': (0.75, "Threshold used for line bounding boxes."),
+    'mask_threshold': (0.6, "Threshold used for line masks--a tweak on the post-processing phase."),
+    'rescale': (False, "If True, display segmentation on original image; otherwise (default), get the image size from the model used for inference (ex. 1024 x 1024)."),
+    'img_paths': FargvPositional(default=[]), #set(Path('dataset').glob('*.jpg')),
+    'color_count': (0, "Number of colors for polygon overlay: -1 for single color, n > 1 for fixed number of colors, 0 for 1 color/line."),
+    'alpha': (0.4, "Transparency level of polygon overlay."),
+    'limit': (0, "How many files to display."),
+    'random': (0, "If non-null, randomly pick <random> paths out of the <img_paths> list."),
+    'segfile_suffix': ('', "If a line segmentation suffix is provided (ex. 'lines.pred.json'), predicted lines are read from <img_path>.<suffix>."),
+    'img_suffix': (".img.jpg", "Image file suffix."),
+    'segfile': ('', "If a line segmentation file is provided, predicted lines are read from this file."),
+    'patch_row_count': ( 0, "Process the image in <patch_row_count> rows."),
+    'patch_col_count': ( 0, "Process the image in <patch_col_count> cols."),
+    'patch_size': (1024, "Process the image by <patch_size>*<patch_size> patches"),
+    'show': ['polygons', 'centerlines', 'regions', 'labels', 'title'],
+    'overlay_linewidth': 2,
+    'output_file_path': ('', 'If path is a directory, save the plot in <output_file_path>/<img_name_stem>.png.; otherwise, save under the provided file path.'),
+    'crop_x': (1.0, "crop-in ratio on resulting plot (x axis, centered)"),
+    'crop_y': (1.0, "crop-in ratio on resulting plot (y axis, centered)"),
+    'raw_polygons': (False, "Show polygons as resulting from the NN; otherwise (default), show the abstract polygons constructed from the detected centerlines."),
+    'line_height_factor': (1.0, "Factor (within ]0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"),
+    'device': FargvChoice(['cpu','gpu','cuda', 'cuda:0', 'cuda:1', 'cuda:2', 'cuda:3'], description="Computing device -- 'cuda' or 'gpu' defaults to 'cuda:0'."),
+    'verbosity': (2,"Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"),
+    'check_mark': (False, "Prompt for flag file (when reviewing results)."),
 }
 
 
 if __name__ == '__main__':
 
-    args, _ = fargv.fargv(p)
+    args, _ = fargv.parse( p )
 
     if args.verbosity != 2:
         logging.basicConfig( level=logging_levels[args.verbosity], format=logging_format, force=True )
@@ -141,7 +142,7 @@ if __name__ == '__main__':
                 if not segfile_path.exists():
                     logger.warning("Could not find a segmentation file {}: skipping item;".format( Path(segfile_path)))
                     continue
-                segviz.display_segmentation_and_img( img_path, segfile=segfile_path, show={ k:True for k in args.show if k != 'labels'}, linewidth=args.linewidth, crop=(args.crop_x, args.crop_y), output_file_path=args.output_file_path, color_count=args.color_count, alpha=args.alpha )
+                segviz.display_segmentation_and_img( img_path, segfile=segfile_path, show={ k:True for k in args.show if k != 'labels'}, linewidth=args.overlay_linewidth, crop=(args.crop_x, args.crop_y), output_file_path=args.output_file_path, color_count=args.color_count, alpha=args.alpha )
                 if args.check_mark == 1:
                     check=input("Check for issue? [N|y]")
                     if check == 'y':

@@ -43,6 +43,7 @@ import numpy as np
 from numpy.polynomial import Polynomial, polynomial
 import matplotlib.pyplot as plt
 import fargv
+from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
 
 from libs import seglib
 import warnings 
@@ -59,19 +60,19 @@ logging.getLogger('PIL').setLevel(logging.INFO)
 
 
 p = {
-        "segfile_paths": [set(), "A JSON line segmentation file (e.g <prefix>.lines.pred.json)."],
-        "segfile_suffix": ['.lines.pred.json', "Segmentation file default suffix."],
-        "htr_suffix": ['.xml', "Default suffix for the HTR file."],
-        "output_suffix": ['', "Output file suffix; if empty, write on standard output."],  
-        "overwrite_existing": [0, "Do not overwrite existing output file"],
-        "verbosity": [2, "Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"],
-        "matching_iou": [.15, "Tolerance for lengths of matching baselines."],
-        'visual_check': [0, "Plot baseline estimate for visual checking."],
-        "keep_all_predictions": [0, "Keep predicted lines with no reference match."],
+        "segfile_paths": FargvPositional(default=[], description="A JSON line segmentation file (e.g <prefix>.lines.pred.json)."),
+        "segfile_suffix": ('.lines.pred.json', "Segmentation file default suffix."),
+        "htr_suffix": ('.xml', "Default suffix for the HTR file."),
+        "output_suffix": ('', "Output file suffix; if empty, write on standard output."),  
+        "overwrite_existing": (False, "Do not overwrite existing output file"),
+        "verbosity": (2, "Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"),
+        "matching_iou": (.15, "Tolerance for lengths of matching baselines."),
+        'visual_check': (False, "Plot baseline estimate for visual checking."),
+        "keep_all_predictions": (False, "Keep predicted lines with no reference match."),
     }
 
 args_orig = sys.argv.copy() # keep for logging
-args, _ = fargv.fargv( p )
+args, _ = fargv.parse( p )
 if args.verbosity != 2:
     logging.basicConfig( level=logging_levels[args.verbosity], format=logging_format, force=True )
 

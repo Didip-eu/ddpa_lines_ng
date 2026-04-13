@@ -18,10 +18,10 @@ Output formats:
 Example calls::
     
     export FSDB_ROOT=~/tmp/data/1000CV
-    PYTHONPATH=. python3 ./bin/ddp_line_detect -img_paths "${FSDB_ROOT}"/*/*/d9ae9ea49832ed79a2238c2d87cd0765/*layout.crops/*OldText*.jpg -model_path best.mlmodel -region_classes Wr:OldText
+    PYTHONPATH=. python3 ./bin/ddp_line_detect --img_paths "${FSDB_ROOT}"/*/*/d9ae9ea49832ed79a2238c2d87cd0765/*layout.crops/*OldText*.jpg --model_path best.mlmodel --region_classes Wr:OldText
 
     # patch-trained model, exporting raw polygons (instead of abstract reconstructions)
-    PYTHONPATH=. python3 ./bin/ddp_line_detect -img_paths "${FSDB_ROOT}"/*/*/d9ae9ea49832ed79a2238c2d87cd0765/*layout.crops/*OldText*.jpg -model_path best.mlmodel -region_classes Wr:OldText -raw_polygons 1
+    PYTHONPATH=. python3 ./bin/ddp_line_detect --img_paths "${FSDB_ROOT}"/*/*/d9ae9ea49832ed79a2238c2d87cd0765/*layout.crops/*OldText*.jpg --model_path best.mlmodel --region_classes Wr:OldText --raw_polygons
 
 Notes:
 
@@ -50,6 +50,7 @@ import numpy as np
 
 # Didip
 import fargv
+from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
 
 # local
 
@@ -70,25 +71,25 @@ logging.getLogger('PIL').setLevel(logging.INFO)
 p = {
         "appname": "lines",
         "model_path": str(src_root.joinpath("best.mlmodel")),
-        "img_paths": set([]),
-        "charter_dirs": set([]),
-        "region_classes": [set(["Wr:OldText"]), "Names of the layout-app regions on which lines are to be detected. Eg. '[Wr:OldText']. If empty (default), detection is run on the entire page."],
-        "img_suffix": [r".img.*p*g", "Image file suffix."],
-        "layout_suffix": [".layout.pred.json", "Regions are given by segmentation file that is <img name stem><suffix>."],
-        "line_attributes": [set(["centerline", "x-height"]), "Non-standard line properties to be included in the dictionary."],
-        "output_format": [("json", "xml", "stdout", "quiet"), "Segmentation output: json=<JSON file>, xml=<PageXML file>, stdout=JSON on standard output, quiet=nothing (for testing and timing)"],
-        "output_dir": ['', "Output directory; if not provided, defaults to the image path's parent."],
-        'mask_threshold': [.6, "In the post-processing phase, threshold to use for line soft masks."],
-        'box_threshold': [0.75, "Threshold used for line bounding boxes."],
-        'apply_model_thresholds': [1, "If true, any threshold passed as parameter overrides model's built-in thresholds."],
-        'patch_size': [1024, "Process the image by <patch_size>*<patch_size> patches"],
-        'raw_polygons': [0, "Serialize polygons as resulting from the NN (default); otherwise, construct the abstract polygons from centerlines."],
-        'device': [('cpu','gpu','cuda', 'cuda:0', 'cuda:1', 'cuda:2', 'cuda:3'), "Computing device -- 'cuda' or 'gpu' defaults to 'cuda:0'."],
-        'line_height_factor': [1.5, "Factor (within ]0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"],
-        'overwrite_existing': [1, "Write over existing output file (default)."],
-        'timer': [0, "Aggregate performance metrics. A strictly positive integer <n> computes the mean time for every batch of <n> images."],
-        'timer_logs': ['stdout', "Filename for timer logs."],
-        'verbosity': [2,"Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"],
+        "img_paths": FargvPositional(default=[]),
+        "charter_dirs": [],
+        "region_classes": (["Wr:OldText"], "Names of the layout-app regions on which lines are to be detected. Eg. '[Wr:OldText']. If empty (default), detection is run on the entire page."),
+        "img_suffix": (r".img.*p*g", "Image file suffix."),
+        "layout_suffix": (".layout.pred.json", "Regions are given by segmentation file that is <img name stem><suffix>."),
+        "line_attributes": (["centerline", "x-height"], "Non-standard line properties to be included in the dictionary."),
+        "output_format": FargvChoice(["json", "xml", "stdout", "quiet"], description="Segmentation output: json=<JSON file>, xml=<PageXML file>, stdout=JSON on standard output, quiet=nothing (for testing and timing)"),
+        "output_dir": ('', "Output directory; if not provided, defaults to the image path's parent."),
+        'mask_threshold': (.6, "In the post-processing phase, threshold to use for line soft masks."),
+        'box_threshold': (0.75, "Threshold used for line bounding boxes."),
+        'apply_model_thresholds': (True, "If true, any threshold passed as parameter overrides model's built-in thresholds."),
+        'patch_size': (1024, "Process the image by <patch_size>*<patch_size> patches"),
+        'raw_polygons': (False, "Serialize polygons as resulting from the NN (default); otherwise, construct the abstract polygons from centerlines."),
+        'device': FargvChoice(['cpu','gpu','cuda', 'cuda:0', 'cuda:1', 'cuda:2', 'cuda:3'], description="Computing device -- 'cuda' or 'gpu' defaults to 'cuda:0'."),
+        'line_height_factor': (1.5, "Factor (within )0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"],
+        'overwrite_existing': (True, "Write over existing output file (default)."),
+        'timer': (0, "Aggregate performance metrics. A strictly positive integer <n> computes the mean time for every batch of <n> images."),
+        'timer_logs': ('stdout', "Filename for timer logs."),
+        'verbosity': (2,"Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"),
 }
 
 
@@ -187,7 +188,7 @@ def pack_fsdb_inputs_outputs( args:dict, layout_suffix:str ) -> list[tuple]:
 
 if __name__ == "__main__":
 
-    args, _ = fargv.fargv( p )
+    args, _ = fargv.parse( p )
 
     if args.verbosity != 2:
         logging.basicConfig( level=logging_levels[args.verbosity], format=logging_format, force=True )

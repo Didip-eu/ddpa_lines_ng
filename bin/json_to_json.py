@@ -22,32 +22,34 @@ the nested structure
 
 import sys
 import json
-import fargv
 import re
 from datetime import datetime
 from pathlib import Path
+
+import fargv
+from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
 
 src_root = Path(__file__).parents[1]
 sys.path.append( str( src_root ))
 from libs import seglib
 
 p = {
-    'file_paths': [set(), "Input file (JSON)."],
+    'file_paths': FargvPositional(default=[], description="Input file (JSON)."),
     'polygon_key': 'coords',
-    'line_height_factor': [1.0, "Factor to be applied to the original line strip height."],
-    'input_suffix': ['.lines.pred.json', "Input file suffix."],
-    'output_suffix': ['', "Output file suffix; if empty, write on standard output"],
-    'overwrite_existing': [0, "Overwrite an existing output file."],
-    'drop_transcription': [0, "Extract line transcription, if it exists."],
-    'promote_regions': [0, "For each region, create one separate filei (pre-pend 'r<reg_nbr>' to input suffix."],
-    'delete_line_features': [set(), "Line items to be removed (used with caution!)"],
+    'line_height_factor': (1.0, "Factor to be applied to the original line strip height."),
+    'input_suffix': ('.lines.pred.json', "Input file suffix."),
+    'output_suffix': ('', "Output file suffix; if empty, write on standard output"),
+    'overwrite_existing': (False, "Overwrite an existing output file."),
+    'drop_transcription': (False, "Extract line transcription, if it exists."),
+    'promote_regions': (False, "For each region, create one separate filei (pre-pend 'r<reg_nbr>' to input suffix."),
+    'delete_line_features': ([], "Line items to be removed (used with caution!)"),
     "comment": ['',"A text string to be added to the <Comments> elt."],
 }
 
 
 if __name__ == '__main__':
 
-    args, _ = fargv.fargv( p )
+    args, _ = fargv.parse( p )
 
     for file_path in args.file_paths:
         json_path = Path( file_path )

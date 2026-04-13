@@ -29,6 +29,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 # DiDip
 import fargv
+from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
 import tormentor
 
 
@@ -48,45 +49,44 @@ logger = logging.getLogger(__name__)
 
 p = {
     'max_epoch': 250,
-    'max_epoch_force': [-1, "If non-negative, this overrides a 'max_epoch' value read from a resumed model"],
-    'img_paths': set(list(Path("dataset").glob('*.img.jpg'))),
-    'train_set_limit': [0, "If positive, train on a random sampling of the train set."],
-    'validation_set_limit': [0, "If positive, validate on a random sampling of the validation set."],
+    'max_epoch_force': (-1, "If non-negative, this overrides a 'max_epoch' value read from a resumed model"),
+    'img_paths': FargvPositional(default=list(Path("dataset").glob('*.img.jpg'))),
+    'train_set_limit': (0, "If positive, train on a random sampling of the train set."),
+    'validation_set_limit': (0, "If positive, validate on a random sampling of the validation set."),
     'line_segmentation_suffix': ".lines.gt.json",
     'polygon_key': 'coords',
-    'backbone': ('resnet101','resnet50'),
+    'backbone': FargvChoice(['resnet101','resnet50']),
     'lr': 2e-4,
-    'img_size': [1024, "Resize the input images to <img_size> * <img_size>; if 'img_height non-null, this determines the width."],
-    'img_height': [0, "If non-null, input images are resize to <img_size> * <img_height>"],
+    'img_size': (1024, "Resize the input images to <img_size> * <img_size>; if 'img_height non-null, this determines the width."),
+    'img_height': (0, "If non-null, input images are resize to <img_size> * <img_height>"),
     'batch_size': 4,
     'num_workers': 4,
     'patience': 50,
-    'param_file': [ 'parameters.json', 'If this file is created _after_ the training has started, it is read at the start of the next epoch (and then deleted), thus allowing to update hyperparameters on-the-fly.'],
+    'param_file': ( 'parameters.json', 'If this file is created _after_ the training has started, it is read at the start of the next epoch (and then deleted), thus allowing to update hyperparameters on-the-fly.'),
     'tensorboard_sample_size': 2,
-    'mode': ('train','validate'),
+    'mode': FargvChoice(['train','validate']),
     'weight_file': None,
-    'scheduler': 1,
+    'scheduler': True,
     'scheduler_patience': 10,
     'scheduler_cooldown': 5,
     'scheduler_factor': 0.8,
-    'reset_epochs': 0,
+    'reset_epochs': False,
     'resume_dir': '.',
     'resume_file': 'last.mlmodel',
-    'dry_run': [0, "1: Load dataset and model, but do not actually train; 2: same, but also display the validation samples."],
-    'tensorboard': 1,
-    'tormentor': 1,
-    'device': 'cuda',
-    'augmentations': [ set([]), "Pass one or more tormentor class names, to build a choice of training augmentations; by default, apply the hard-coded transformations."],
-    'train_style': [('patch','page'), "Use page-wide sample images for training, or fixed-size patches (default)."],
-    'cache_dir': ['', ("Location for sample, serialized as Torch tensors. It should contain two subfolders: 'train' and 'val'.") ],
-    'verbosity': [2,"Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"],
+    'dry_run': FargvInt(0, "1: Load dataset and model, but do not actually train; 2: same, but also display the validation samples."],
+    'tensorboard': True,
+    'tormentor': True,
+    'device': FargvChoice(["cpu","cuda", "gpu", "cuda:0", "cuda:1", "cuda:2", "cuda:3"], description="Computing device"),
+    'augmentations': ([], "Pass one or more tormentor class names, to build a choice of training augmentations; by default, apply the hard-coded transformations."),
+    'train_style': FargvChoice(['patch','page'], description="Use page-wide sample images for training, or fixed-size patches (default)."),
+    'cache_dir': ('', "Location for sample, serialized as Torch tensors. It should contain two subfolders: 'train' and 'val'." ),
+    'verbosity': (2,"Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"),
 }
-
 
 
 if __name__ == '__main__':
 
-    args, _ = fargv.fargv( p )
+    args, _ = fargv.parse( p )
 
     if args.verbosity != 2:
         logging.basicConfig( level=logging_levels[args.verbosity], format=logging_format, force=True )
