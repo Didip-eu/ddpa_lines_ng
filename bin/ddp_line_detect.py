@@ -85,7 +85,7 @@ p = {
         'patch_size': (1024, "Process the image by <patch_size>*<patch_size> patches"),
         'raw_polygons': (False, "Serialize polygons as resulting from the NN (default); otherwise, construct the abstract polygons from centerlines."),
         'device': FargvChoice(['cpu','gpu','cuda', 'cuda:0', 'cuda:1', 'cuda:2', 'cuda:3'], description="Computing device -- 'cuda' or 'gpu' defaults to 'cuda:0'."),
-        'line_height_factor': (1.5, "Factor (within )0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"],
+        'line_height_factor': (1.0, "Factor (within (0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"),
         'overwrite_existing': (True, "Write over existing output file (default)."),
         'timer': (0, "Aggregate performance metrics. A strictly positive integer <n> computes the mean time for every batch of <n> images."),
         'timer_logs': ('stdout', "Filename for timer logs."),
@@ -292,9 +292,11 @@ if __name__ == "__main__":
 
                 ############ Output #################
 
+                sentinel_path = output_file_path.with_suffix('.stl') # protect against partial writes
                 if args.output_format == 'stdout':
                     print(json.dumps(segdict))
-                elif not output_file_path.exists() or args.overwrite_existing:
+                elif args.overwrite_existing or not output_file_path.exists() or sentinel_path.exists():
+                    open( sentinel_path, 'w' )
                     if args.output_format == 'json':
                         with open(output_file_path, 'w') as of:
                             #segdict['image_wh']=img.size
@@ -302,6 +304,7 @@ if __name__ == "__main__":
                     elif args.output_format == 'xml':
                         #segdict['image_wh']=img.size
                         seglib.xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
+                    sentinel_path.unlink()
                     if args.output_format != 'quiet':
                         logger.debug("Segmentation output saved in {}".format( output_file_path ))
 

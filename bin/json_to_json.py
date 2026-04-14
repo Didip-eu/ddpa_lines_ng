@@ -41,9 +41,9 @@ p = {
     'output_suffix': ('', "Output file suffix; if empty, write on standard output"),
     'overwrite_existing': (False, "Overwrite an existing output file."),
     'drop_transcription': (False, "Extract line transcription, if it exists."),
-    'promote_regions': (False, "For each region, create one separate filei (pre-pend 'r<reg_nbr>' to input suffix."),
+    'promote_regions': (False, "For each region, create one separate file (pre-pend 'r<reg_nbr>' to input suffix."),
     'delete_line_features': ([], "Line items to be removed (used with caution!)"),
-    "comment": ['',"A text string to be added to the <Comments> elt."],
+    "comment": ('',"A text string to be added to the <Comments> elt."),
 }
 
 
@@ -76,7 +76,7 @@ if __name__ == '__main__':
         output_file_path = Path( file_path.replace( args.input_suffix, args.output_suffix )) if args.output_suffix else None
         print(f'{file_path} → {output_file_path}')
         if output_file_path and not args.overwrite_existing and output_file_path.exists():
-            logger.info(f"Existing {output_file_path}: skipping." )
+            print(f"Existing {output_file_path}: skipping." )
             continue
 
         segdict = None

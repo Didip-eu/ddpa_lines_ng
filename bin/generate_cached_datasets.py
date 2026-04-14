@@ -6,9 +6,9 @@ Usage:
 
 ```
 # generate training and validation sets, with 6 patches out of every source image
-PYTHONPATH=. ./bin/ddp_generate_cached_datasets.py -img_paths dataset/*.img.jpg -repeat 6
+PYTHONPATH=. ./bin/ddp_generate_cached_datasets.py --img_paths dataset/*.img.jpg --repeat 6
 # generate only validation set
-PYTHONPATH=. ./bin/ddp_generate_cached_datasets.py -img_paths dataset/*.img.jpg -repeat 6 -subsets val
+PYTHONPATH=. ./bin/ddp_generate_cached_datasets.py --img_paths dataset/*.img.jpg --repeat 6 --subsets val
 ```
 
 """
@@ -35,7 +35,7 @@ from libs.train_utils import split_set
 
 p = {
         'img_paths': FargvPositional(default=list(Path("dataset").glob('*.img.jpg'))),
-        'repeat': [1, "Number of patch samples to generate from one image."],
+        'repeat': (1, "Number of patch samples to generate from one image."),
         'img_size': 1024,
         'subsets': ['train', 'val'],
         'log_tsv': True,
@@ -43,13 +43,12 @@ p = {
         'img_suffix': '.img.jpg',
         'lbl_suffix': '.lines.gt.json',
         'device': FargvChoice(default=['cpu', 'cuda', 'cuda:0', 'cuda:1', 'cuda:2', 'cuda:3'], description="Computing device"),
-        'visual_check': [False, "Dry-run: no serialization + visual check of transformed samples."],
+        'visual_check': (False, "Dry-run: no serialization + visual check of transformed samples."),
         'aug_style': (0, "Augmentation style"),
 }
 
 
 args, _ = fargv.parse( p )
-
 
 random.seed(46)
 imgs = list([ Path( ip ) for ip in args.img_paths ])
