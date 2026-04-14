@@ -692,7 +692,7 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
         # extract namespace
         ns = {}
         for line in page_file:
-            m = re.match(r'\s*<([^:]+:)?PcGts\s+xmlns(:[^=]+)?=[\'"]([^"]+)["\']', line)
+            m = re.match(r'\s*<([^:]+:)?PcGts.+xmlns(:[^=]+)?=[\'"]([^"]+)["\']', line)
             if m:
                 ns['pc'] = m.group(3)
                 page_file.seek(0)
