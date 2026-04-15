@@ -524,7 +524,7 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
         "xsi:schemaLocation": "http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15 http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15/pagecontent.xsd"})
     metadataElt = ET.SubElement(rootElt, 'MetaData')
     creatorElt = ET.SubElement( metadataElt, 'Creator')
-    creatorElt.text=seg_dict['metadata']['creator'] if ('metadata' in seg_dict and 'creator' in seg_dict['metadata']) else 'Universität Graz/DH/nprenet@uni-graz.at'
+    creatorElt.text=seg_dict['metadata']['creator'] if ('metadata' in seg_dict and 'creator' in seg_dict['metadata']) else 'Universität Graz/DH/nicolas.renet@uni-graz.at'
     createdElt = ET.SubElement( metadataElt, 'Created')
     createdElt.text=datetime.now().isoformat()
     lastChangeElt = ET.SubElement( metadataElt, 'LastChange')
@@ -692,9 +692,9 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
         # extract namespace
         ns = {}
         for line in page_file:
-            m = re.match(r'\s*<([^:]+:)?PcGts.+xmlns(:[^=]+)?=[\'"]([^"]+)["\']', line)
+            m = re.match(r'\s*<([^:]+:)?PcGts.+xmlns=[\'"]([^"]+)["\']', line)
             if m:
-                ns['pc'] = m.group(3)
+                ns['pc'] = m.group(2)
                 page_file.seek(0)
                 break
 
