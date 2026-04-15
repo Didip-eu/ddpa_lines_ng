@@ -24,9 +24,11 @@ from libs import seglib
 p = {
     'file_paths': FargvPositional(default=[]),
     'output_format': FargvChoice(['json', 'stdout'], description="Output format"),
+    'input_suffix': '.xml',
     'get_text': (True, "Extract text content of the line, if it exists"),
     'overwrite_existing': (False, "Overwrite an existing file."),
     "comment": ('',"A text string to be added to the <Comments> elt."),
+    "verbose": False,
 }
 
 
@@ -37,6 +39,8 @@ if __name__ == '__main__':
     for xml_path in args.file_paths:
 
         xml_path = Path(xml_path)
+        if args.verbose:
+            print(xml_path)
 
         segdict = seglib.segmentation_dict_from_xml( xml_path, get_text=args.get_text )
         segdict_str = json.dumps( segdict, indent=2 )
@@ -44,7 +48,7 @@ if __name__ == '__main__':
         if args.output_format == 'stdout':
             print( segdict_str )
         else:
-            json_path = xml_path.with_suffix('.json')
+            json_path = Path(str(xml_path).replace(args.input_suffix, '.json'))
             if not args.overwrite_existing and json_path.exists():
                 print("File {} exists: abort.".format( json_path ))
             else:
