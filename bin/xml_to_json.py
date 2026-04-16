@@ -37,7 +37,7 @@ p = {
 schema_dict = { 
   "id": "https://didip.uni-graz.at/segmentation.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$comment": "Created by NPR on 2026.02.06 - use the following command for validation: check-jsonschema --schemafile schema.json *.lines.gt.json",
+  "$comment": "Created by NPR on 2026.02.06 - use the following: 'check-jsonschema --schemafile schema.json *.lines.gt.json' for CLI validation or 'jsonschema.validate(instance=dict, schema=dict)' for in-script validation.",
   "title": "Page Description",
   "description": "Line segmentation metadata schema, for DiDip/VRE internal use: structure of *.lines.{pred,gt}.json files.",
   "type": "object",
