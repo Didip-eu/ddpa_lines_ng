@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """
-A stand-alone script for PageXML -> JSON conversion.
-
-The original function is in ddpa_lines_ng/libs/seglib.
+PageXML -> JSON conversion.
 """
 
 import sys
@@ -15,10 +13,12 @@ from typing import Union, Any
 
 import fargv
 from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
+from jsonschema import validate
 
 src_root = Path(__file__).parents[1]
 sys.path.append( str( src_root ))
 from libs import seglib
+
 
 
 p = {
@@ -29,12 +29,84 @@ p = {
     'overwrite_existing': (False, "Overwrite an existing file."),
     "comment": ('',"A text string to be added to the <Comments> elt."),
     "verbose": False,
+    "validate": (False, "Validate against a JSON schema."),
+    "json_schema": ('', "JSON schema file to use: if empty, the built-in schema is used.")
 }
 
+
+schema_dict = { 
+  "id": "https://didip.uni-graz.at/segmentation.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Created by NPR on 2026.02.06 - use the following command for validation: check-jsonschema --schemafile schema.json *.lines.gt.json",
+  "title": "Page Description",
+  "description": "Line segmentation metadata schema, for DiDip/VRE internal use: structure of *.lines.{pred,gt}.json files.",
+  "type": "object",
+  "required": ["metadata", "image_filename", "image_width", "image_height","regions"],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "created": { "type": "string" },
+        "creator": { "type": "string" },
+        "comment": { "type": "string" } },
+      "required": ["created", "creator"] },
+    "image_filename": { "type": "string" },
+    "image_width": { "type": "integer" },
+    "image_height": { "type": "integer" },
+    "type": { "type": "string" },
+    "text_direction": { "type": "string" },
+    "regions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "coords"],
+        "properties": {
+          "id": { "type": "string" },
+          "coords": { "type": "array" }, 
+          "lines": { 
+            "type": "array",
+            "items": {
+              "type": "object", 
+              "required": ["id", "coords", "x-height", "baseline"],
+              "properties": { 
+                "id": { "type": "string" }, 
+                "coords": { 
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": { "type": "integer" },
+		    "minItems": 2,
+		    "maxItems": 2 } }, 
+                "x-height": { "type": "integer" },
+                "centerline": { 
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": { "type": "integer" },
+		    "minItems": 2,
+		    "maxItems": 2 },
+		  "minItems": 2 },
+                "baseline": { 
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": { "type": "integer" },
+		    "minItems": 2,
+		    "maxItems": 2 },
+		  "minItems": 2 } } } } } } } } }
 
 if __name__ == '__main__':
 
     args, _ = fargv.parse( p )
+
+    if args.validate:
+        if args.json_schema and Path(args.json_schema).exists():
+            with open( args.json_schema ) as sch_if:
+                schema_dict = json.load( sch_if )
+                if args.verbose:
+                    print(f"Using schema file {args.json_schema} for validation.")
+        elif args.verbose:
+            print("Using built-in JSON schema for validation.")
 
     for xml_path in args.file_paths:
 
@@ -43,8 +115,12 @@ if __name__ == '__main__':
             print(xml_path)
 
         segdict = seglib.segmentation_dict_from_xml( xml_path, get_text=args.get_text )
-        segdict_str = json.dumps( segdict, indent=2 )
 
+        # Raise an exception if invalid
+        if args.validate:
+            validate( instance=segdict, schema=schema_dict )
+
+        segdict_str = json.dumps( segdict, indent=2 )
         if args.output_format == 'stdout':
             print( segdict_str )
         else:
