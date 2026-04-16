@@ -609,14 +609,14 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
             if baseline_elt is None:
                 return None
             bl_points = baseline_elt.get('points')
-            if bl_points is None:
+            if bl_points is None or len(bl_points)==0:
                 return None
             baseline_points = parse_coordinates( bl_points )
             coord_elt = line.find('./pc:Coords', ns)
             if coord_elt is None:
                 return None
             c_points = coord_elt.get('points')
-            if c_points is None:
+            if c_points is None or len(c_points)==0:
                 return None
             polygon_points = parse_coordinates( c_points )
 
