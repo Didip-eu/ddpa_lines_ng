@@ -260,9 +260,11 @@ if __name__ == "__main__":
                         logger.warning("Could not find relevant region in the layout segmentation file {}. Skipping item.".format( layout_file_path ))
                         continue
                     crops_pil, boxes, _ = layout_data 
+                    logger.debug(crops_pil, boxes)
 
                     binary_masks = []
                     for crop_idx, crop_whc in enumerate(crops_pil):
+                        logger.debug(f"Processing crop #{crop_idx}")
                         binary_mask = None
                         # Inference from fixed-size patches
                         patch_size = check_patch_size_against_model( live_model, args.patch_size )
@@ -285,6 +287,7 @@ if __name__ == "__main__":
                         if not keep:
                             continue
                         boxes = [ b for i,b in enumerate(boxes) if i in keep ]
+                        segmentation_records = [ sr for i,sr in enumerate(segmentation_records) if i in keep ]
                         segdict = build_segdict_composite( img_metadata, boxes, segmentation_records, args.line_attributes, line_height_factor=args.line_height_factor ) 
                     except (TypeError, ValueError) as e:
                         logger.warning("{}\tFailed to polygonize line masks ({}): abort segmentation.".format( img_path, e ))

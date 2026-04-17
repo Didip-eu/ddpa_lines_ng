@@ -107,12 +107,19 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
         """
         After pruning, skeleton's very ends may deviate markedly from the main axis; what follows is a crude,
         but adequate fix: both ends are truncated (proper length determined from line height) and replaced by a single 
-        point at same height of the left(right)most point of the truncated skeleton. Option
+        point at same height of the left(right)most point of the truncated skeleton. 
+
+        Returns:
+            np.ndarray: a (N,2) array of coordinates.
         """
         x_leftmost, x_rightmost = np.min(skl_yx[:,1]), np.max(skl_yx[:,1])
         end_segment_length = int(np.ceil(line_height/(2*np.tan(np.pi/6))))
+        if end_segment_length > len(skl_yx):
+            return skl_yx
         skl_yx_reduced = skl_yx[end_segment_length-1:-end_segment_length+1]
-        skl_yx_reduced[[0,-1]]=[[skl_yx[end_segment_length,0], x_leftmost],[ skl_yx[-(end_segment_length+1), 0], x_rightmost]]
+        if skl_yx_reduced.shape[0]==0:
+            return skl_yx
+        skl_yx_reduced[[0,-1]]=[[skl_yx[end_segment_length-1,0], x_leftmost],[ skl_yx[-(end_segment_length-1), 0], x_rightmost]]
         if skl_yx_reduced[0,1]>0:
             #skl_yx_reduced = np.concat( [ [[skl_yx_reduced[0,0], 0]], skl_yx_reduced ])
             skl_yx_reduced[0,1] =  0
@@ -123,7 +130,6 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
 
     labeled_msk_regular_hw = None if raw_polygons else np.zeros(labeled_msk_hw.shape, dtype=labeled_msk_hw.dtype)
 
-    logger.debug("Label processing")
     time_start = time()
     for lbl in labels:
         label_start = time()
@@ -136,13 +142,13 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
         min_y, min_x = np.min( polygon_coords[-1], axis=0)
         max_y, max_x = np.max( polygon_coords[-1], axis=0)
         coords = (polygon_coords[-1] - np.array([min_y, min_x]))
-
         # PIL polygon fill is faster than skimage (by an order of magnitude)
         #polygon_box_ski = ski.draw.polygon2mask((max_y-min_y+1, max_x-min_x+1), coords )
         polygon_box=polygon_to_mask_pil( (max_y-min_y+1, max_x-min_x+1), coords )
         
         # 2. Skeletonize and prune
         try:
+            box_limits = (0,0,*[ d-1 for d in labeled_msk_hw.shape] )
             _, this_skeleton_yx = prune_skeleton( ski.morphology.skeletonize( polygon_box ))
             # 3. Avg line height = area of polygon / length of skeleton
             line_heights.append( (np.sum(polygon_box) // len( this_skeleton_yx)).item() )
@@ -153,13 +159,14 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
 
             if not raw_polygons:
                 polyg = strip_from_centerline( skeleton_coords[-1][:,::-1], line_heights[-1]*height_factor )[:,::-1]
-                polyg = boxed_in( polyg, (0,0,*[ d-1 for d in labeled_msk_hw.shape] ))
+                polyg = boxed_in( polyg, box_limits)#(0,0,*[ d-1 for d in labeled_msk_hw.shape] ))
                 polygon_coords[-1] = polyg
                 polyg_rr, polyg_cc = ski.draw.polygon( *(polygon_coords[-1]).transpose())
                 labeled_msk_regular_hw[ polyg_rr, polyg_cc ]=lbl
         #except (ValueError, IndexError) as e:
         except Exception as e:
             logger.warning("Failed to retrieve geometry from label mask #{}: {}".format(lbl, e))
+            return None
         logger.debug("Done processing label {} - time: {:.5f}".format( lbl, time()-label_start ))
     logger.debug("Total label processing time: {:.5f}".format( time() - time_start ))
         
