@@ -55,6 +55,7 @@ schema_dict = {
     "image_height": { "type": "integer" },
     "type": { "type": "string" },
     "text_direction": { "type": "string" },
+    "lines": {"not":{}},
     "regions": {
       "type": "array",
       "items": {
@@ -67,7 +68,7 @@ schema_dict = {
             "type": "array",
             "items": {
               "type": "object", 
-              "required": ["id", "coords", "x-height", "baseline"],
+              "required": ["id", "coords", "baseline"],
               "properties": { 
                 "id": { "type": "string" }, 
                 "coords": { 
@@ -115,6 +116,7 @@ if __name__ == '__main__':
             print(xml_path)
 
         segdict = seglib.segmentation_dict_from_xml( xml_path, get_text=args.get_text )
+        seglib.segdict_sink_lines( segdict )
 
         # Raise an exception if invalid
         if args.validate:
