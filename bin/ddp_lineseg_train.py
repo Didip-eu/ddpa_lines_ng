@@ -202,7 +202,7 @@ if __name__ == '__main__':
         best_epoch,  best_loss = min([ (i, ep['validation_loss']) for i,ep in enumerate(model.epochs) ], key=lambda t: t[1])
         if 'lr' in model.epochs[-1]:
             lr = model.epochs[-1]['lr']
-            logger.info("Read start lR from last stored epoch: {}".format(lr))
+            logger.info("Read start LR from last stored epoch: {}".format(lr))
     logger.info(f"Best validation loss ({best_loss}) at epoch {best_epoch}")
 
     optimizer = torch.optim.AdamW( model.net.parameters(), lr=lr )
