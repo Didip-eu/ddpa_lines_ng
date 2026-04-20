@@ -276,7 +276,7 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
             rescaled=True
             continue
         # (b) very large images scaled down
-        if  len(tile_tls) > max_patches:
+        if  len(tile_tls) > max_patches or line_count_estimate( img )[0] < 10:
             logger.debug("Image slices into {} 1024-pixel patches: limit ({}) exceeded.".format(len(tile_tls), max_patches))
             new_height, new_width = int(new_height/resize_factor), int(new_width/resize_factor)
             img_hwc = ski.transform.resize( img_hwc, (new_height, new_width)) 

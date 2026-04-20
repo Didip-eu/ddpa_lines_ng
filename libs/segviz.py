@@ -186,6 +186,7 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
                 plt.plot( *centerline_arr.transpose(), linewidth=1/np.mean(crop))
         
         if features['regions'] and 'coords' in reg:
+            print(f"region {reg['id']} with coords {reg['coords']}")
             reg_closed_boundary = np.array( reg['coords']+[reg['coords'][0]])
             plt.plot( reg_closed_boundary[:,0], reg_closed_boundary[:,1], linewidth=linewidth*1/np.mean(crop))
     col_msk_hwc *= alpha

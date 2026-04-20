@@ -660,28 +660,33 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
         # order of regions: outer -> inner
         region_ids = region_ids + [ region.get('id') ]
         
-        region_coord_elt = region.find('./pc:Coords', ns)
+        region_coord_elt, rg_points = region.find('./pc:Coords', ns), None
         if region_coord_elt is not None:
             rg_points = region_coord_elt.get('points')
+            print(rg_points)
             if rg_points is None:
                 raise ValueError("Region has no coordinates. Aborting.")
             rg_points = parse_coordinates( rg_points )
+            print(rg_points)
             if regions_as_boxes:
                 xs, ys = [ pt[0] for pt in rg_points ], [ pt[1] for pt in rg_points ] 
                 left, right, top, bottom = min(xs), max(xs), min(ys), max(ys)
                 rg_points = [[left,top], [right,top], [right,bottom], [left, bottom]]
+                print(rg_points)
 
         region_accum.append( {'id': region.get('id'), 'coords': rg_points } )
 
         for line_idx, elt in enumerate( list(region.iter())[1:] ):
             if elt.tag == "{{{}}}TextLine".format(ns['pc']):
                 line_entry = construct_line_entry( elt, region_ids )
+                #print(line_entry)
                 if line_entry is None:
                     continue
                 if not check_line_entry(line_entry, region_accum[-1] ):
                     if strict:
                         raise ValueError("Page {}, region {}, l. {}: boundaries are not contained within its region.".format(page, region_ids[-1], line_idx))
                     else: # extend region's bounding box boundary
+                        print(f"UPDATE: {region_accum[-1]['coords']}")
                         region_accum[-1]['coords'] = extend_box( region_accum[-1]['coords'], line_entry['coords']+line_entry['baseline'] )
                 line_accum.append( line_entry )
             elif elt.tag == "{{{}}}TextRegion".format(ns['pc']):
@@ -700,7 +705,7 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
 
         if 'pc' not in ns:
             raise ValueError(f"Could not find a name space in file {page}. Parsing aborted.")
-
+    
         lines = []
         regions = []
         page_dict = {}
