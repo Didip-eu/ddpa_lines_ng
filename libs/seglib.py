@@ -638,10 +638,17 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
                 return None
             return line_dict
 
-    def check_line_entry(line_dict: dict, region_dict: dict):
-        """ Check whether line coords are within region boundaries."""
-        reg_l, reg_t, reg_r, reg_b = region_dict['coords']
-        return all([ (pt[0] >= reg_l[0] and pt[0] <= reg_r[0] and pt[1] >= reg_t[1] and pt[1] <= reg_b[1]) for pt in line_dict['coords']])
+    def line_entry_overlap(line_dict: dict, region_dict: dict):
+        #reg_l, reg_t, reg_r, reg_b = region_dict['coords']
+        #reg_l, reg_t, reg_r, reg_b = region_dict['coords']
+        #return all([ (pt[0] >= reg_l[0] and pt[0] <= reg_r[0] and pt[1] >= reg_t[1] and pt[1] <= reg_b[1]) for pt in line_dict['coords']])
+        """ Check overlap between line's bbox and region boundaries."""
+        line_plg_pts = np.array( line_dict['coords'] )
+        line_ltrb = np.array([ np.min( line_plg_pts[:,0] ), np.min( line_plg_pts[:,1]), np.max( line_plg_pts[:,0] ), np.max( line_plg_pts[:,1] )]).tolist()
+        reg_plg_pts = np.array( region_dict['coords'] )
+        reg_ltrb = np.array([ np.min( reg_plg_pts[:,0] ), np.min( reg_plg_pts[:,1]), np.max( reg_plg_pts[:,0] ), np.max( reg_plg_pts[:,1] )]).tolist()
+        ratio = contains( reg_ltrb, line_ltrb ) 
+        return ratio
 
     def extend_box( box_coords, inner_coords ):
         """Extend box coordinates to encompass inner boundaries """
@@ -682,12 +689,16 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
                 #print(line_entry)
                 if line_entry is None:
                     continue
-                if not check_line_entry(line_entry, region_accum[-1] ):
+                overlap = line_entry_overlap(line_entry, region_accum[-1] )
+                if overlap < 1.0:
                     if strict:
-                        raise ValueError("Page {}, region {}, l. {}: boundaries are not contained within its region.".format(page, region_ids[-1], line_idx))
-                    else: # extend region's bounding box boundary
-                        print(f"UPDATE: {region_accum[-1]['coords']}")
-                        region_accum[-1]['coords'] = extend_box( region_accum[-1]['coords'], line_entry['coords']+line_entry['baseline'] )
+                        raise ValueError("Page {}, region {}, l. {}: boundaries are not contained within its region. To disable this exception, pass strict=False".format(page, region_ids[-1], line_idx))
+#                    elif overlap > = .95: # extend region's bounding box boundary
+#                        print(f"UPDATE: {region_accum[-1]['coords']}")
+#                        region_accum[-1]['coords'] = extend_box( region_accum[-1]['coords'], line_entry['coords']+line_entry['baseline'] )
+#                    else:
+#                        print('Skipped line!')
+                        continue
                 line_accum.append( line_entry )
             elif elt.tag == "{{{}}}TextRegion".format(ns['pc']):
                 process_region(elt, region_accum, line_accum, region_ids)
@@ -1620,6 +1631,45 @@ def tile_img( img_wh: tuple[int,int], size, constraint=20, channel_dim=2 ):
         y_pos = [ r*(size-overlap) if r < row-1 else height-size for r in range(row) ]
     return list(itertools.product(y_pos, x_pos ))
 
+
+def contains( outer: tuple, inner: tuple):
+    """
+    How much of <inner> region (typically: a line) is contained
+    within an <outer> region (typically: a text region).
+
+    Args:
+        outer (tuple[int,int,int,int]): bounding box (L,T,R,B)
+        inner (tuple[int,int,int,int]): bounding box (L,T,R,B)
+    Returns:
+        float: overlap, as a ratio of inner region.
+    """
+    l,t,r,b = range(4)
+    normal_order = True
+    if inner[t]<outer[t]:
+        outer, inner = inner, outer
+        normal_order = False
+    total_area = (inner[r]-inner[l])*(inner[b]-inner[t]) if normal_order else (outer[r]-outer[l])*(outer[b]-outer[t])
+    # no intersection
+    if outer[b]<=inner[t] or outer[r]<=inner[l]:
+        return 0
+    # 1 contains 2 or conversely
+    if outer[l]<=inner[l] and outer[r]>=inner[r] and outer[t]<=inner[t] and outer[b]>=inner[b]:
+        if normal_order:
+            return 1.0
+        return 0 #(inner[b]-inner[t])*(inner[r]-ltrb[l])
+    # case 1: partial overlap on the right
+    if inner[r] > outer[r]:
+        if inner[b]<=outer[b]:
+            return (inner[b]-inner[t])*(outer[r]-inner[l])/total_area
+        return (outer[r]-inner[l]) * (outer[b]-inner[t])/total_area
+    # case 2: partial overlap on the left
+    if inner[l] < outer[l]:
+        if inner[b]<=outer[b]:
+            return (inner[b]-inner[t])*(inner[r]-outer[l])/total_area
+        return (inner[r]-outer[l])*(outer[b]-inner[t])/total_area
+    # case 3: partial overlap on bottom
+    if outer[l] <= inner[l] and inner[r] <= outer[r]:
+        return (outer[b]-inner[t])*(inner[r]-inner[l])/total_area
 
 def dummy():
     """Just to check that the module is testable."""
