@@ -571,7 +571,7 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
         tree.write( sys.stdout, encoding='unicode' )
 
 
-def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True, strict=False) -> dict[str,Union[str,list[Any]]]:
+def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True, strict=False, region_line_overlap=.9) -> dict[str,Union[str,list[Any]]]:
     """Given a pageXML file name, return a JSON dictionary describing the lines.
     The resulting dictionary is flat, with two separate entries for lines and regions.
     Use the `segdict_sink_lines` routine to construct a nested dictionary, if needed.
@@ -586,6 +586,8 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
         strict (bool): if True, raise an exception if line coordinates are not comprised within
             their region's boundaries; otherwise (default), the region value is automatically
             extended to encompass the line coordinates.
+        region_line_overlap (float): lines that do not overlap their region by this
+            threshold are removed from the output dictionary.
 
     Returns:
         dict[str,Union[str,list[Any]]]: a dictionary of the form::
@@ -666,7 +668,7 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
     def process_region( region: ET.Element, region_accum: list, line_accum: list, region_ids:list ):
         # order of regions: outer -> inner
         region_ids = region_ids + [ region.get('id') ]
-        
+
         region_coord_elt, rg_points = region.find('./pc:Coords', ns), None
         if region_coord_elt is not None:
             rg_points = region_coord_elt.get('points')
@@ -676,7 +678,7 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
             rg_points = parse_coordinates( rg_points )
             print(rg_points)
             if regions_as_boxes:
-                xs, ys = [ pt[0] for pt in rg_points ], [ pt[1] for pt in rg_points ] 
+                xs, ys = [ pt[0] for pt in rg_points ], [ pt[1] for pt in rg_points ]
                 left, right, top, bottom = min(xs), max(xs), min(ys), max(ys)
                 rg_points = [[left,top], [right,top], [right,bottom], [left, bottom]]
                 print(rg_points)
@@ -693,11 +695,11 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
                 if overlap < 1.0:
                     if strict:
                         raise ValueError("Page {}, region {}, l. {}: boundaries are not contained within its region. To disable this exception, pass strict=False".format(page, region_ids[-1], line_idx))
-#                    elif overlap > = .95: # extend region's bounding box boundary
-#                        print(f"UPDATE: {region_accum[-1]['coords']}")
-#                        region_accum[-1]['coords'] = extend_box( region_accum[-1]['coords'], line_entry['coords']+line_entry['baseline'] )
-#                    else:
-#                        print('Skipped line!')
+                    # extend region to fit the line
+                    elif overlap > = region_line_overlap:
+                        print(f"Line {line_entry['id']} does not meet overlap threshold with region ({overlap:.2f} < {region_line_overlap}): skipping.")
+                        region_accum[-1]['coords'] = extend_box( region_accum[-1]['coords'], line_entry['coords']+line_entry['baseline'] )
+                    else:
                         continue
                 line_accum.append( line_entry )
             elif elt.tag == "{{{}}}TextRegion".format(ns['pc']):

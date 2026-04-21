@@ -129,6 +129,8 @@ if __name__ == '__main__':
             json_path = Path(str(xml_path).replace(args.input_suffix, '.json'))
             if not args.overwrite_existing and json_path.exists():
                 print("File {} exists: abort.".format( json_path ))
+            elif not re.search( r'{}$'.format(args.input_suffix), xml_path.name):
+                print(f"Input file path '{xml_path.name}' does not match input suffix '{args.input_suffix}': output aborted.")
             else:
                 with open(json_path, 'w') as json_outf:
                     json_outf.write( segdict_str )
