@@ -12,7 +12,6 @@ from time import time
 import numpy as np
 import matplotlib.pyplot as plt
 from torch import Tensor
-from torchvision.tv_tensors import BoundingBoxes, Mask
 import skimage as ski
 from PIL import Image, ImageDraw
 
@@ -105,7 +104,7 @@ def batch_label_maps_to_img( inputs:list[Union[Tensor,dict,Path]], raw_maps: lis
     
     return list(zip(maps, attr, ids))
 
-def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path,str]=None, segfile_suffix:str='lines.pred.json', show:dict={}, alpha=.4, linewidth=2, color_count=-1, out_file='', crop=(1,1), output_file_path='' ):
+def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path,str]=None, segfile_suffix:str='lines.pred.json', segdict=None, show:dict={}, alpha=.4, linewidth=2, color_count=-1, out_file='', crop=(1,1), output_file_path='', check_size=False ):
     """ Render segmentation data on an image.
     The segmentation dictionary is expected to have the following structure:
     
@@ -132,7 +131,8 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
 
     if segfile is None:
         segfile = str(img_path).replace('.img.jpg', f'.{segfile_suffix}') 
-    assert Path(segfile).exists()
+    if not segdict:
+        assert Path(segfile).exists()
 
     start = time()
 
@@ -145,17 +145,17 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
         img_hwc = np.stack( [img_hwc, img_hwc, img_hwc] ).transpose(1,2,0)
     bm_hw = np.zeros( img_hwc.shape[:2], dtype='bool' )
 
-    segdict = None
-    if str(segfile)[-3:]=='xml' or segfile_suffix[-3:]=='xml':
-        segdict = seglib.segmentation_dict_from_xml( segfile )
-    elif str(segfile)[-4:]=='json' or segfile_suffix[-3:]=='json':
-        with open( segfile, 'r' ) as segfile_in:
-            segdict = json.load( segfile_in )
-    if segdict is None:
-        logger.info("Could not parse a valid segmentation dictionary from {}: aborting.".format( segfile ))
-        return
+    if segdict==None:
+        if str(segfile)[-3:]=='xml' or segfile_suffix[-3:]=='xml':
+            segdict = seglib.segmentation_dict_from_xml( segfile )
+        elif str(segfile)[-4:]=='json' or segfile_suffix[-3:]=='json':
+            with open( segfile, 'r' ) as segfile_in:
+                segdict = json.load( segfile_in )
+        if segdict is None:
+            logger.info("Could not parse a valid segmentation dictionary from {}: aborting.".format( segfile ))
+            return
         
-    if 'image_filename' in segdict and 'image_height' in segdict and 'image_width' in segdict:
+    if check_size and 'image_filename' in segdict and 'image_height' in segdict and 'image_width' in segdict:
         if (img_hwc.shape[0] != segdict['image_height'] or img_hwc.shape[1] != segdict['image_width']):
             logger.info("The size of the provided image ({}) does not match the image properties defined in the segmentation file for {}: aborting.".format(Path(img_path).name, segdict['image_filename']))
             return
@@ -166,8 +166,8 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
     if 'lines' in segdict:
         segdict = seglib.segdict_sink_lines( segdict )
     for reg in segdict['regions']:
-        if color_count>=0:
-            colors = get_n_color_palette( color_count ) if color_count > 0 else get_n_color_palette( len(reg['lines']))
+        #if color_count>=0:
+        colors = get_n_color_palette( color_count ) if color_count > 0 else get_n_color_palette( len(reg['lines']))
         for l,line in enumerate(reg['lines']):
             col = np.array(colors[l % len(colors) ])
             if features['polygons']:

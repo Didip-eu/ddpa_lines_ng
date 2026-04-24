@@ -114,42 +114,45 @@ def polygon_map_from_segmentation_dict( segmentation_dict: dict, polygon_key='co
     return polygon_img
 
 
-def line_binary_mask_from_json_file( segmentation_json: str, polygon_key='coords' ) -> Tensor:
+def line_binary_mask_from_json_file( segmentation_json: str, polygon_key='coords', channels=1 ) -> Tensor:
     """From a JSON segmentation file,  return a boolean mask where any pixel belonging
     to a polygon is 1 and the other pixels 0.
 
     Args:
         segmentation_json (str): a JSON file describing the lines.
         polygon_key (str): polygon dictionary entry.
+        channels (int): number of channels.
 
     Returns:
         Tensor: a flat boolean tensor with size (H,W)
     """
     with open( segmentation_json, 'r' ) as json_file:
-        return line_binary_mask_from_segmentation_dict( json.load( json_file ), polygon_key=polygon_key)
+        return line_binary_mask_from_segmentation_dict( json.load( json_file ), polygon_key=polygon_key, channels=channels)
 
 
-def line_binary_mask_from_xml_file( page_xml: str ) -> Tensor:
+def line_binary_mask_from_xml_file( page_xml: str, channels=1 ) -> Tensor:
     """From a PageXML file describing polygons, return a boolean mask where any pixel belonging
     to a polygon is 1 and the other pixels 0.
 
     Args:
         page_xml (str): a Page XML file describing the lines.
+        channels (int): number of channels.
 
     Returns:
         Tensor: a flat boolean tensor with size (H,W)
     """
     segmentation_dict = segmentation_dict_from_xml( page_xml )
-    return line_binary_mask_from_segmentation_dict( segmentation_dict )
+    return line_binary_mask_from_segmentation_dict( segmentation_dict, channels=channels )
 
 
-def line_binary_mask_from_segmentation_dict( segmentation_dict: dict, polygon_key='coords' ) -> Tensor:
+def line_binary_mask_from_segmentation_dict( segmentation_dict: dict, polygon_key='coords', channels=1 ) -> Tensor:
     """From a segmentation dictionary describing polygons, return a boolean mask where any pixel belonging
     to a polygon is 1 and the other pixels 0.
 
     Args:
         segmentation_dict (dict): a dictionary, typically constructed from a JSON file.
         polygon_key (str): polygon dictionary entry.
+        channels (int): number of channels (default is 1).
 
     Returns:
         Tensor: a flat boolean tensor with size (H,W)
@@ -157,7 +160,52 @@ def line_binary_mask_from_segmentation_dict( segmentation_dict: dict, polygon_ke
     polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict, polygon_key=polygon_key)
     # create 2D boolean matrix
     mask_size = (segmentation_dict['image_width'], segmentation_dict['image_height'])
-    return torch.tensor( np.sum( [ ski.draw.polygon2mask( mask_size, polyg ).transpose(1,0) for polyg in polygon_boundaries ], axis=0))
+    one_channel_mask = np.sum( [ ski.draw.polygon2mask( mask_size, polyg ).transpose(1,0) for polyg in polygon_boundaries ], axis=0)
+    if channels > 1:
+        return torch.tensor( np.tile( one_channel_mask, channels ).reshape( one_channel_mask.shape + (channels,)))
+    return torch.tensor( one_channel_mask )
+
+
+def docufcn_label_png_from_json( segmentation_json: str, channels=3, largest_dimension=1536, output_file_path='', overwrite_existing=False ):
+    """
+    For generating Doc-UFCN-style PNG labels.
+    """
+    with open( segmentation_json, 'r' ) as json_file:
+        segmentation_dict = json.load( json_file )
+        polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict, polygon_key='coords' )
+        mask_size = (segmentation_dict['image_width'], segmentation_dict['image_height'])
+        one_channel_img = Image.fromarray( np.uint8( np.sum( [ ski.draw.polygon2mask( mask_size, polyg ).transpose(1,0) for polyg in polygon_boundaries ], axis=0)), mode="L")
+        new_width, new_height = (largest_dimension/mask_size[1] * mask_size[0], largest_dimension)
+        if new_width > largest_dimension:
+            new_width, new_height = (largest_dimension, largest_dimension/mask_size[0] * mask_size[1])
+
+        img_array = np.array( one_channel_img.resize( (int(new_width), int(new_height)) ))
+        if channels>1:
+            img_array = np.repeat( img_array, channels ).reshape( img_array.shape + (channels,))
+        if output_file_path and overwrite_existing:
+            pil_img = Image.fromarray( img_array*255, mode='RGB' if channels==3 else "L" )
+            pil_img.save( output_file_path )
+        else:
+            return np.array( img_array )
+
+def docufcn_label_json_from_json( segmentation_json: str, output_file_path='', overwrite_existing=False):
+    with open( segmentation_json, 'r' ) as json_file:
+        segmentation_dict = json.load( json_file )
+        new_segdict = {
+                "img_size": [ segmentation_dict["image_width"], segmentation_dict["image_height"]],
+                "textline": [],
+        }
+        for line in segmentation_dict["regions"][0]["lines"]:
+            new_segdict["textline"].append({
+                "confidence": 1.0,
+                "polygon": line['coords'],
+                })
+
+        if output_file_path and overwrite_existing:
+            with open( output_file_path, 'w') as output_file:
+                output_file.write( json.dumps( new_segdict ))
+        else:
+            return new_segdict
 
 
 def line_binary_mask_stack_from_json_file( segmentation_json: str, polygon_key='coords' ) -> Tensor:
