@@ -744,7 +744,7 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
                     if strict:
                         raise ValueError("Page {}, region {}, l. {}: boundaries are not contained within its region. To disable this exception, pass strict=False".format(page, region_ids[-1], line_idx))
                     # extend region to fit the line
-                    elif overlap > = region_line_overlap:
+                    elif overlap >= region_line_overlap:
                         print(f"Line {line_entry['id']} does not meet overlap threshold with region ({overlap:.2f} < {region_line_overlap}): skipping.")
                         region_accum[-1]['coords'] = extend_box( region_accum[-1]['coords'], line_entry['coords']+line_entry['baseline'] )
                     else:

@@ -138,7 +138,7 @@ if __name__ == '__main__':
 
         # segmentation already provided: delegate to segviz lib
         if args.segfile or args.segfile_suffix:
-                segfile_path = Path(args.segfile) if args.segfile else Path( re.sub(r'\.[^/]+$', args.segfile_suffix, str(img_path)) )
+                segfile_path = Path(args.segfile) if args.segfile else Path( re.sub(r'{}$'.format(args.img_suffix), args.segfile_suffix, str(img_path)) )
                 if not segfile_path.exists():
                     logger.warning("Could not find a segmentation file {}: skipping item;".format( Path(segfile_path)))
                     continue
