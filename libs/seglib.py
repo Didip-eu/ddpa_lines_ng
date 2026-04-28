@@ -166,9 +166,12 @@ def line_binary_mask_from_segmentation_dict( segmentation_dict: dict, polygon_ke
     return torch.tensor( one_channel_mask )
 
 
-def docufcn_label_png_from_json( segmentation_json: str, channels=3, largest_dimension=1536, output_file_path='', overwrite_existing=False ):
-    """
-    For generating Doc-UFCN-style PNG labels.
+def didip_json_to_label_mask( segmentation_json: str, channels=3, largest_dimension=1248, output_file_path='', overwrite_existing=False ):
+    """Convert a DiDip JSON segmentation file into a Doc-UFCN label mask.
+
+    Args:
+        label_file (str): path to a segmentation file, DiDip-style
+        out (str): output file; if empty, use the standard output.
     """
     with open( segmentation_json, 'r' ) as json_file:
         segmentation_dict = json.load( json_file )
@@ -188,7 +191,13 @@ def docufcn_label_png_from_json( segmentation_json: str, channels=3, largest_dim
         else:
             return np.array( img_array )
 
-def docufcn_label_json_from_json( segmentation_json: str, output_file_path='', overwrite_existing=False):
+def didip_json_to_docufcn_label_json( segmentation_json: Path, output_file_path='', overwrite_existing=False):
+    """ Convert a DiDip JSON segmentation file into a Doc-UFCN label file (for evaluation use).
+
+    Args:
+        label_file (str): path to a segmentation file, DiDip-style
+        out (str): output file; if empty, use the standard output.
+    """
     with open( segmentation_json, 'r' ) as json_file:
         segmentation_dict = json.load( json_file )
         new_segdict = {
@@ -203,7 +212,7 @@ def docufcn_label_json_from_json( segmentation_json: str, output_file_path='', o
 
         if output_file_path and overwrite_existing:
             with open( output_file_path, 'w') as output_file:
-                output_file.write( json.dumps( new_segdict ))
+                output_file.write( json.dumps( new_segdict, indent=2 ))
         else:
             return new_segdict
 
