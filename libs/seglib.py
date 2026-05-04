@@ -729,16 +729,13 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
         region_coord_elt, rg_points = region.find('./pc:Coords', ns), None
         if region_coord_elt is not None:
             rg_points = region_coord_elt.get('points')
-            print(rg_points)
             if rg_points is None:
                 raise ValueError("Region has no coordinates. Aborting.")
             rg_points = parse_coordinates( rg_points )
-            print(rg_points)
             if regions_as_boxes:
                 xs, ys = [ pt[0] for pt in rg_points ], [ pt[1] for pt in rg_points ]
                 left, right, top, bottom = min(xs), max(xs), min(ys), max(ys)
                 rg_points = [[left,top], [right,top], [right,bottom], [left, bottom]]
-                print(rg_points)
 
         region_accum.append( {'id': region.get('id'), 'coords': rg_points } )
 
@@ -754,9 +751,9 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
                         raise ValueError("Page {}, region {}, l. {}: boundaries are not contained within its region. To disable this exception, pass strict=False".format(page, region_ids[-1], line_idx))
                     # extend region to fit the line
                     elif overlap >= region_line_overlap:
-                        print(f"Line {line_entry['id']} does not meet overlap threshold with region ({overlap:.2f} < {region_line_overlap}): skipping.")
                         region_accum[-1]['coords'] = extend_box( region_accum[-1]['coords'], line_entry['coords']+line_entry['baseline'] )
                     else:
+                        print(f"Line {line_entry['id']} does not meet overlap threshold with region ({overlap:.2f} < {region_line_overlap}): skipping.")
                         continue
                 line_accum.append( line_entry )
             elif elt.tag == "{{{}}}TextRegion".format(ns['pc']):
@@ -848,7 +845,7 @@ def segdict_sink_lines(segdict: dict):
             else:
                 for reg in segdict['regions']:
                     if (line['coords'] >= np.min( reg['coords'], axis=0 )).all() and (line['coords'] <= np.max( reg['coords'], axis=0 )).all():
-                        print("Check coordinates")
+                        #print("Check coordinates")
                         if 'regions' not in line:
                             line['regions']=[]
                     line['regions'].append( reg['id'] )
