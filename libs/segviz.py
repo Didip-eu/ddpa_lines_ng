@@ -386,3 +386,43 @@ def display_line_masks_raw( preds: list[dict], box_threshold=.8, mask_threshold=
             m = m[0]
             plt.imshow( m*(m>mask_threshold) )
             plt.show()
+
+def json_to_ascii( segfile: str, scale_hw=(.01,.02)):
+    """
+    ASCII-rendition of a JSON layout file.
+
+    Args:
+        segfile (str): path of a JSON segmentation file.
+        scale_hw (tuple[float,float]): scaling factor for pixel-to-line/char (respectively) coordinate transformation.
+    """
+
+    def longest_common_prefix( words ):
+        max_length = sorted( [ len(w) for w in words ] )[0]
+        for i in range(max_length):
+            if not all( [ words[0][i]==words[j][i] for j in range(len(words)) ] ):
+                break
+        return words[0][:i]
+
+    with open(segfile) as seg_if:
+        segdict = json.load( seg_if )
+        width, height = segdict['image_width'], segdict['image_height']
+        canvas = np.full( (np.array([height,width])*scale_hw).astype('uint16'), ord(' '))
+        canvas[[0,0,-1,-1],[0,-1,-1,0]]=ord('╋')
+        common_id_prefix = longest_common_prefix( [ reg['id'] for reg in segdict['regions']] )
+        for reg in segdict['regions'][:]:
+            reg['id']=reg['id'].replace( common_id_prefix, 'r:')
+            reg_arr = np.array( [c[::-1] for c in reg['coords']] ).astype('uint16')
+            scaled_reg_arr = (reg_arr*scale_hw).astype('uint16').T
+            print(f"{reg['id']}:{reg_arr}")
+            canvas[ scaled_reg_arr[0], scaled_reg_arr[1] ]=ord('+')
+            canvas[ scaled_reg_arr[0,0]+1:scaled_reg_arr[0,2], scaled_reg_arr[1,[0,1]]]=ord('|')
+            canvas[ scaled_reg_arr[0,[1,2]], scaled_reg_arr[1,0]+1:scaled_reg_arr[1,2]]=ord('-')
+            reg_id_as_list = [ ord(c) for c in reg['id'] ]
+            canvas[ scaled_reg_arr[0,0]+1, scaled_reg_arr[1,0]+3:scaled_reg_arr[1,0]+3+len( reg['id'] )]=reg_id_as_list
+            for l in reg['lines']:
+                print(f"  {l['id']}:{[c[::-1] for c in l['coords'][:4]]}...") 
+
+        print( '\n'.join([(''.join([ chr(c) for c in l ])) for l in canvas ] ))
+
+
+
