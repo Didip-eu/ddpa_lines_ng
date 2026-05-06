@@ -20,6 +20,7 @@ from torch import Tensor
 from torchvision.tv_tensors import Mask
 import numpy as np
 import numpy.ma as ma
+import shapely
 
 # local
 from . import line_geometry as lgm
@@ -697,17 +698,11 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
                 return None
             return line_dict
 
-    def line_entry_overlap(line_dict: dict, region_dict: dict):
-        #reg_l, reg_t, reg_r, reg_b = region_dict['coords']
-        #reg_l, reg_t, reg_r, reg_b = region_dict['coords']
-        #return all([ (pt[0] >= reg_l[0] and pt[0] <= reg_r[0] and pt[1] >= reg_t[1] and pt[1] <= reg_b[1]) for pt in line_dict['coords']])
+    def line_to_region_overlap(line_dict: dict, region_dict: dict):
         """ Check overlap between line's bbox and region boundaries."""
-        line_plg_pts = np.array( line_dict['coords'] )
-        line_ltrb = np.array([ np.min( line_plg_pts[:,0] ), np.min( line_plg_pts[:,1]), np.max( line_plg_pts[:,0] ), np.max( line_plg_pts[:,1] )]).tolist()
-        reg_plg_pts = np.array( region_dict['coords'] )
-        reg_ltrb = np.array([ np.min( reg_plg_pts[:,0] ), np.min( reg_plg_pts[:,1]), np.max( reg_plg_pts[:,0] ), np.max( reg_plg_pts[:,1] )]).tolist()
-        ratio = contains( reg_ltrb, line_ltrb ) 
-        return ratio
+        line_bbox = shapely.envelope( shapely.multipoints( np.array( line_dict['coords'] )))
+        reg_bbox = shapely.envelope( shapely.multipoints( np.array( region_dict['coords'] )))
+        return reg_bbox.intersection( inner_plg ).area / line_bbox.area
 
     def extend_box( box_coords, inner_coords ):
         """Extend box coordinates to encompass inner boundaries """
@@ -745,16 +740,16 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
                 #print(line_entry)
                 if line_entry is None:
                     continue
-                overlap = line_entry_overlap(line_entry, region_accum[-1] )
+                overlap = line_to_region_overlap(line_entry, region_accum[-1] )
                 if overlap < 1.0:
                     if strict:
                         raise ValueError("Page {}, region {}, l. {}: boundaries are not contained within its region. To disable this exception, pass strict=False".format(page, region_ids[-1], line_idx))
                     # extend region to fit the line
-                    elif overlap >= region_line_overlap:
-                        region_accum[-1]['coords'] = extend_box( region_accum[-1]['coords'], line_entry['coords']+line_entry['baseline'] )
-                    else:
-                        print(f"Line {line_entry['id']} does not meet overlap threshold with region ({overlap:.2f} < {region_line_overlap}): skipping.")
-                        continue
+#                    elif overlap >= region_line_overlap:
+#                        region_accum[-1]['coords'] = extend_box( region_accum[-1]['coords'], line_entry['coords']+line_entry['baseline'] )
+#                    else:
+#                        print(f"Line {line_entry['id']} does not meet overlap threshold with region ({overlap:.2f} < {region_line_overlap}): skipping.")
+#                        continue
                 line_accum.append( line_entry )
             elif elt.tag == "{{{}}}TextRegion".format(ns['pc']):
                 process_region(elt, region_accum, line_accum, region_ids)
@@ -812,6 +807,38 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
 
     return page_dict 
 
+def segdict_reassign_lines( segdict: dict):
+    """
+    Given a segmentation dictionary, reassign lines to their most likely containing regions:
+    assign each line to region with maximum overlap, as a ratio of the line's area; between
+    two competing regions, choose the smaller one.
+    """
+    def line_to_region_overlap(line_dict: dict, region_dict: dict):
+        """ Check overlap between line's bbox and region boundaries."""
+        line_bbox = shapely.envelope( shapely.multipoints( np.array( line_dict['coords'] )))
+        reg_bbox = shapely.envelope( shapely.multipoints( np.array( region_dict['coords'] )))
+        return reg_bbox.intersection( inner_plg ).area / line_bbox.area
+
+    shapely.envelope( shapely.multipoints( np.array( region_dict['coords'] )))
+    regions_to_bbox = { r['id']: shapely.envelope( shapely.multipoints( np.array( r['coords'] ))) for r in segdict['regions'] }
+    new_segdict = copy.deepcopy( segdict )
+    for r in new_segdict['regions']:
+        r['lines']=[]
+    line_to_region = {} # map line id to region dict
+    lines = [ l for l 
+    for l in segdict['lines']:
+        max_overlap = 0
+        line_bbox = shapely.envelope( shapely.multipoints( np.array( l['coords'] )))
+        for r in segdict['regions']:
+            this_overlap = regions_to_bbox[r['id']].intersection( line_bbox ).area / line_bbox.area
+            if this_overlap > max_overlap:
+                max_overlap = this_overlap
+                line_to_region[l['id']]=r
+
+
+
+        
+
 
 def segdict_sink_lines(segdict: dict):
     """Convert a segmentation dictionary with top-level line array ('lines') 
@@ -833,7 +860,7 @@ def segdict_sink_lines(segdict: dict):
 
             {..., "regions": [ {"id":..., lines=[{"id": ... }, ... ]}, ... ] }
     """
-    segdict = segdict.copy()
+    segdict = copy.deepcopy(segdict)
     if 'lines' not in segdict or not segdict['lines']:
         return segdict
     # if no 'regions' entry for lines, assign to each line its proper region
@@ -1687,46 +1714,3 @@ def tile_img( img_wh: tuple[int,int], size, constraint=20, channel_dim=2 ):
         y_pos = [ r*(size-overlap) if r < row-1 else height-size for r in range(row) ]
     return list(itertools.product(y_pos, x_pos ))
 
-
-def contains( outer: tuple, inner: tuple):
-    """
-    How much of <inner> region (typically: a line) is contained
-    within an <outer> region (typically: a text region).
-
-    Args:
-        outer (tuple[int,int,int,int]): bounding box (L,T,R,B)
-        inner (tuple[int,int,int,int]): bounding box (L,T,R,B)
-    Returns:
-        float: overlap, as a ratio of inner region.
-    """
-    l,t,r,b = range(4)
-    normal_order = True
-    if inner[t]<outer[t]:
-        outer, inner = inner, outer
-        normal_order = False
-    total_area = (inner[r]-inner[l])*(inner[b]-inner[t]) if normal_order else (outer[r]-outer[l])*(outer[b]-outer[t])
-    # no intersection
-    if outer[b]<=inner[t] or outer[r]<=inner[l]:
-        return 0
-    # 1 contains 2 or conversely
-    if outer[l]<=inner[l] and outer[r]>=inner[r] and outer[t]<=inner[t] and outer[b]>=inner[b]:
-        if normal_order:
-            return 1.0
-        return 0 #(inner[b]-inner[t])*(inner[r]-ltrb[l])
-    # case 1: partial overlap on the right
-    if inner[r] > outer[r]:
-        if inner[b]<=outer[b]:
-            return (inner[b]-inner[t])*(outer[r]-inner[l])/total_area
-        return (outer[r]-inner[l]) * (outer[b]-inner[t])/total_area
-    # case 2: partial overlap on the left
-    if inner[l] < outer[l]:
-        if inner[b]<=outer[b]:
-            return (inner[b]-inner[t])*(inner[r]-outer[l])/total_area
-        return (inner[r]-outer[l])*(outer[b]-inner[t])/total_area
-    # case 3: partial overlap on bottom
-    if outer[l] <= inner[l] and inner[r] <= outer[r]:
-        return (outer[b]-inner[t])*(inner[r]-inner[l])/total_area
-
-def dummy():
-    """Just to check that the module is testable."""
-    return True

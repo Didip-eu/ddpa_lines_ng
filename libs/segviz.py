@@ -420,7 +420,7 @@ def json_to_ascii( segfile: str, scale_hw=(.01,.02)):
             reg_id_as_list = [ ord(c) for c in reg['id'] ]
             canvas[ scaled_reg_arr[0,0]+1, scaled_reg_arr[1,0]+3:scaled_reg_arr[1,0]+3+len( reg['id'] )]=reg_id_as_list
             for l in reg['lines']:
-                print(f"  {l['id']}:{[c[::-1] for c in l['coords'][:4]]}...") 
+                print(f"  {l['id']}:{[c[::-1] for c in l['coords'][:7]]}...") 
 
         print( '\n'.join([(''.join([ chr(c) for c in l ])) for l in canvas ] ))
 
