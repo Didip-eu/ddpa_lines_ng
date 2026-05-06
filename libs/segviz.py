@@ -387,7 +387,7 @@ def display_line_masks_raw( preds: list[dict], box_threshold=.8, mask_threshold=
             plt.imshow( m*(m>mask_threshold) )
             plt.show()
 
-def json_to_ascii( segfile: str, scale_hw=(.01,.02)):
+def json_to_ascii( segfile:str=None, segdict:dict=None, scale_hw=(.01,.02), lines=False)->str:
     """
     ASCII-rendition of a JSON layout file.
 
@@ -403,26 +403,36 @@ def json_to_ascii( segfile: str, scale_hw=(.01,.02)):
                 break
         return words[0][:i]
 
-    with open(segfile) as seg_if:
-        segdict = json.load( seg_if )
-        width, height = segdict['image_width'], segdict['image_height']
-        canvas = np.full( (np.array([height,width])*scale_hw).astype('uint16'), ord(' '))
-        canvas[[0,0,-1,-1],[0,-1,-1,0]]=ord('╋')
-        common_id_prefix = longest_common_prefix( [ reg['id'] for reg in segdict['regions']] )
-        for reg in segdict['regions'][:]:
-            reg['id']=reg['id'].replace( common_id_prefix, 'r:')
-            reg_arr = np.array( [c[::-1] for c in reg['coords']] ).astype('uint16')
-            scaled_reg_arr = (reg_arr*scale_hw).astype('uint16').T
-            print(f"{reg['id']}:{reg_arr}")
-            canvas[ scaled_reg_arr[0], scaled_reg_arr[1] ]=ord('+')
-            canvas[ scaled_reg_arr[0,0]+1:scaled_reg_arr[0,2], scaled_reg_arr[1,[0,1]]]=ord('|')
-            canvas[ scaled_reg_arr[0,[1,2]], scaled_reg_arr[1,0]+1:scaled_reg_arr[1,2]]=ord('-')
-            reg_id_as_list = [ ord(c) for c in reg['id'] ]
-            canvas[ scaled_reg_arr[0,0]+1, scaled_reg_arr[1,0]+3:scaled_reg_arr[1,0]+3+len( reg['id'] )]=reg_id_as_list
-            for l in reg['lines']:
-                print(f"  {l['id']}:{[c[::-1] for c in l['coords'][:7]]}...") 
+    if segfile and Path(segfile).exists():
+        with open(segfile) as seg_if:
+            segdict = json.load( seg_if )
+    if not segdict:
+        raise FileNotFoundError("Provide a valid segmentation dictionary, or a segmentation file.")
+        
+    width, height = segdict['image_width'], segdict['image_height']
+    canvas = np.full( (np.array([height,width])*scale_hw).astype('uint16'), ord(' '))
+    canvas[[0,0,-1,-1],[0,-1,-1,0]]=ord('╋')
+    reg_id_prefix = longest_common_prefix( [ reg['id'] for reg in segdict['regions']] )
+    line_id_prefix = longest_common_prefix( [ l['id'] for reg in segdict['regions'] for l in reg['lines']] ) if lines else ''
+    for reg in segdict['regions'][:]:
+        reg['id']=reg['id'].replace( reg_id_prefix, 'r:')
+        reg_arr = np.array( [c[::-1] for c in reg['coords']] ).astype('uint16')
+        scaled_reg_arr = (reg_arr*scale_hw).astype('uint16').T
+        print(f"{reg['id']}:{reg_arr}")
+        canvas[ scaled_reg_arr[0], scaled_reg_arr[1] ]=ord('+')
+        canvas[ scaled_reg_arr[0,0]+1:scaled_reg_arr[0,2], scaled_reg_arr[1,[0,1]]]=ord('|')
+        canvas[ scaled_reg_arr[0,[1,2]], scaled_reg_arr[1,0]+1:scaled_reg_arr[1,2]]=ord('-')
+        reg_id_as_intlist = [ ord(c) for c in reg['id'] ]
+        region_id_offset = 1
+        canvas[ scaled_reg_arr[0,0]+1, scaled_reg_arr[1,0]+region_id_offset:scaled_reg_arr[1,0]+region_id_offset+len( reg['id'] )]=reg_id_as_intlist
+        if lines:
+            for i,l in enumerate([l['id'].replace(line_id_prefix,'l:') for l in reg['lines']]):
+                l_id_as_intlist = [ ord(c) for c in l ]
+                line_id_offset = region_id_offset+2
+                canvas[ scaled_reg_arr[0,0]+2+i, scaled_reg_arr[1,0]+line_id_offset:scaled_reg_arr[1,0]+line_id_offset+len(l_id_as_intlist)] = l_id_as_intlist
+            #print(f"  {l['id']}:{[c[::-1] for c in l['coords'][:7]]}...") 
 
-        print( '\n'.join([(''.join([ chr(c) for c in l ])) for l in canvas ] ))
+    return '\n'.join([(''.join([ chr(c) for c in l ])) for l in canvas ] )
 
 
 

@@ -116,7 +116,7 @@ if __name__ == '__main__':
             print(xml_path)
 
         segdict = seglib.segmentation_dict_from_xml( xml_path, get_text=args.get_text )
-        seglib.segdict_sink_lines( segdict )
+        segdict = seglib.segdict_sink_lines( segdict )
 
         # Raise an exception if invalid
         if args.validate:

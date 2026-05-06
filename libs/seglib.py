@@ -702,7 +702,7 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
         """ Check overlap between line's bbox and region boundaries."""
         line_bbox = shapely.envelope( shapely.multipoints( np.array( line_dict['coords'] )))
         reg_bbox = shapely.envelope( shapely.multipoints( np.array( region_dict['coords'] )))
-        return reg_bbox.intersection( inner_plg ).area / line_bbox.area
+        return reg_bbox.intersection( line_bbox ).area / line_bbox.area
 
     def extend_box( box_coords, inner_coords ):
         """Extend box coordinates to encompass inner boundaries """
@@ -741,15 +741,15 @@ def segmentation_dict_from_xml(page: str, get_text=False, regions_as_boxes=True,
                 if line_entry is None:
                     continue
                 overlap = line_to_region_overlap(line_entry, region_accum[-1] )
-                if overlap < 1.0:
+                if overlap < 0.5:
                     if strict:
                         raise ValueError("Page {}, region {}, l. {}: boundaries are not contained within its region. To disable this exception, pass strict=False".format(page, region_ids[-1], line_idx))
                     # extend region to fit the line
-#                    elif overlap >= region_line_overlap:
-#                        region_accum[-1]['coords'] = extend_box( region_accum[-1]['coords'], line_entry['coords']+line_entry['baseline'] )
-#                    else:
-#                        print(f"Line {line_entry['id']} does not meet overlap threshold with region ({overlap:.2f} < {region_line_overlap}): skipping.")
-#                        continue
+                    #elif overlap >= region_line_overlap:
+                    #    region_accum[-1]['coords'] = extend_box( region_accum[-1]['coords'], line_entry['coords']+line_entry['baseline'] )
+                    #else:
+                    #    print(f"Line {line_entry['id']} does not meet overlap threshold with region ({overlap:.2f} < {region_line_overlap}): skipping.")
+                    #    continue
                 line_accum.append( line_entry )
             elif elt.tag == "{{{}}}TextRegion".format(ns['pc']):
                 process_region(elt, region_accum, line_accum, region_ids)
@@ -812,6 +812,13 @@ def segdict_reassign_lines( segdict: dict):
     Given a segmentation dictionary, reassign lines to their most likely containing regions:
     assign each line to region with maximum overlap, as a ratio of the line's area; between
     two competing regions, choose the smaller one.
+
+    Args:
+        segdict (dict): a segmentation dictionary, DiDip-style, with regions a top-level element.
+
+    Returns:
+        dict: a restructured dictionary.
+
     """
     def line_to_region_overlap(line_dict: dict, region_dict: dict):
         """ Check overlap between line's bbox and region boundaries."""
@@ -819,23 +826,41 @@ def segdict_reassign_lines( segdict: dict):
         reg_bbox = shapely.envelope( shapely.multipoints( np.array( region_dict['coords'] )))
         return reg_bbox.intersection( inner_plg ).area / line_bbox.area
 
-    shapely.envelope( shapely.multipoints( np.array( region_dict['coords'] )))
-    regions_to_bbox = { r['id']: shapely.envelope( shapely.multipoints( np.array( r['coords'] ))) for r in segdict['regions'] }
+    region_to_bbox = [ shapely.envelope( shapely.multipoints( np.array( r['coords'] ))) for r in segdict['regions'] ]
     new_segdict = copy.deepcopy( segdict )
     for r in new_segdict['regions']:
         r['lines']=[]
-    line_to_region = {} # map line id to region dict
-    lines = [ l for l 
-    for l in segdict['lines']:
+    # all lines, sorted by centroids
+    lines = [ l for r in segdict['regions'] for l in r['lines'] ]  
+    for l in lines:
+        l['bbox']=shapely.envelope( shapely.multipoints( np.array( l['coords'] )))
+        #print(l['bbox'])
+    lines.sort( key=lambda ln: ln['bbox'].centroid.x )
+    # map line index to (<region index>, overlap)
+    line_to_region = [(-1,0.0) for l in lines ]
+    #print(line_to_region)
+    for l_idx, l in enumerate(lines):
         max_overlap = 0
-        line_bbox = shapely.envelope( shapely.multipoints( np.array( l['coords'] )))
-        for r in segdict['regions']:
-            this_overlap = regions_to_bbox[r['id']].intersection( line_bbox ).area / line_bbox.area
+        for r_idx, r in enumerate( segdict['regions'] ):
+            this_overlap = region_to_bbox[r_idx].intersection( l['bbox'] ).area / l['bbox'].area
+            #print(f"intersection: {region_to_bbox[r_idx].intersection( l['bbox'] ).area}", end=", ")
+            #print(f"line box area: {l['bbox'].area}")
+            #print(f"line {l['id']} ({l['bbox']}) / region: {r['id']} ({region_to_bbox[r_idx]}): overlap={this_overlap}")
             if this_overlap > max_overlap:
                 max_overlap = this_overlap
-                line_to_region[l['id']]=r
-
-
+                line_to_region[l_idx]=(r_idx, this_overlap )
+                print(f"asssign line {l['id']} to region {r['id']}: overlap={this_overlap}")
+            elif this_overlap == max_overlap and line_to_region[l_idx][0]>=0:
+                stored_region_idx = line_to_region[l_idx][0] # region index
+                if region_to_bbox[r_idx].area < region_to_bbox[stored_region_idx].area:
+                    print(f"asssign line {l['id']} to smaller region {r['id']}: overlap={this_overlap}")
+                    line_to_region[l_idx]=(r_idx, this_overlap )
+    # assign each line to its region object
+    # (vertical sorting by centroid has been done previously)
+    for l_idx, lr in enumerate( line_to_region ):
+        del lines[l_idx]['bbox']
+        new_segdict['regions'][ lr[0] ]['lines'].append( lines[l_idx] )
+    return new_segdict
 
         
 
