@@ -387,13 +387,33 @@ def display_line_masks_raw( preds: list[dict], box_threshold=.8, mask_threshold=
             plt.imshow( m*(m>mask_threshold) )
             plt.show()
 
-def json_to_ascii( segfile:str=None, segdict:dict=None, scale_hw=(.01,.02), lines=False)->str:
+
+def any_to_ascii( segfile: str, scale_hw=(.01,.02), lines=False)->str:
     """
-    ASCII-rendition of a JSON layout file.
+    ASCII-rendition of a segmentation dictionary.
 
     Args:
-        segfile (str): path of a JSON segmentation file.
+        segfile (str): path of a JSON (Page) segmentation file.
         scale_hw (tuple[float,float]): scaling factor for pixel-to-line/char (respectively) coordinate transformation.
+        lines (bool): show line ids within their regions.
+    """
+
+    segdict = None
+    with open(segfile) as seg_if:
+        segdict = json.load( segfile )
+    if not segdict:
+        raise ValueError("Could not parse a valid segmentation dictionary. Abort.")
+
+    return segdict_to_ascii( segdict, scale_hw=scale_hw, lines=lines)
+
+def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=False)->str:
+    """
+    ASCII-rendition of a JSON segmentation dictionary.
+
+    Args:
+        segdict (dict): path of a JSON segmentation file.
+        scale_hw (tuple[float,float]): scaling factor for pixel-to-line/char (respectively) coordinate transformation.
+        lines (bool): show line ids within their regions.
     """
 
     def longest_common_prefix( words ):

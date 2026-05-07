@@ -42,6 +42,16 @@ A note about types:
   tensors.
 """
 
+def segfile_format( segfile: str )->int:
+    """
+    Detect and return segmentation metadata format.
+    + Page
+    + Alto
+    + JSON
+    """
+    print("Not implemented.")
+    pass
+
 
 def polygon_map_from_json_file(  segmentation_json: str) -> Tensor:
     """Read line polygons from a JSON file and store them into a tensor, as pixel maps.
