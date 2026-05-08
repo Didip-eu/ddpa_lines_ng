@@ -59,6 +59,7 @@ sys.path.append( str( src_root ))
 from libs import seglib, list_utils as lu, line_geometry as lgm
 from libs.train_utils import duration_estimate
 from libs import segmodel as sgm
+from libs import segformats as sgf
 
 logging_format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s"
 logging_levels = {0: logging.ERROR, 1: logging.WARNING, 2: logging.INFO, 3: logging.DEBUG }
@@ -251,7 +252,7 @@ if __name__ == "__main__":
 
                     if str(layout_file_path)[-4:]=='.xml':
                         logger.warning("Extracting text regions from PageXML file {}".format( layout_file_path ))
-                        layout_data = seglib.crops_from_segdict( img, seglib.segmentation_dict_from_xml( layout_file_path ), force_rgb=True, ignore_empty_regions=True)
+                        layout_data = seglib.crops_from_segdict( img, sgf.segmentation_dict_from_xml( layout_file_path ), force_rgb=True, ignore_empty_regions=True)
                     else:
                         regseg = json.load( regseg_if ) 
                         # extract crops from layout analysis file
@@ -306,7 +307,7 @@ if __name__ == "__main__":
                             of.write(json.dumps( segdict, indent=4 ))
                     elif args.output_format == 'xml':
                         #segdict['image_wh']=img.size
-                        seglib.xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
+                        sgf.xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
                     sentinel_path.unlink()
                     if args.output_format != 'quiet':
                         logger.debug("Segmentation output saved in {}".format( output_file_path ))

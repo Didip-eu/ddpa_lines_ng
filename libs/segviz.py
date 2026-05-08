@@ -16,6 +16,7 @@ import skimage as ski
 from PIL import Image, ImageDraw
 
 from . import seglib
+from . import segformats
 
 
 logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
@@ -147,7 +148,7 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
 
     if segdict==None:
         if str(segfile)[-3:]=='xml' or segfile_suffix[-3:]=='xml':
-            segdict = seglib.segmentation_dict_from_xml( segfile )
+            segdict = segformats.segmentation_dict_from_xml( segfile )
         elif str(segfile)[-4:]=='json' or segfile_suffix[-3:]=='json':
             with open( segfile, 'r' ) as segfile_in:
                 segdict = json.load( segfile_in )
@@ -164,7 +165,7 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
     col_msk_hwc = np.zeros( img_hwc.shape, dtype=img_hwc.dtype )
     # for (older) JSON segmentation dictionaries, that have top-level 'lines' list.
     if 'lines' in segdict:
-        segdict = seglib.segdict_sink_lines( segdict )
+        segdict = segformats.segdict_sink_lines( segdict )
     for reg in segdict['regions']:
         #if color_count>=0:
         colors = get_n_color_palette( color_count ) if color_count > 0 else get_n_color_palette( len(reg['lines']))
@@ -398,23 +399,22 @@ def any_to_ascii( segfile: str, scale_hw=(.01,.02), lines=False)->str:
         lines (bool): show line ids within their regions.
     """
     segdict = None
-    segmentation_format = seglib.get_format( segfile )
-    if segmentation_format == seglib.SegFormat.Unknown:
+    segmentation_format = segformats.get_format( segfile )
+    if segmentation_format == segformats.SegFormat.Unknown:
         logger.warning("Could not determine input format. Abort.")
         return ''
-    if segmentation_format == seglib.SegFormat.JSON:
+    if segmentation_format == segformats.SegFormat.JSON:
         with open(segfile) as seg_if:
             segdict = json.load( seg_if )
-    elif segmentation_format == seglib.SegFormat.PAGE:
-        segdict = seglib.segmentation_dict_from_xml( segfile )
-    elif segmentation_format == seglib.SegFormat.ALTO:
-        logger.warning("Not implemented.")
-        return ''
+    elif segmentation_format == segformats.SegFormat.PAGE:
+        segdict = segformats.segmentation_dict_from_xml( segfile )
+    elif segmentation_format == segformats.SegFormat.ALTO:
+        segdict = segformats.segmentation_dict_from_xml( segformats.alto_to_xml( segfile, as_string=True ))
 
     if not segdict:
         raise ValueError("Could not parse a valid segmentation dictionary. Abort.")
 
-    return segdict_to_ascii( segdict, scale_hw=scale_hw, lines=lines)
+    return segdict_to_ascii( segformats.segdict_sink_lines(segdict), scale_hw=scale_hw, lines=lines)
 
 def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=False)->str:
     """
@@ -424,26 +424,28 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=False)->str:
         segdict (dict): path of a JSON segmentation file.
         scale_hw (tuple[float,float]): scaling factor for pixel-to-line/char (respectively) coordinate transformation.
         lines (bool): show line ids within their regions.
+
+    Returns:
+        str: an terminal-friendly representation of the layout.
     """
 
     def longest_common_prefix( words ):
+        if not words:
+            return ''
         max_length = sorted( [ len(w) for w in words ] )[0]
         for i in range(max_length):
             if not all( [ words[0][i]==words[j][i] for j in range(len(words)) ] ):
                 break
         return words[0][:i]
 
-    if segfile and Path(segfile).exists():
-        with open(segfile) as seg_if:
-            segdict = json.load( seg_if )
     if not segdict:
-        raise FileNotFoundError("Provide a valid segmentation dictionary, or a segmentation file.")
+        raise ValueError("Provide a valid segmentation dictionary, or a segmentation file.")
         
     width, height = segdict['image_width'], segdict['image_height']
     canvas = np.full( (np.array([height,width])*scale_hw).astype('uint16'), ord(' '))
     canvas[[0,0,-1,-1],[0,-1,-1,0]]=ord('╋')
     reg_id_prefix = longest_common_prefix( [ reg['id'] for reg in segdict['regions']] )
-    line_id_prefix = longest_common_prefix( [ l['id'] for reg in segdict['regions'] for l in reg['lines']] ) if lines else ''
+    line_id_prefix = longest_common_prefix( [ l['id'] for reg in segdict['regions'] if 'lines' in reg for l in reg['lines']] ) if lines else ''
     for reg in segdict['regions'][:]:
         reg['id']=reg['id'].replace( reg_id_prefix, 'r:')
         reg_arr = np.array( [c[::-1] for c in reg['coords']] ).astype('uint16')
@@ -455,7 +457,7 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=False)->str:
         reg_id_as_intlist = [ ord(c) for c in reg['id'] ]
         region_id_offset = 1
         canvas[ scaled_reg_arr[0,0]+1, scaled_reg_arr[1,0]+region_id_offset:scaled_reg_arr[1,0]+region_id_offset+len( reg['id'] )]=reg_id_as_intlist
-        if lines:
+        if lines and 'lines' in reg:
             for i,l in enumerate([l['id'].replace(line_id_prefix,'l:') for l in reg['lines']]):
                 l_id_as_intlist = [ ord(c) for c in l ]
                 line_id_offset = region_id_offset+2

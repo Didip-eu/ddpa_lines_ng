@@ -46,6 +46,7 @@ import fargv
 from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
 
 from libs import seglib
+from libs import segformats as sgf
 import warnings 
 #warnings.simplefilter('ignore', np.exceptions.RankWarning)
 
@@ -132,8 +133,8 @@ if __name__ == "__main__":
         reference_file_path = Path( str(segfile_path).replace( args.segfile_suffix, args.htr_suffix)) 
         if not reference_file_path.exists():
             raise FileNotFoundError()
-        reference_dict = seglib.segmentation_dict_from_xml( reference_file_path, get_text=True )
-        reference_dict = seglib.segdict_sink_lines( reference_dict)
+        reference_dict = sgf.segmentation_dict_from_xml( reference_file_path, get_text=True )
+        reference_dict = sgf.segdict_sink_lines( reference_dict)
         #print(reference_dict)
 
         # 1. Match regions

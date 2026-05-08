@@ -1,0 +1,597 @@
+from pathlib import Path
+import sys
+import xml.etree.ElementTree as ET
+import lxml.etree as LET
+import json
+import re
+import copy
+from enum import Enum
+from datetime import datetime 
+from typing import Callable, Optional, Union, Mapping, Any
+
+
+import numpy as np
+import shapely
+
+
+SegFormat = Enum('SegFormat', [('Unknown',0),('PAGE',1), ('ALTO',2), ('JSON',3)])
+
+def get_format( segfile: str )->int:
+    """
+    Detect and return segmentation metadata format:
+    + Page
+    + Alto
+    + JSON
+
+    Args:
+        segfile (str): segmentation file.
+    Returns:
+        Segformat: format code.
+    """
+    page_regexp = r'<([^:<>]+:)?PcGts.+xmlns'
+    alto_regexp = r'<([^:<>]+:)?alto.+xmlns'
+    with open(segfile) as segfile_if:
+        current_line = segfile_if.readline()
+        if re.match(r'<\?xml', current_line):
+            # when everything on a single line
+            if re.search(alto_regexp, current_line):
+                return SegFormat.ALTO
+            elif re.search(page_regexp, current_line):
+                return SegFormat.PAGE
+            while True:
+                current_line = segfile_if.readline()
+                if not re.match(r'^\s*$', current_line ):
+                    break
+            if re.search(alto_regexp, current_line):
+                return SegFormat.ALTO
+            elif re.search(page_regexp, current_line):
+                return SegFormat.PAGE
+            else:
+                return SegFormat.Unknown
+        try:
+            segfile_if.seek(0)
+            json.load( segfile_if )
+            return SegFormat.JSON
+        except ValueError:
+            print("Could not parse JSON content: unknown (non-XML) format!")
+            return SegFormat.Unknown
+
+
+def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_key='coords', with_text=False):
+    """Serialize a JSON dictionary describing the lines into a PageXML file.
+    Caution: this is a crude function, with no regard for validation.
+
+    Args:
+        seg_dict (dict[str,Union[str,list[Any]]]): segmentation dictionary of the form
+
+            {"text_direction": ..., "type": "baselines", "lines": [{"tags": ..., "baseline": [ ... ]}]}
+            or
+            {"text_direction": ..., "type": "baselines", "regions": [ {"id": "r0", "lines": [{"tags": ..., "baseline": [ ... ]}]}, ... ]}
+        pagexml_filename (str): if provided, output is saved in a PageXML file (standard output is the default).
+        polygon_key (str): if the segmentation dictionary contain alternative polygons (f.i. 'extBoundary'),
+            use them, instead of the usual line 'coords'.
+        with_text (bool): encode line transcription, if it exists. Default is False.
+    """
+    def boundary_to_point_string( list_of_pts ):
+        return ' '.join([ f"{pair[0]:.0f},{pair[1]:.0f}" for pair in list_of_pts ] )
+
+    rootElt = ET.Element('PcGts', attrib={
+        "xmlns": "http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15", 
+        "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance", 
+        "xsi:schemaLocation": "http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15 http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15/pagecontent.xsd"})
+    metadataElt = ET.SubElement(rootElt, 'MetaData')
+    creatorElt = ET.SubElement( metadataElt, 'Creator')
+    creatorElt.text=seg_dict['metadata']['creator'] if ('metadata' in seg_dict and 'creator' in seg_dict['metadata']) else 'Universität Graz/DH/nicolas.renet@uni-graz.at'
+    createdElt = ET.SubElement( metadataElt, 'Created')
+    createdElt.text=datetime.now().isoformat()
+    lastChangeElt = ET.SubElement( metadataElt, 'LastChange')
+    lastChangeElt.text=createdElt.text
+    commentElt = ET.SubElement( metadataElt, 'Comments')
+    if 'comments' in seg_dict['metadata']:
+        commentElt.text = seg_dict['metadata']['comments']
+    # for back-compatibility
+    elif 'comment' in seg_dict:
+        commentElt.text = seg_dict['comment']
+    if 'line_height_factor' in seg_dict:
+        lineHeightFactorElt = ET.SubElement( metadataElt, 'LineHeightFactor' )
+        lineHeightFactorElt.text = str(seg_dict['line_height_factor'])
+
+    img_name = Path(seg_dict['image_filename']).name
+    img_width, img_height = seg_dict['image_width'], seg_dict['image_height']    
+    pageElt = ET.SubElement(rootElt, 'Page', attrib={'imageFilename': img_name, 'imageWidth': f"{img_width}", 'imageHeight': f"{img_height}"})
+    # if no region in segmentation dict, create one (image-wide)
+    if 'regions' not in seg_dict:
+        seg_dict['regions']=[{'id': 'r0', 'coords': [[0,0],[img_width-1,0],[img_width-1,img_height-1],[0,img_height-1]]}, ]
+    for reg in seg_dict['regions']:
+        reg_xml_id = f"r{reg['id']}" if (type(reg['id']) is int or reg['id'][0]!='r') else reg['id']
+        regElt = ET.SubElement( pageElt, 'TextRegion', attrib={'id': reg_xml_id})
+        ET.SubElement(regElt, 'Coords', attrib={'points': boundary_to_point_string(reg['coords'])})
+        # 3 cases: 
+        # - top-level list of lines with region ref
+        # - top-level list of lines with no regions
+        # - top-level regions with a list of lines in each
+        lines = [ l for l in seg_dict['lines'] if (('region' in l and l['region']==reg['id']) or 'region' not in l) ] if 'lines' in seg_dict else reg['lines']
+        for line in lines:
+            line_xml_id = f"l{line['id']}" if type(line['id']) is int else line['id']
+            textLineElt = ET.SubElement( regElt, 'TextLine', attrib={'id': line_xml_id} )
+            ET.SubElement( textLineElt, 'Coords', attrib={'points': boundary_to_point_string(line[polygon_key])} )
+            if 'baseline' in line:
+                ET.SubElement( textLineElt, 'Baseline', attrib={'points': boundary_to_point_string(line['baseline'])})
+            if with_text and 'text' in line:
+                ET.SubElement( ET.SubElement( textLineElt, 'TextEquiv'), 'Unicode').text = line['text']
+
+    tree = ET.ElementTree( rootElt )
+    ET.indent(tree, space='\t', level=0)
+    if pagexml_filename:
+        tree.write( pagexml_filename, encoding='utf-8' )
+    else:
+        tree.write( sys.stdout, encoding='unicode' )
+
+
+def segmentation_dict_from_xml(page_source: str, get_text=True, regions_as_boxes=True, strict=False, region_line_overlap=.9) -> dict[str,Union[str,list[Any]]]:
+    """Given a pageXML file name, return a JSON dictionary describing the lines.
+    The resulting dictionary is flat, with two separate entries for lines and regions.
+    Use the `segdict_sink_lines` routine to construct a nested dictionary, if needed.
+
+    Args:
+        page_source (str): path of a PageXML file, or a PageXML string.
+        get_text (bool): extract line text content, if present (default: False); this
+            option causes line with no text to be yanked from the dictionary.
+        regions_as_boxes (bool): when regions have more than 4 points or are not rectangular,
+            store their bounding boxes instead; the boxe's boundary is determined
+            by its pertaining lines, not by its nominal coordinates(default: True).
+        strict (bool): if True, raise an exception if line coordinates are not comprised within
+            their region's boundaries; otherwise (default), the region value is automatically
+            extended to encompass the line coordinates.
+        region_line_overlap (float): lines that do not overlap their region by this
+            threshold are removed from the output dictionary.
+
+    Returns:
+        dict[str,Union[str,list[Any]]]: a dictionary of the form::
+
+            {"metadata": { ... },
+             "text_direction": ..., "type": "baselines", 
+             "lines": [{"id": ..., "coords": [ ... ], "baseline": [ ... ]}, ... ],
+             "regions": [{"id": ..., "coords": [ ... ]}, ... ] }
+
+           Regions are stored as a top-element.
+    TODO:
+        - check that unhandled exception on U-17_0995_s01.xml (AttributeError) has been fixed.
+
+    """
+    def parse_coordinates( pts ):
+        return [ [ int(p) for p in pt.split(',') ] for pt in pts.split(' ') ]
+
+    def construct_line_entry(line: ET.Element, region_ids: list = [] ) -> dict:
+            line_id = line.get('id')
+            baseline_elt = line.find('./pc:Baseline', ns)
+            if baseline_elt is None:
+                return None
+            bl_points = baseline_elt.get('points')
+            if bl_points is None or len(bl_points)==0:
+                return None
+            baseline_points = parse_coordinates( bl_points )
+            coord_elt = line.find('./pc:Coords', ns)
+            if coord_elt is None:
+                return None
+            c_points = coord_elt.get('points')
+            if c_points is None or len(c_points)==0:
+                return None
+            polygon_points = parse_coordinates( c_points )
+
+            line_text, line_custom_attribute = '', ''
+            if get_text:
+                text_elt = line.find('./pc:TextEquiv', ns) 
+                if text_elt is not None:
+                    line_custom_attribute = text_elt.get('custom') if 'custom' in text_elt.keys() else ''
+                    unicode_elt = text_elt.find('./pc:Unicode', ns)
+                    if unicode_elt is not None:
+                        line_text = unicode_elt.text 
+            line_dict = {'id': line_id, 'baseline': baseline_points, 
+                        'coords': polygon_points, 'regions': region_ids}
+            if line_text and not re.match(r'\s*$', line_text):
+                line_dict['text'] = line_text 
+                if line_custom_attribute:
+                    line_dict['custom']=line_custom_attribute
+            elif get_text:
+                return None
+            return line_dict
+
+    def line_to_region_overlap(line_dict: dict, region_dict: dict):
+        """ Check overlap between line's bbox and region boundaries."""
+        line_bbox = shapely.envelope( shapely.multipoints( np.array( line_dict['coords'] )))
+        reg_bbox = shapely.envelope( shapely.multipoints( np.array( region_dict['coords'] )))
+        return reg_bbox.intersection( line_bbox ).area / line_bbox.area
+
+    def extend_box( box_coords, inner_coords ):
+        """Extend box coordinates to encompass inner boundaries """
+        inner_xs, inner_ys = [ pt[0] for pt in inner_coords ], [ pt[1] for pt in inner_coords ]
+        inner_left, inner_right, inner_top, inner_bottom = min(inner_xs), max(inner_xs), min(inner_ys), max(inner_ys)
+        return [ [ inner_left if inner_left < box_coords[0][0] else box_coords[0][0],
+                 inner_top if inner_top < box_coords[0][1] else box_coords[0][1]],
+                [ inner_right if inner_right > box_coords[1][0] else box_coords[1][0],
+                 inner_top if inner_top < box_coords[1][1] else box_coords[1][1]],
+                [ inner_right if inner_right > box_coords[2][0] else box_coords[2][0],
+                 inner_bottom if inner_bottom > box_coords[2][1] else box_coords[2][1]],
+                [ inner_left if inner_left < box_coords[3][0] else box_coords[3][0],
+                 inner_bottom if inner_bottom > box_coords[3][1] else box_coords[3][1]],]
+
+    def process_region( region: ET.Element, region_accum: list, line_accum: list, region_ids:list ):
+        # order of regions: outer -> inner
+        region_ids = region_ids + [ region.get('id') ]
+
+        region_coord_elt, rg_points = region.find('./pc:Coords', ns), None
+        if region_coord_elt is not None:
+            rg_points = region_coord_elt.get('points')
+            if rg_points is None:
+                raise ValueError("Region has no coordinates. Aborting.")
+            rg_points = parse_coordinates( rg_points )
+            if regions_as_boxes:
+                xs, ys = [ pt[0] for pt in rg_points ], [ pt[1] for pt in rg_points ]
+                left, right, top, bottom = min(xs), max(xs), min(ys), max(ys)
+                rg_points = [[left,top], [right,top], [right,bottom], [left, bottom]]
+
+        region_accum.append( {'id': region.get('id'), 'coords': rg_points } )
+
+        for line_idx, elt in enumerate( list(region.iter())[1:] ):
+            if elt.tag == "{{{}}}TextLine".format(ns['pc']):
+                line_entry = construct_line_entry( elt, region_ids )
+                #print(line_entry)
+                if line_entry is None:
+                    continue
+                overlap = line_to_region_overlap(line_entry, region_accum[-1] )
+                if overlap < 0.5:
+                    if strict:
+                        raise ValueError("Page {}, region {}, l. {}: boundaries are not contained within its region. To disable this exception, pass strict=False".format(page, region_ids[-1], line_idx))
+                    # extend region to fit the line
+                    #elif overlap >= region_line_overlap:
+                    #    region_accum[-1]['coords'] = extend_box( region_accum[-1]['coords'], line_entry['coords']+line_entry['baseline'] )
+                    #else:
+                    #    print(f"Line {line_entry['id']} does not meet overlap threshold with region ({overlap:.2f} < {region_line_overlap}): skipping.")
+                    #    continue
+                line_accum.append( line_entry )
+            elif elt.tag == "{{{}}}TextRegion".format(ns['pc']):
+                process_region(elt, region_accum, line_accum, region_ids)
+
+    # if source is an XML string
+    page_tree, ns = None, {}
+    try:
+        page_root = ET.fromstring( page_source )
+        print(f"Read from string (type={type(page_tree)}")
+        ns['pc'] = re.search(r'xmlns="([^"]+)"', page_source).group(1)
+    except ET.ParseError as e:
+        with open( page_source, 'r' ) as page_file:
+            for line in page_file:
+                m = re.search(r'xmlns="([^"]+)"', line)
+                if m:
+                    ns['pc'] = m.group(1)
+                    page_file.seek(0)
+                    break
+            page_root = ET.parse( page_file ).getroot()
+
+    if page_root is None:
+        raise ValueError("Could not parse the source. Abort.")
+    if 'pc' not in ns:
+        raise ValueError(f"Could not find a name space in file {page_root}. Parsing aborted.")
+
+    lines, regions, page_dict = [], [], {}
+
+    metadata_elt = page_root.find('./pc:Metadata', ns)
+    if metadata_elt is None:
+        page_dict = { 'metadata': { 'created': str(datetime.now()), 'creator': __file__, } }
+    else:
+        created_elt, creator_elt, comments_elt = [ metadata_elt.find(f"./pc:{tag}", ns) for tag in ('Created', 'Creator', 'Comments') ]
+        page_dict: {
+                'metadata': {
+                    'created': created_elt.text if created_elt else str(datetime.datetime.now()),
+                    'creator': creator_elt.text if creator_elt else __filename__,
+                    'comments': comments_elt.text if comments_elt else "",
+                }
+        }
+
+    page_dict['type']='baselines'
+    page_dict['text_direction']='horizontal-lr'
+
+    pageElement = page_root.find('./pc:Page', ns)
+    
+    page_dict['image_filename']=pageElement.get('imageFilename')
+    page_dict['image_width'], page_dict['image_height']=[ int(pageElement.get('imageWidth')), int(pageElement.get('imageHeight'))]
+
+    for textRegionElement in pageElement.findall('./pc:TextRegion', ns):
+        process_region( textRegionElement, regions, lines, [] )
+
+    page_dict['lines'] = lines
+    page_dict['regions'] = regions
+
+    return page_dict 
+
+def segdict_reassign_lines( segdict: dict):
+    """
+    Given a segmentation dictionary, reassign lines to their most likely containing regions:
+    assign each line to region with maximum overlap, as a ratio of the line's area; between
+    two competing regions, choose the smaller one.
+
+    Args:
+        segdict (dict): a segmentation dictionary, DiDip-style, with regions a top-level element.
+
+    Returns:
+        dict: a restructured dictionary.
+
+    """
+    def line_to_region_overlap(line_dict: dict, region_dict: dict):
+        """ Check overlap between line's bbox and region boundaries."""
+        line_bbox = shapely.envelope( shapely.multipoints( np.array( line_dict['coords'] )))
+        reg_bbox = shapely.envelope( shapely.multipoints( np.array( region_dict['coords'] )))
+        return reg_bbox.intersection( inner_plg ).area / line_bbox.area
+
+    region_to_bbox = [ shapely.envelope( shapely.multipoints( np.array( r['coords'] ))) for r in segdict['regions'] ]
+    new_segdict = copy.deepcopy( segdict )
+    for r in new_segdict['regions']:
+        r['lines']=[]
+    # all lines, sorted by centroids
+    lines = [ l for r in segdict['regions'] for l in r['lines'] ]  
+    for l in lines:
+        l['bbox']=shapely.envelope( shapely.multipoints( np.array( l['coords'] )))
+        #print(l['bbox'])
+    lines.sort( key=lambda ln: ln['bbox'].centroid.x )
+    # map line index to (<region index>, overlap)
+    line_to_region = [(-1,0.0) for l in lines ]
+    #print(line_to_region)
+    for l_idx, l in enumerate(lines):
+        max_overlap = 0
+        for r_idx, r in enumerate( segdict['regions'] ):
+            this_overlap = region_to_bbox[r_idx].intersection( l['bbox'] ).area / l['bbox'].area
+            #print(f"intersection: {region_to_bbox[r_idx].intersection( l['bbox'] ).area}", end=", ")
+            #print(f"line box area: {l['bbox'].area}")
+            #print(f"line {l['id']} ({l['bbox']}) / region: {r['id']} ({region_to_bbox[r_idx]}): overlap={this_overlap}")
+            if this_overlap > max_overlap:
+                max_overlap = this_overlap
+                line_to_region[l_idx]=(r_idx, this_overlap )
+                print(f"asssign line {l['id']} to region {r['id']}: overlap={this_overlap}")
+            elif this_overlap == max_overlap and line_to_region[l_idx][0]>=0:
+                stored_region_idx = line_to_region[l_idx][0] # region index
+                if region_to_bbox[r_idx].area < region_to_bbox[stored_region_idx].area:
+                    print(f"asssign line {l['id']} to smaller region {r['id']}: overlap={this_overlap}")
+                    line_to_region[l_idx]=(r_idx, this_overlap )
+    # assign each line to its region object
+    # (vertical sorting by centroid has been done previously)
+    for l_idx, lr in enumerate( line_to_region ):
+        del lines[l_idx]['bbox']
+        new_segdict['regions'][ lr[0] ]['lines'].append( lines[l_idx] )
+    return new_segdict
+
+        
+
+
+def segdict_sink_lines(segdict: dict):
+    """Convert a segmentation dictionary with top-level line array ('lines') 
+    to a nested dictionary where each region in the 'regions' array contains its 
+    corresponding 'lines' array. No change applied if lines are already wrapped
+    into the regions.
+
+    Args:
+        segdict (dict): segmentation dictionary of the form::
+
+                {..., "lines": [ {"id":..., "regions": [...]}, ... ], "regions": [ ... ] }
+
+            OR
+
+                {..., "lines": [ {"id":..., "region": "r0"}, ... ], "regions": [ ... ] }
+
+    Returns:
+        dict: a modified copy of the original dictionary::
+
+            {..., "regions": [ {"id":..., lines=[{"id": ... }, ... ]}, ... ] }
+    """
+    segdict = copy.deepcopy(segdict)
+    if 'lines' not in segdict or not segdict['lines']:
+        return segdict
+    # if no 'regions' entry for lines, assign to each line its proper region
+    if 'regions' not in segdict['lines'][0]:
+        for line in segdict['lines']:
+            if 'region' in line:
+                line['regions']=[ line['region'] ]
+                del line['region']
+            else:
+                for reg in segdict['regions']:
+                    if (line['coords'] >= np.min( reg['coords'], axis=0 )).all() and (line['coords'] <= np.max( reg['coords'], axis=0 )).all():
+                        #print("Check coordinates")
+                        if 'regions' not in line:
+                            line['regions']=[]
+                    line['regions'].append( reg['id'] )
+    # fix old Kraken format
+    if type(segdict['regions']) is dict:
+        segdict['regions'] = segdict['regions']['text']
+
+    for line in segdict['lines']:
+        this_reg=[ reg for reg in segdict['regions'] if reg['id']==line['regions'][0] ][0] if ('regions' in line and line['regions']) else line['region']
+        if 'lines' not in this_reg:
+            this_reg['lines']=[]
+        this_reg['lines'].append(line)
+        del line['regions']
+    del segdict['lines']
+
+    # regions with no lines assigned are still valid
+    for reg in segdict['regions']:
+        if 'lines' not in reg:
+            reg['lines']=[]
+    return segdict
+
+
+def promote_regions_from_json_file( filename: Path ):
+    """
+    From a segmentation dictionary, promote regions as new stand-alone images
+    and create 1+ dictionaries accordingly. Assumes that regions are top-level elements.
+
+
+    Returns:
+        list[tuple[Image,dict]]: a list of tuples (image,dictionary).
+    """
+    with open( filename, 'r') as json_if:
+        segdict = json.load( json_if )
+        dir_path = Path(filename).parent
+        region_list = []
+        for reg_idx, region in enumerate(segdict['regions']):
+            new_segdict = copy.deepcopy(segdict)
+            new_segdict['metadata']['created']=str(datetime.now())
+            new_segdict['regions'] = new_segdict['regions'][reg_idx:reg_idx+1] 
+            # new region coordinates (crop-wide)
+            new_segdict['regions'][0]['coords'] = (np.array( region['coords'] ) - region['coords'][0]).tolist()
+            # new image dimensions
+            new_segdict['image_width'], new_segdict['image_height']= new_segdict['regions'][0]['coords'][2]
+            x_offset, y_offset = region['coords'][0]
+            # offset lines
+            for line_idx, line in enumerate(region['lines']):
+                for attr in ('coords', 'centerline', 'baseline'):
+                    new_coords=np.array(line[attr])-[x_offset, y_offset]
+                    assert np.all( new_coords >= 0 )
+                    new_segdict['regions'][0]['lines'][line_idx][attr]=new_coords.tolist()
+            # crop region
+            with Image.open( dir_path.joinpath( segdict['image_filename'] )) as page_img:
+                #print(np.array( region['coords'])[[0,2]].flatten())
+                region_img = page_img.crop( tuple(np.array( region['coords'])[[0,2]].flatten().tolist() ))
+                region_img_filename = re.sub('\.(img\.)?(png|jpg)$', f".r{reg_idx}"+r'\g<0>', segdict['image_filename'])
+                new_segdict['image_filename']=region_img_filename
+                assert( region_img.size == (new_segdict['image_width'], new_segdict['image_height']))
+            region_list.append( (region_img, new_segdict) )
+        return region_list
+
+
+def alto_to_xml( segfile: str, xslfile=None, pagexml_filename: str='', as_string=False ):
+    """
+    ALTO → Page conversion tool with embedded XSL stylesheet.
+
+    Args:
+        segfile (str): segmentation data (ALTO format)
+        xslfile (str): XSL stylesheet (optional: use built-in stylesheet as a fallback).
+        pagexml_filename (str): if provided, output is saved in a PageXML file (standard output is the default).
+        as_string (bool): return 
+
+    Returns:
+        str: if `as_string` parameter is True, return the transformed XML output as a string; otherwise return
+            the empty string.
+    """
+
+    xsl="""<?xml version = "1.0" encoding = "UTF-8"?>
+    <!-- 
+        Author: nprenet@gmail.com
+        Date: 2026-04-15 10:52:43
+    -->
+    <xsl:stylesheet version = "1.0"
+        xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+        xmlns:alto="http://www.loc.gov/standards/alto/ns-v4#"
+    >
+        <xsl:output method="xml"/>
+        <xsl:param name="today"/>
+        <xsl:param name="source"/>
+
+        <xsl:template match="/">
+            <PcGts xmlns="http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15 http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15/pagecontent.xsd">
+                <MetaData>
+                    <Creator>prov=Universität Graz/DDH/nicolas.renet@uni-graz.at</Creator>
+                    <Created>
+                        <xsl:value-of select="$today"/>
+                    </Created>
+                    <Comments>Converted from ALTO file '<xsl:value-of select="$source"/>'</Comments>
+                </MetaData>
+                <Page>
+                    <xsl:attribute name="imageFilename">
+                        <xsl:value-of select="//alto:Description/alto:sourceImageInformation/alto:fileName"/>
+                    </xsl:attribute>
+
+                    <xsl:attribute name="imageWidth">
+                        <xsl:value-of select="//alto:Layout/alto:Page/@WIDTH"/>
+                    </xsl:attribute>
+                    <xsl:attribute name="imageHeight">
+                        <xsl:value-of select="//alto:Layout/alto:Page/@HEIGHT"/>
+                    </xsl:attribute>
+                    <xsl:for-each select="//alto:TextBlock[@WIDTH and @HEIGHT]">
+                        <TextRegion>
+                            <xsl:attribute name="id">
+                                <xsl:value-of select="@ID"/>
+                            </xsl:attribute>
+                            <xsl:variable name="regionWidth" select="@WIDTH"/>
+                            <xsl:variable name="regionHeight" select="@HEIGHT"/>
+                            <Coords>
+                            <xsl:attribute name="points">
+                                <xsl:value-of select="format-number(@HPOS, '#####')"/>,<xsl:value-of select="format-number(@VPOS, '#####')"/>
+                                <xsl:text> </xsl:text>	
+                                <xsl:value-of select="format-number(@HPOS + $regionWidth, '#####')"/>,<xsl:value-of select="format-number(@VPOS, '#####')"/>
+                                <xsl:text> </xsl:text>	
+                                <xsl:value-of select="format-number(@HPOS + $regionWidth, '#####')"/>,<xsl:value-of select="format-number(@VPOS + $regionHeight, '#####')"/>
+                                <xsl:text> </xsl:text>	
+                                <xsl:value-of select="format-number(@HPOS, '#####')"/>,<xsl:value-of select="format-number(@VPOS + $regionHeight, '#####')"/>
+                            </xsl:attribute>
+                            </Coords>
+                            <xsl:for-each select="alto:TextLine">
+                                <TextLine>
+                                    <xsl:attribute name="id">
+                                        <xsl:value-of select="@ID"/>
+                                    </xsl:attribute>
+                                    <Coords>
+                                        <xsl:attribute name="points">
+                                            <xsl:value-of select="alto:Shape/alto:Polygon/@POINTS"/>
+                                        </xsl:attribute>
+                                    </Coords>
+                                    <TextEquiv>
+                                        <Unicode>
+                                        <xsl:value-of select="alto:String/@CONTENT"/>
+                                        </Unicode>
+                                    </TextEquiv>
+                                    <Baseline>
+                                        <xsl:attribute name="points">
+                                            <xsl:value-of select="@BASELINE"/>
+                                        </xsl:attribute>
+                                    </Baseline>
+                                </TextLine>
+                            </xsl:for-each>
+
+                        </TextRegion>
+                    </xsl:for-each>
+                </Page>
+            </PcGts>
+        </xsl:template>
+    </xsl:stylesheet>
+    """ 
+    if not Path(segfile).exists():
+        raise FileNotFoundError(f"Could not find segmentation file {segfile}. Abort.")
+    this_format = get_format( segfile )
+    if this_format != SegFormat.ALTO:
+        raise ValueError(f"Input file is not in Alto format (found: {this_format}). Abort.")
+    source_file = segfile
+
+    ns={'alto': "http://www.loc.gov/standards/alto/ns-v4#"}
+    dom = LET.parse(source_file)
+
+    # first, make polygon/line coordinates palatable for XSLT
+    def coords_to_pairs( coord_str ):
+        coord_str = re.sub(r'\s+',' ',coord_str.strip())
+        coord = coord_str.split(' ')
+        if len(coord)%2:
+            raise(ValueError("Even number of coords expected! Abort."))
+        pairs = ' '.join([ f"{coord[i]},{coord[i+1]}" for i in range(0, len(coord), 2) ])
+        return pairs
+
+    root = dom.getroot()
+    for plg in root.findall('.//alto:Polygon', ns):
+        points_str = plg.get('POINTS')
+        plg.set('POINTS', coords_to_pairs( points_str ))
+    for tl in root.findall('.//alto:TextLine', ns):
+        points_str = tl.get('BASELINE')
+        tl.set('BASELINE', coords_to_pairs( points_str ))
+
+    # XSL transform
+    transform = LET.XSLT( LET.parse( xslfile )) if xslfile and Path(xslfile).exists() else LET.XSLT( LET.XML( xsl.encode() ))
+    newdom = transform(dom, today=LET.XSLT.strparam(str(datetime.now())), source=LET.XSLT.strparam(Path(source_file).name))
+
+    if pagexml_filename:
+        LET.indent( newdom, space='\t', level=0)
+        newdom.write( pagexml_filename, encoding='utf-8' )
+        return ''
+    elif as_string:
+        return LET.tostring( newdom ).decode()
+    else:
+        print( LET.tostring(newdom, pretty_print=True).decode())
+        return ''
+     
+

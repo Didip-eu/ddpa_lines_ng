@@ -14,7 +14,7 @@ from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
 
 src_root = Path(__file__).parents[1]
 sys.path.append( str( src_root ))
-from libs import seglib
+from libs import seglib, segformats as sgf
 
 
 p = {
@@ -52,10 +52,10 @@ if __name__ == '__main__':
                 segdict['metadata']['comments']=args.comment
 
             if args.output_format == 'stdout':
-                seglib.xml_from_segmentation_dict( segdict, '', polygon_key=args.polygon_key, with_text=args.with_transcription )
+                sgf.xml_from_segmentation_dict( segdict, '', polygon_key=args.polygon_key, with_text=args.with_transcription )
             else:
                 if not args.overwrite_existing and xml_path.exists():
                     print("File {} exists: abort.".format( xml_path ))
                 else:
-                    seglib.xml_from_segmentation_dict( segdict, xml_path, polygon_key=args.polygon_key, with_text=args.with_transcription )
+                    sgf.xml_from_segmentation_dict( segdict, xml_path, polygon_key=args.polygon_key, with_text=args.with_transcription )
 

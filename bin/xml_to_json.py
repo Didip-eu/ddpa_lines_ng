@@ -17,7 +17,7 @@ from jsonschema import validate
 
 src_root = Path(__file__).parents[1]
 sys.path.append( str( src_root ))
-from libs import seglib
+from libs import seglib, segformats as sgf
 
 
 
@@ -115,8 +115,8 @@ if __name__ == '__main__':
         if args.verbose:
             print(xml_path)
 
-        segdict = seglib.segmentation_dict_from_xml( xml_path, get_text=args.get_text )
-        segdict = seglib.segdict_sink_lines( segdict )
+        segdict = sgf.segmentation_dict_from_xml( xml_path, get_text=args.get_text )
+        segdict = sgf.segdict_sink_lines( segdict )
 
         # Raise an exception if invalid
         if args.validate:

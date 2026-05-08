@@ -56,7 +56,7 @@ from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
 
 src_root = Path(__file__).parents[1]
 sys.path.append( str( src_root ))
-from libs import seglib, list_utils as lu, line_geometry as lgm
+from libs import seglib, list_utils as lu, line_geometry as lgm, segformats as sgf
 from libs import segmodel as sgm
 
 
@@ -298,7 +298,7 @@ if __name__ == "__main__":
                 layout_data = tuple()
                 if str(layout_file_path)[-4:]=='.xml':
                     logger.warning("Extracting text regions from PageXML file {}".format( layout_file_path ))
-                    layout_data = seglib.crops_from_segdict( img, seglib.segmentation_dict_from_xml( layout_file_path ), force_rgb=True, ignore_empty_regions=True)
+                    layout_data = seglib.crops_from_segdict( img, sgf.segmentation_dict_from_xml( layout_file_path ), force_rgb=True, ignore_empty_regions=True)
                 else:
                     regseg = json.load( regseg_if )
                     # extract crops from layout analysis file
@@ -378,7 +378,7 @@ if __name__ == "__main__":
                     of.write(json.dumps( segdict, indent=4 ))
             elif args.output_format == 'xml':
                 #segdict['image_wh']=img.size
-                seglib.xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
+                sgf.xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
             elif args.output_format == 'npy':
                 np.save( output_file_path, binary_mask )
             logger.debug("Segmentation output saved in {}".format( output_file_path ))

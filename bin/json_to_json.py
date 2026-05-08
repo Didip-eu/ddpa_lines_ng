@@ -31,7 +31,7 @@ from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
 
 src_root = Path(__file__).parents[1]
 sys.path.append( str( src_root ))
-from libs import seglib
+from libs import seglib, segformats as sgf
 
 p = {
     'file_paths': FargvPositional(default=[], description="Input file (JSON)."),
@@ -57,7 +57,7 @@ if __name__ == '__main__':
         # region-as-a-file extraction
         if args.promote_regions:
             from PIL import Image
-            for reg_idx, region_tuple in enumerate( seglib.promote_regions_from_json_file( json_path )):
+            for reg_idx, region_tuple in enumerate( sgf.promote_regions_from_json_file( json_path )):
                 region_img, region_segdict = region_tuple
                 #region_img.show( region_img )
                 # construct image and json file names
@@ -85,7 +85,7 @@ if __name__ == '__main__':
 
             # automatic 
             if 'lines' in segdict:
-                segdict = seglib.segdict_sink_lines( segdict )
+                segdict = sgf.segdict_sink_lines( segdict )
 
             line_dicts = seglib.line_dicts_from_segmentation_dict( segdict )
 
