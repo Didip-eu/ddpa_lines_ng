@@ -9,6 +9,7 @@ import copy
 import sys
 import math
 import copy
+from enum import Enum
 from datetime import datetime
 
 # 3rd-party
@@ -42,15 +43,45 @@ A note about types:
   tensors.
 """
 
-def segfile_format( segfile: str )->int:
+SegFormat = Enum('SegFormat', [('Unknown',0),('PAGE',1), ('ALTO',2), ('JSON',3)])
+
+def get_format( segfile: str )->int:
     """
-    Detect and return segmentation metadata format.
+    Detect and return segmentation metadata format:
     + Page
     + Alto
     + JSON
+
+    Args:
+        segfile (str): segmentation file.
+    Returns:
+        Segformat: format code.
     """
-    print("Not implemented.")
-    pass
+    with open(segfile) as segfile_if:
+        current_line = segfile_if.readline()
+        if re.match(r'<\?xml', current_line):
+            # when everything on a single line
+            if current_line.find('<alto') >= 0:
+                return SegFormat.ALTO
+            elif current_line.find('<PcGts') >= 0:
+                return SegFormat.PAGE
+            while True:
+                current_line = segfile_if.readline()
+                if not re.match(r'^\s*$', current_line ):
+                    break
+            if current_line.find('<alto') >= 0:
+                return SegFormat.ALTO
+            elif current_line.find('<PcGts') >= 0:
+                return SegFormat.PAGE
+            else:
+                return SegFormat.Unknown
+        try:
+            segfile_if.seek(0)
+            json.load( segfile_if )
+            return SegFormat.JSON
+        except ValueError:
+            print("Could not parse JSON content: unknown (non-XML) format!")
+            return SegFormat.Unknown
 
 
 def polygon_map_from_json_file(  segmentation_json: str) -> Tensor:

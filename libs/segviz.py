@@ -397,10 +397,20 @@ def any_to_ascii( segfile: str, scale_hw=(.01,.02), lines=False)->str:
         scale_hw (tuple[float,float]): scaling factor for pixel-to-line/char (respectively) coordinate transformation.
         lines (bool): show line ids within their regions.
     """
-
     segdict = None
-    with open(segfile) as seg_if:
-        segdict = json.load( segfile )
+    segmentation_format = seglib.get_format( segfile )
+    if segmentation_format == seglib.SegFormat.Unknown:
+        logger.warning("Could not determine input format. Abort.")
+        return ''
+    if segmentation_format == seglib.SegFormat.JSON:
+        with open(segfile) as seg_if:
+            segdict = json.load( seg_if )
+    elif segmentation_format == seglib.SegFormat.PAGE:
+        segdict = seglib.segmentation_dict_from_xml( segfile )
+    elif segmentation_format == seglib.SegFormat.ALTO:
+        logger.warning("Not implemented.")
+        return ''
+
     if not segdict:
         raise ValueError("Could not parse a valid segmentation dictionary. Abort.")
 
