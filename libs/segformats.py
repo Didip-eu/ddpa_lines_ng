@@ -131,7 +131,6 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
 def segmentation_dict_from_xml(page_source: str, get_text=True, regions_as_boxes=True, strict=False, region_line_overlap=.9) -> dict[str,Union[str,list[Any]]]:
     """Given a pageXML file name, return a JSON dictionary describing the lines.
     The resulting dictionary is flat, with two separate entries for lines and regions.
-    Use the `segdict_sink_lines` routine to construct a nested dictionary, if needed.
 
     Args:
         page_source (str): path of a PageXML file, or a PageXML string.
@@ -151,13 +150,14 @@ def segmentation_dict_from_xml(page_source: str, get_text=True, regions_as_boxes
 
             {"metadata": { ... },
              "text_direction": ..., "type": "baselines", 
-             "lines": [{"id": ..., "coords": [ ... ], "baseline": [ ... ]}, ... ],
-             "regions": [{"id": ..., "coords": [ ... ]}, ... ] }
+             "regions": [{"id": ..., "coords": [ ... ]}, 
+                          "lines": [{"id": ..., "coords": [ ... ], "baseline": [ ... ]}, ... ]]
+            }
 
            Regions are stored as a top-element.
     TODO:
         - check that unhandled exception on U-17_0995_s01.xml (AttributeError) has been fixed.
-
+        - assign each line its containing region_s_ as a property.
     """
     def parse_coordinates( pts ):
         return [ [ int(p) for p in pt.split(',') ] for pt in pts.split(' ') ]
@@ -216,10 +216,10 @@ def segmentation_dict_from_xml(page_source: str, get_text=True, regions_as_boxes
                 [ inner_left if inner_left < box_coords[3][0] else box_coords[3][0],
                  inner_bottom if inner_bottom > box_coords[3][1] else box_coords[3][1]],]
 
-    def process_region( region: ET.Element, region_accum: list, line_accum: list, region_ids:list ):
+    def process_region( region: ET.Element, region_accum: list, region_ids:list ):
         # order of regions: outer -> inner
         region_ids = region_ids + [ region.get('id') ]
-
+        lines_children = []
         region_coord_elt, rg_points = region.find('./pc:Coords', ns), None
         if region_coord_elt is not None:
             rg_points = region_coord_elt.get('points')
@@ -249,9 +249,9 @@ def segmentation_dict_from_xml(page_source: str, get_text=True, regions_as_boxes
                     #else:
                     #    print(f"Line {line_entry['id']} does not meet overlap threshold with region ({overlap:.2f} < {region_line_overlap}): skipping.")
                     #    continue
-                line_accum.append( line_entry )
+                line_children.append( line_entry )
             elif elt.tag == "{{{}}}TextRegion".format(ns['pc']):
-                process_region(elt, region_accum, line_accum, region_ids)
+                process_region(elt, region_accum, region_ids)
 
     # if source is an XML string
     page_tree, ns = None, {}
@@ -274,7 +274,7 @@ def segmentation_dict_from_xml(page_source: str, get_text=True, regions_as_boxes
     if 'pc' not in ns:
         raise ValueError(f"Could not find a name space in file {page_root}. Parsing aborted.")
 
-    lines, regions, page_dict = [], [], {}
+    regions, page_dict = [], [], {}
 
     metadata_elt = page_root.find('./pc:Metadata', ns)
     if metadata_elt is None:
@@ -298,9 +298,8 @@ def segmentation_dict_from_xml(page_source: str, get_text=True, regions_as_boxes
     page_dict['image_width'], page_dict['image_height']=[ int(pageElement.get('imageWidth')), int(pageElement.get('imageHeight'))]
 
     for textRegionElement in pageElement.findall('./pc:TextRegion', ns):
-        process_region( textRegionElement, regions, lines, [] )
+        process_region( textRegionElement, regions, [] )
 
-    page_dict['lines'] = lines
     page_dict['regions'] = regions
 
     return page_dict 
@@ -360,14 +359,33 @@ def segdict_reassign_lines( segdict: dict):
         new_segdict['regions'][ lr[0] ]['lines'].append( lines[l_idx] )
     return new_segdict
 
-        
 
+def lines_from_segdict( segdict: dict)->list:
+    """
+    Given a segmentation dictionary (a nesting of regions and their inner 'lines'
+    array, return a flat list of lines.
 
-def segdict_sink_lines(segdict: dict):
+    Args:
+        segdict (dict): a dictionary of the form::
+
+            {"metadata": { ... },
+             "text_direction": ..., "type": "baselines",
+             "regions": [{"id": ..., "coords": [ ... ]},
+                          "lines": [{"id": ..., "coords": [ ... ], "baseline": [ ... ]}, ... ]]
+            }
+    Returns:
+        list[dict]: a list of line dictionaries of the form::
+            
+            {"id": ..., "coords": [ ... ], "baseline": [ ... ]}
+    """
+    return [ l for r in segdict['regions'] for l in r['lines'] ]
+
+def segdict_sink_lines_deprecate(segdict: dict):
     """Convert a segmentation dictionary with top-level line array ('lines') 
     to a nested dictionary where each region in the 'regions' array contains its 
     corresponding 'lines' array. No change applied if lines are already wrapped
     into the regions.
+    NOTE: TO BE DEPRECATED.
 
     Args:
         segdict (dict): segmentation dictionary of the form::
@@ -398,7 +416,7 @@ def segdict_sink_lines(segdict: dict):
                         #print("Check coordinates")
                         if 'regions' not in line:
                             line['regions']=[]
-                    line['regions'].append( reg['id'] )
+                        line['regions'].append( reg['id'] )
     # fix old Kraken format
     if type(segdict['regions']) is dict:
         segdict['regions'] = segdict['regions']['text']
@@ -594,4 +612,13 @@ def alto_to_xml( segfile: str, xslfile=None, pagexml_filename: str='', as_string
         print( LET.tostring(newdom, pretty_print=True).decode())
         return ''
      
+def json_doctor( segdict: dict, operations={'region_fit': True, 'line_surgery': True} )->dict:
+    """
+    Fix semantic issues in a JSON segmentation dictionary:
 
+    + 
+    + extend regions to encompass their line bounding boxes
+    + re-assign lines to their proper regions
+    + 
+    """
+    pass

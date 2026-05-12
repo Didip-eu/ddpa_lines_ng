@@ -7,6 +7,7 @@ import itertools
 import re
 import sys
 import math
+import copy
 
 # 3rd-party
 from PIL import Image, ImageDraw
@@ -172,7 +173,7 @@ def didip_json_to_label_mask( segmentation_json: str, channels=3, largest_dimens
     """
     with open( segmentation_json, 'r' ) as json_file:
         segmentation_dict = json.load( json_file )
-        polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict, polygon_key='coords' )
+        polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict)
         mask_size = (segmentation_dict['image_width'], segmentation_dict['image_height'])
         one_channel_img = Image.fromarray( np.uint8( np.sum( [ ski.draw.polygon2mask( mask_size, polyg ).transpose(1,0) for polyg in polygon_boundaries ], axis=0)), mode="L")
         new_width, new_height = (largest_dimension/mask_size[1] * mask_size[0], largest_dimension)
@@ -189,7 +190,8 @@ def didip_json_to_label_mask( segmentation_json: str, channels=3, largest_dimens
             return np.array( img_array )
 
 def didip_json_to_docufcn_label_json( segmentation_json: Path, output_file_path='', overwrite_existing=False):
-    """ Convert a DiDip JSON segmentation file into a Doc-UFCN label file (for evaluation use).
+    """ Convert a DiDip JSON segmentation file into a Doc-UFCN label file.
+    Note: assumes a single-region file; only for evaluation use in segmentation pipeline.
 
     Args:
         label_file (str): path to a segmentation file, DiDip-style
@@ -259,41 +261,81 @@ def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='
     Returns:
         list[list[int]]: a list of lists of coordinates.
     """
+    flat_dict = flatten_segmentation_dict( segmentation_dict )
+    if factor==1.0:
+        return [ l[polygon_key] for l in flat_dict['lines'] ]
     line_polygons = []
-    if 'lines' in segmentation_dict:
-        if factor==1.0:
-            return [ line[polygon_key] for line in segmentation_dict['lines'] ]
-        #return [ (lgm.strip_from_baseline( line['baseline'], line['x-height']*factor, ltrb=tuple(np.array(line['regions'][0]['coords'])[[0,2]].flatten()) ) if 'x-height' in line else line[polygon_key]) for line in segmentation_dict['lines'] ]
-        for line in segmentation_dict['lines']:
-            if 'x-height' in line:
-                ltrb = tuple(np.array(line['regions'][0]['coords'])[[0,2]].flatten())
-                line_polygons.append( lgm.strip_from_baseline( line['baseline'], line['x-height'], factor, ltrb=ltrb) )
-            else:
-                line_polygons.append( line[polygon_key] )
-    elif 'regions' in segmentation_dict:
-        #return [ (lgm.strip_from_baseline( line['baseline'], line['x-height']*factor, ltrb=tuple(np.array(reg['coords'])[[0,2]].flatten()) ) if 'x-height' in line else line[polygon_key]) for reg in segmentation_dict['regions'] for line in reg['lines']]
-        if factor==1.0:
-            return [ line[polygon_key] for reg in segmentation_dict['regions'] for line in reg['lines']]
-        for reg in segmentation_dict['regions']:
-            ltrb=tuple(np.array(reg['coords'])[[0,2]].flatten())
-            line_polygons.extend([ lgm.strip_from_baseline( line['baseline'], line['x-height'], factor, ltrb=ltrb ) if 'x-height' in line else line[polygon_key] for line in reg['lines'] ] )
+    id_to_reg = { r['id']:r for r in flat_dict['regions'] }
+    for line in flat_dict['lines']:
+        # look for innermost containing region
+        ltrb = tuple(np.array( id_to_reg[line['regions'][-1]]['coords'])[[0,2]].flatten())
+        line_polygons.append( lgm.strip_from_baseline( line['baseline'], line['x-height'], factor, ltrb=ltrb ) if 'x-height' in line else line[polygon_key] )
     return line_polygons
  
+
+def flatten_segmentation_dict( segmentation_dict: dict ) -> dict:
+    """
+    Flatten a DiDip-style segmentation dictionary, with both lines and regions stored as top-level lists.
+
+    Args:
+        segmentation_dict (dict): a dictionary, typically constructed from a JSON file.
+    Returns:
+        dict: segmentation dictionary of the form::
+
+            TBD
+    """
+    regions = region_dicts_from_segmentation_dict( segmentation_dict )
+    lines = line_dicts_from_segmentation_dict( segmentation_dict )
+    for r in regions:
+        if 'lines' in r:
+            del r['lines']
+    return {
+            'metadata': segmentation_dict['metadata'],
+            'regions': regions,
+            'lines': lines,
+    }
+
 
 def line_dicts_from_segmentation_dict( segmentation_dict: dict ) -> list[dict]:
     """From a segmentation dictionary, return a list of all line dictionaries.
 
     Args:
         segmentation_dict (dict): a dictionary, typically constructed from a JSON file. The 'lines' entry is either
-        top-level key, or nested as in 'regions > region > lists'.
+        top-level key, or nested in a region or subregion.
     Returns:
-        list[dict]: a list of dictionaries.
+        list[dict]: a list of dictionaries; each line stores the id(s) of its containing region(s), the innermost first.
     """
-    if 'lines' in segmentation_dict:
-        return segmentation_dict['lines']
-    elif 'regions' in segmentation_dict:
-        return [ line for reg in segmentation_dict['regions'] for line in reg['lines']]
-    return []
+    def get_lines_from_region( reg, region_stack ):
+        subregion_lines = []
+        if 'lines' in reg:
+            for l in reg['lines']:
+                l['regions']=region_stack
+        subregion_lines = list(itertools.chain.from_iterable([ get_lines_from_region( inner_reg, region_stack + [inner_reg['id']] ) for inner_reg in reg['regions']])) if 'regions' in reg else []
+        return (reg['lines'] if 'lines' in reg else []) + subregion_lines
+    return get_lines_from_region( copy.deepcopy(segmentation_dict), [] )
+
+
+def region_dicts_from_segmentation_dict( segmentation_dict: dict ) -> list[dict]:
+    """From a segmentation dictionary, return a flat list of all (possibly nested) regions."
+
+    Args:
+        segmentation_dict (dict): a dictionary, typically constructed from a JSON file.
+    Returns:
+        list[dict]: a list of region dictionaries.
+    """
+    def get_regions( reg, reg_accum ):
+        if reg != segmentation_dict:
+            reg_accum.append( reg )
+        if 'regions' not in reg:
+            return []
+        for inner_reg in reg['regions']:
+            get_regions( inner_reg, reg_accum )
+    regions = []
+    get_regions( copy.deepcopy(segmentation_dict), regions )
+    for r in regions:
+        if 'regions' in r:
+            del r['regions']
+    return regions
 
 
 def line_metrics_from_segmentation_dict( segmentation_dict: dict) -> dict:
@@ -323,7 +365,8 @@ def line_metrics_from_segmentation_dict( segmentation_dict: dict) -> dict:
 
 def line_images_from_img_xml_files(img: str, page_xml: str, as_dictionary=False ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From an image file path and a segmentation PageXML file describing polygons, return
-    a list of pairs (<line cropped BB>, <polygon mask>).
+    a list of pairs (<line cropped BB>, <polygon mask>), or optionally a full page dictionary with
+    those enriched lines as a top element.
 
     Args:
         img (str): the input image's file path
@@ -333,22 +376,22 @@ def line_images_from_img_xml_files(img: str, page_xml: str, as_dictionary=False 
             for keeping track of line ids when running inference.
 
     Returns:
-        list: a list of pairs (<line image BB>: np.ndarray (HWC), mask:
-        np.ndarray (HW))
+        list: a list of pairs (<line image BB>: np.ndarray (HWC), mask: np.ndarray (HW)), or a page segmentation
+            dictionary with 'lines' as extra, top-level element.
     """
     with Image.open(img, 'r') as img_wh:
         segmentation_dict = sgf.segmentation_dict_from_xml( page_xml )
         line_pairs = line_images_from_img_segmentation_dict( img_wh, segmentation_dict )
-        line_triplets = [ (*line_pair, line_dict) for line_pair, line_dict in zip( line_pairs, line_dicts_from_segmentation_dict(segmentation_dict)) ]
-        if as_dictionary:
-            segmentation_dict['lines'] = line_triplets
-            return segmentation_dict
-        return line_pairs
+        if not as_dictionary:
+            return line_pairs
+        segmentation_dict['lines']=list(zip( *(zip(*line_pairs)), line_dicts_from_segmentation_dict( segmentation_dict)))
+        return segmentation_dict
 
 
 def line_images_from_img_json_files( img: str, segmentation_json: str, as_dictionary=False, factor=1.0 ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From an image file path and a segmentation JSON file describing polygons, return
-    a list of pairs (<line cropped BB>, <polygon mask>).
+    a list of pairs (<line cropped BB>, <polygon mask>), or optionally a full page dictionary with
+    those enriched lines as a top element.
 
     Args:
         img (str): the input image's file path
@@ -358,16 +401,16 @@ def line_images_from_img_json_files( img: str, segmentation_json: str, as_dictio
         factor (float): scale line polygon height to <factor>.
 
     Returns:
-        Union[list,dict]: a segmentation dictionary or a list of pairs (<line image BB>: np.ndarray (HWC), mask: np.ndarray (HW))
+        Union[list,dict]: a list of pairs (<line image BB>: np.ndarray (HWC), mask: np.ndarray (HW)), or a page segmentation
+            dictionary with 'lines' as extra, top-level element.
     """
     with Image.open(img, 'r') as img_wh, open( segmentation_json, 'r' ) as json_file:
         segmentation_dict = json.load( json_file )
         line_pairs = line_images_from_img_segmentation_dict( img_wh, segmentation_dict, factor=factor )
-        line_triplets = [ (*line_pair, line_dict) for line_pair, line_dict in zip( line_pairs, line_dicts_from_segmentation_dict(segmentation_dict)) ]
-        if as_dictionary:
-            segmentation_dict['lines'] = line_triplets
-            return segmentation_dict
-        return line_pairs
+        if not as_dictionary:
+            return line_pairs
+        segmentation_dict['lines']=list(zip( *(zip(*line_pairs)), line_dicts_from_segmentation_dict( segmentation_dict)))
+        return segmentation_dict
 
 
 def line_images_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dict: dict, polygon_key='coords', factor=1.0 ) -> list[tuple[np.ndarray, np.ndarray]]:
@@ -516,7 +559,7 @@ def expand_flat_tensor_to_n_channels( t_hw: Tensor, n: int ) -> np.ndarray:
 
 def crops_from_segdict( img: Image.Image, segdict: dict, force_rgb=False, ignore_empty_regions=False ):
     """From a segmentation dictionary, return the text regions and their
-    corresponding image crops.
+    corresponding image crops (nested regions are ignored).
 
     Args:
         img (Image.Image): Image to crop.
@@ -532,7 +575,6 @@ def crops_from_segdict( img: Image.Image, segdict: dict, force_rgb=False, ignore
     if 'regions' not in segdict:
         return tuple()
     # make it easier to check for empty regions
-    segdict = segdict_sink_lines( segdict )
     if force_rgb and img.mode != 'RGB':
         img = img.convert('RGB')
     return tuple( zip( *[ ( img.crop( tuple(r['coords'][0]+r['coords'][2])), r['coords'][0]+r['coords'][2], None) for r in segdict['regions'] if (not ignore_empty_regions or ('lines' in r and len(r['lines']))) ]) )

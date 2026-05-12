@@ -64,6 +64,7 @@ schema_dict = {
         "properties": {
           "id": { "type": "string" },
           "coords": { "type": "array" }, 
+          "regions": {"$ref": "#regions"},
           "lines": { 
             "type": "array",
             "items": {

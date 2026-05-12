@@ -81,13 +81,7 @@ if __name__ == '__main__':
 
         segdict = None
         with open( json_path, 'r') as json_if:
-            segdict = json.load( json_if )
-
-            # automatic 
-            if 'lines' in segdict:
-                segdict = sgf.segdict_sink_lines( segdict )
-
-            line_dicts = seglib.line_dicts_from_segmentation_dict( segdict )
+            line_dicts = seglib.line_dicts_from_segmentation_dict( json.load( json_if) )
 
             # delete unwanted features
             for line in line_dicts:
