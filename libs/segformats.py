@@ -5,6 +5,7 @@ import lxml.etree as LET
 import json
 import re
 import copy
+import itertools
 from enum import Enum
 from datetime import datetime 
 from typing import Callable, Optional, Union, Mapping, Any
@@ -12,9 +13,155 @@ from typing import Callable, Optional, Union, Mapping, Any
 
 import numpy as np
 import shapely
-
+import jsonschema
 
 SegFormat = Enum('SegFormat', [('Unknown',0),('PAGE',1), ('ALTO',2), ('JSON',3)])
+
+JsonSchema = { 
+  "id": "https://didip.uni-graz.at/segmentation.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Created by NPR on 2026.02.06 - use the following: 'check-jsonschema --schemafile schema.json *.lines.gt.json' for CLI validation or 'jsonschema.validate(instance=dict, schema=dict)' for in-script validation.",
+  "title": "Page Description",
+  "description": "Line segmentation metadata schema, for DiDip/VRE internal use: structure of *.lines.{pred,gt}.json files.",
+  "type": "object",
+  "required": ["metadata", "image_filename", "image_width", "image_height","regions"],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "created": { "type": "string" },
+        "creator": { "type": "string" },
+        "comment": { "type": "string" } },
+      "required": ["created", "creator"] },
+    "image_filename": { "type": "string" },
+    "image_width": { "type": "integer" },
+    "image_height": { "type": "integer" },
+    "type": { "type": "string" },
+    "text_direction": { "type": "string" },
+    "lines": {"not":{}},
+    "regions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "coords"],
+        "properties": {
+          "id": { "type": "string" },
+          "coords": { "type": "array" }, 
+          "regions": {"$ref": "#regions"},
+          "lines": { 
+            "type": "array",
+            "items": {
+              "type": "object", 
+              "required": ["id", "coords", "baseline"],
+              "properties": { 
+                "id": { "type": "string" }, 
+                "coords": { 
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": { "type": "integer" },
+		    "minItems": 2,
+		    "maxItems": 2 } }, 
+                "x-height": { "type": "integer" },
+                "centerline": { 
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": { "type": "integer" },
+		    "minItems": 2,
+		    "maxItems": 2 },
+		  "minItems": 2 },
+                "baseline": { 
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": { "type": "integer" },
+		    "minItems": 2,
+		    "maxItems": 2 },
+		  "minItems": 2 } } } } } } } } }
+
+
+XslAltoPage="""<?xml version = "1.0" encoding = "UTF-8"?>
+<!-- 
+    Author: nprenet@gmail.com
+    Date: 2026-04-15 10:52:43
+-->
+<xsl:stylesheet version = "1.0"
+    xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+    xmlns:alto="http://www.loc.gov/standards/alto/ns-v4#"
+>
+    <xsl:output method="xml"/>
+    <xsl:param name="today"/>
+    <xsl:param name="source"/>
+
+    <xsl:template match="/">
+        <PcGts xmlns="http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15 http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15/pagecontent.xsd">
+            <MetaData>
+                <Creator>prov=Universität Graz/DDH/nicolas.renet@uni-graz.at</Creator>
+                <Created>
+                    <xsl:value-of select="$today"/>
+                </Created>
+                <Comments>Converted from ALTO file '<xsl:value-of select="$source"/>'</Comments>
+            </MetaData>
+            <Page>
+                <xsl:attribute name="imageFilename">
+                    <xsl:value-of select="//alto:Description/alto:sourceImageInformation/alto:fileName"/>
+                </xsl:attribute>
+
+                <xsl:attribute name="imageWidth">
+                    <xsl:value-of select="//alto:Layout/alto:Page/@WIDTH"/>
+                </xsl:attribute>
+                <xsl:attribute name="imageHeight">
+                    <xsl:value-of select="//alto:Layout/alto:Page/@HEIGHT"/>
+                </xsl:attribute>
+                <xsl:for-each select="//alto:TextBlock[@WIDTH and @HEIGHT]">
+                    <TextRegion>
+                        <xsl:attribute name="id">
+                            <xsl:value-of select="@ID"/>
+                        </xsl:attribute>
+                        <xsl:variable name="regionWidth" select="@WIDTH"/>
+                        <xsl:variable name="regionHeight" select="@HEIGHT"/>
+                        <Coords>
+                        <xsl:attribute name="points">
+                            <xsl:value-of select="format-number(@HPOS, '#####')"/>,<xsl:value-of select="format-number(@VPOS, '#####')"/>
+                            <xsl:text> </xsl:text>	
+                            <xsl:value-of select="format-number(@HPOS + $regionWidth, '#####')"/>,<xsl:value-of select="format-number(@VPOS, '#####')"/>
+                            <xsl:text> </xsl:text>	
+                            <xsl:value-of select="format-number(@HPOS + $regionWidth, '#####')"/>,<xsl:value-of select="format-number(@VPOS + $regionHeight, '#####')"/>
+                            <xsl:text> </xsl:text>	
+                            <xsl:value-of select="format-number(@HPOS, '#####')"/>,<xsl:value-of select="format-number(@VPOS + $regionHeight, '#####')"/>
+                        </xsl:attribute>
+                        </Coords>
+                        <xsl:for-each select="alto:TextLine">
+                            <TextLine>
+                                <xsl:attribute name="id">
+                                    <xsl:value-of select="@ID"/>
+                                </xsl:attribute>
+                                <Coords>
+                                    <xsl:attribute name="points">
+                                        <xsl:value-of select="alto:Shape/alto:Polygon/@POINTS"/>
+                                    </xsl:attribute>
+                                </Coords>
+                                <TextEquiv>
+                                    <Unicode>
+                                    <xsl:value-of select="alto:String/@CONTENT"/>
+                                    </Unicode>
+                                </TextEquiv>
+                                <Baseline>
+                                    <xsl:attribute name="points">
+                                        <xsl:value-of select="@BASELINE"/>
+                                    </xsl:attribute>
+                                </Baseline>
+                            </TextLine>
+                        </xsl:for-each>
+
+                    </TextRegion>
+                </xsl:for-each>
+            </Page>
+        </PcGts>
+    </xsl:template>
+</xsl:stylesheet>
+""" 
 
 def get_format( segfile: str )->int:
     """
@@ -162,7 +309,7 @@ def segmentation_dict_from_xml(page_source: str, get_text=True, regions_as_boxes
     def parse_coordinates( pts ):
         return [ [ int(p) for p in pt.split(',') ] for pt in pts.split(' ') ]
 
-    def construct_line_entry(line: ET.Element, region_ids: list = [] ) -> dict:
+    def construct_line_entry(line: ET.Element, parent_region_ids: list = [] ) -> dict:
             line_id = line.get('id')
             baseline_elt = line.find('./pc:Baseline', ns)
             if baseline_elt is None:
@@ -188,7 +335,7 @@ def segmentation_dict_from_xml(page_source: str, get_text=True, regions_as_boxes
                     if unicode_elt is not None:
                         line_text = unicode_elt.text 
             line_dict = {'id': line_id, 'baseline': baseline_points, 
-                        'coords': polygon_points, 'regions': region_ids}
+                        'coords': polygon_points }
             if line_text and not re.match(r'\s*$', line_text):
                 line_dict['text'] = line_text 
                 if line_custom_attribute:
@@ -216,10 +363,10 @@ def segmentation_dict_from_xml(page_source: str, get_text=True, regions_as_boxes
                 [ inner_left if inner_left < box_coords[3][0] else box_coords[3][0],
                  inner_bottom if inner_bottom > box_coords[3][1] else box_coords[3][1]],]
 
-    def process_region( region: ET.Element, region_accum: list, region_ids:list ):
-        # order of regions: outer -> inner
-        region_ids = region_ids + [ region.get('id') ]
-        lines_children = []
+    def process_region( region: ET.Element, region_accum: list, parent_region_ids:list ):
+        # order of regions: inner -> outer
+        parent_region_ids = [ region.get('id') ] + parent_region_ids
+        line_children = []
         region_coord_elt, rg_points = region.find('./pc:Coords', ns), None
         if region_coord_elt is not None:
             rg_points = region_coord_elt.get('points')
@@ -235,14 +382,14 @@ def segmentation_dict_from_xml(page_source: str, get_text=True, regions_as_boxes
 
         for line_idx, elt in enumerate( list(region.iter())[1:] ):
             if elt.tag == "{{{}}}TextLine".format(ns['pc']):
-                line_entry = construct_line_entry( elt, region_ids )
+                line_entry = construct_line_entry( elt )
                 #print(line_entry)
                 if line_entry is None:
                     continue
                 overlap = line_to_region_overlap(line_entry, region_accum[-1] )
                 if overlap < 0.5:
                     if strict:
-                        raise ValueError("Page {}, region {}, l. {}: boundaries are not contained within its region. To disable this exception, pass strict=False".format(page, region_ids[-1], line_idx))
+                        raise ValueError("Page {}, region {}, l. {}: boundaries are not contained within its region. To disable this exception, pass strict=False".format(page, parent_region_ids[0], line_idx))
                     # extend region to fit the line
                     #elif overlap >= region_line_overlap:
                     #    region_accum[-1]['coords'] = extend_box( region_accum[-1]['coords'], line_entry['coords']+line_entry['baseline'] )
@@ -251,7 +398,7 @@ def segmentation_dict_from_xml(page_source: str, get_text=True, regions_as_boxes
                     #    continue
                 line_children.append( line_entry )
             elif elt.tag == "{{{}}}TextRegion".format(ns['pc']):
-                process_region(elt, region_accum, region_ids)
+                process_region(elt, region_accum, parent_region_ids)
 
     # if source is an XML string
     page_tree, ns = None, {}
@@ -274,8 +421,7 @@ def segmentation_dict_from_xml(page_source: str, get_text=True, regions_as_boxes
     if 'pc' not in ns:
         raise ValueError(f"Could not find a name space in file {page_root}. Parsing aborted.")
 
-    regions, page_dict = [], [], {}
-
+    regions, page_dict = [], []
     metadata_elt = page_root.find('./pc:Metadata', ns)
     if metadata_elt is None:
         page_dict = { 'metadata': { 'created': str(datetime.now()), 'creator': __file__, } }
@@ -360,26 +506,6 @@ def segdict_reassign_lines( segdict: dict):
     return new_segdict
 
 
-def lines_from_segdict( segdict: dict)->list:
-    """
-    Given a segmentation dictionary (a nesting of regions and their inner 'lines'
-    array, return a flat list of lines.
-
-    Args:
-        segdict (dict): a dictionary of the form::
-
-            {"metadata": { ... },
-             "text_direction": ..., "type": "baselines",
-             "regions": [{"id": ..., "coords": [ ... ]},
-                          "lines": [{"id": ..., "coords": [ ... ], "baseline": [ ... ]}, ... ]]
-            }
-    Returns:
-        list[dict]: a list of line dictionaries of the form::
-            
-            {"id": ..., "coords": [ ... ], "baseline": [ ... ]}
-    """
-    return [ l for r in segdict['regions'] for l in r['lines'] ]
-
 def segdict_sink_lines_deprecate(segdict: dict):
     """Convert a segmentation dictionary with top-level line array ('lines') 
     to a nested dictionary where each region in the 'regions' array contains its 
@@ -436,45 +562,6 @@ def segdict_sink_lines_deprecate(segdict: dict):
     return segdict
 
 
-def promote_regions_from_json_file( filename: Path ):
-    """
-    From a segmentation dictionary, promote regions as new stand-alone images
-    and create 1+ dictionaries accordingly. Assumes that regions are top-level elements.
-
-
-    Returns:
-        list[tuple[Image,dict]]: a list of tuples (image,dictionary).
-    """
-    with open( filename, 'r') as json_if:
-        segdict = json.load( json_if )
-        dir_path = Path(filename).parent
-        region_list = []
-        for reg_idx, region in enumerate(segdict['regions']):
-            new_segdict = copy.deepcopy(segdict)
-            new_segdict['metadata']['created']=str(datetime.now())
-            new_segdict['regions'] = new_segdict['regions'][reg_idx:reg_idx+1] 
-            # new region coordinates (crop-wide)
-            new_segdict['regions'][0]['coords'] = (np.array( region['coords'] ) - region['coords'][0]).tolist()
-            # new image dimensions
-            new_segdict['image_width'], new_segdict['image_height']= new_segdict['regions'][0]['coords'][2]
-            x_offset, y_offset = region['coords'][0]
-            # offset lines
-            for line_idx, line in enumerate(region['lines']):
-                for attr in ('coords', 'centerline', 'baseline'):
-                    new_coords=np.array(line[attr])-[x_offset, y_offset]
-                    assert np.all( new_coords >= 0 )
-                    new_segdict['regions'][0]['lines'][line_idx][attr]=new_coords.tolist()
-            # crop region
-            with Image.open( dir_path.joinpath( segdict['image_filename'] )) as page_img:
-                #print(np.array( region['coords'])[[0,2]].flatten())
-                region_img = page_img.crop( tuple(np.array( region['coords'])[[0,2]].flatten().tolist() ))
-                region_img_filename = re.sub('\.(img\.)?(png|jpg)$', f".r{reg_idx}"+r'\g<0>', segdict['image_filename'])
-                new_segdict['image_filename']=region_img_filename
-                assert( region_img.size == (new_segdict['image_width'], new_segdict['image_height']))
-            region_list.append( (region_img, new_segdict) )
-        return region_list
-
-
 def alto_to_xml( segfile: str, xslfile=None, pagexml_filename: str='', as_string=False ):
     """
     ALTO → Page conversion tool with embedded XSL stylesheet.
@@ -490,87 +577,6 @@ def alto_to_xml( segfile: str, xslfile=None, pagexml_filename: str='', as_string
             the empty string.
     """
 
-    xsl="""<?xml version = "1.0" encoding = "UTF-8"?>
-    <!-- 
-        Author: nprenet@gmail.com
-        Date: 2026-04-15 10:52:43
-    -->
-    <xsl:stylesheet version = "1.0"
-        xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
-        xmlns:alto="http://www.loc.gov/standards/alto/ns-v4#"
-    >
-        <xsl:output method="xml"/>
-        <xsl:param name="today"/>
-        <xsl:param name="source"/>
-
-        <xsl:template match="/">
-            <PcGts xmlns="http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15 http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15/pagecontent.xsd">
-                <MetaData>
-                    <Creator>prov=Universität Graz/DDH/nicolas.renet@uni-graz.at</Creator>
-                    <Created>
-                        <xsl:value-of select="$today"/>
-                    </Created>
-                    <Comments>Converted from ALTO file '<xsl:value-of select="$source"/>'</Comments>
-                </MetaData>
-                <Page>
-                    <xsl:attribute name="imageFilename">
-                        <xsl:value-of select="//alto:Description/alto:sourceImageInformation/alto:fileName"/>
-                    </xsl:attribute>
-
-                    <xsl:attribute name="imageWidth">
-                        <xsl:value-of select="//alto:Layout/alto:Page/@WIDTH"/>
-                    </xsl:attribute>
-                    <xsl:attribute name="imageHeight">
-                        <xsl:value-of select="//alto:Layout/alto:Page/@HEIGHT"/>
-                    </xsl:attribute>
-                    <xsl:for-each select="//alto:TextBlock[@WIDTH and @HEIGHT]">
-                        <TextRegion>
-                            <xsl:attribute name="id">
-                                <xsl:value-of select="@ID"/>
-                            </xsl:attribute>
-                            <xsl:variable name="regionWidth" select="@WIDTH"/>
-                            <xsl:variable name="regionHeight" select="@HEIGHT"/>
-                            <Coords>
-                            <xsl:attribute name="points">
-                                <xsl:value-of select="format-number(@HPOS, '#####')"/>,<xsl:value-of select="format-number(@VPOS, '#####')"/>
-                                <xsl:text> </xsl:text>	
-                                <xsl:value-of select="format-number(@HPOS + $regionWidth, '#####')"/>,<xsl:value-of select="format-number(@VPOS, '#####')"/>
-                                <xsl:text> </xsl:text>	
-                                <xsl:value-of select="format-number(@HPOS + $regionWidth, '#####')"/>,<xsl:value-of select="format-number(@VPOS + $regionHeight, '#####')"/>
-                                <xsl:text> </xsl:text>	
-                                <xsl:value-of select="format-number(@HPOS, '#####')"/>,<xsl:value-of select="format-number(@VPOS + $regionHeight, '#####')"/>
-                            </xsl:attribute>
-                            </Coords>
-                            <xsl:for-each select="alto:TextLine">
-                                <TextLine>
-                                    <xsl:attribute name="id">
-                                        <xsl:value-of select="@ID"/>
-                                    </xsl:attribute>
-                                    <Coords>
-                                        <xsl:attribute name="points">
-                                            <xsl:value-of select="alto:Shape/alto:Polygon/@POINTS"/>
-                                        </xsl:attribute>
-                                    </Coords>
-                                    <TextEquiv>
-                                        <Unicode>
-                                        <xsl:value-of select="alto:String/@CONTENT"/>
-                                        </Unicode>
-                                    </TextEquiv>
-                                    <Baseline>
-                                        <xsl:attribute name="points">
-                                            <xsl:value-of select="@BASELINE"/>
-                                        </xsl:attribute>
-                                    </Baseline>
-                                </TextLine>
-                            </xsl:for-each>
-
-                        </TextRegion>
-                    </xsl:for-each>
-                </Page>
-            </PcGts>
-        </xsl:template>
-    </xsl:stylesheet>
-    """ 
     if not Path(segfile).exists():
         raise FileNotFoundError(f"Could not find segmentation file {segfile}. Abort.")
     this_format = get_format( segfile )
@@ -599,7 +605,7 @@ def alto_to_xml( segfile: str, xslfile=None, pagexml_filename: str='', as_string
         tl.set('BASELINE', coords_to_pairs( points_str ))
 
     # XSL transform
-    transform = LET.XSLT( LET.parse( xslfile )) if xslfile and Path(xslfile).exists() else LET.XSLT( LET.XML( xsl.encode() ))
+    transform = LET.XSLT( LET.parse( xslfile )) if xslfile and Path(xslfile).exists() else LET.XSLT( LET.XML( XslAltoPage.encode() ))
     newdom = transform(dom, today=LET.XSLT.strparam(str(datetime.now())), source=LET.XSLT.strparam(Path(source_file).name))
 
     if pagexml_filename:
@@ -611,7 +617,29 @@ def alto_to_xml( segfile: str, xslfile=None, pagexml_filename: str='', as_string
     else:
         print( LET.tostring(newdom, pretty_print=True).decode())
         return ''
+
+
+def json_validate( segdict: dict, schema_dict=None)->bool:
+    """
+    Validate the dictionary against the given schema (this module's built-in schema
+    is used as a fallback).
+
+    Args:
+        segdict (dict): a DiDip-style segmentation dictionary.
+        schema_dict (dict): a schema dictionary.
+
+    Returns:
+        bool: 1 if successful validation; 0 otherwise.
+    """
+    schema = schema_dict if schema_dict else JsonSchema
+    try:
+        jsonschema.validate( instance=segdict, schema=JsonSchema )
+    except (jsonschema.exceptions.ValidationError, jsonschema.exceptions.SchemaError) as e:
+        print(e)
+        return 0
+    return 1
      
+
 def json_doctor( segdict: dict, operations={'region_fit': True, 'line_surgery': True} )->dict:
     """
     Fix semantic issues in a JSON segmentation dictionary:
@@ -622,3 +650,70 @@ def json_doctor( segdict: dict, operations={'region_fit': True, 'line_surgery': 
     + 
     """
     pass
+
+
+def flatten_segmentation_dict( segmentation_dict: dict ) -> dict:
+    """
+    Flatten a DiDip-style segmentation dictionary, with both lines and regions stored as top-level lists.
+
+    Args:
+        segmentation_dict (dict): a dictionary, typically constructed from a JSON file.
+    Returns:
+        dict: segmentation dictionary of the form::
+
+            TBD
+    """
+    regions = region_dicts_from_segmentation_dict( segmentation_dict )
+    lines = line_dicts_from_segmentation_dict( segmentation_dict )
+    for r in regions:
+        if 'lines' in r:
+            del r['lines']
+    return {
+            'metadata': segmentation_dict['metadata'],
+            'regions': regions,
+            'lines': lines,
+    }
+
+
+def line_dicts_from_segmentation_dict( segmentation_dict: dict ) -> list[dict]:
+    """From a segmentation dictionary, return a list of all line dictionaries.
+
+    Args:
+        segmentation_dict (dict): a dictionary, typically constructed from a JSON file. The 'lines' entry is either
+        top-level key, or nested in a region or subregion.
+    Returns:
+        list[dict]: a list of dictionaries; each line stores the id(s) of its containing region(s), the innermost first.
+    """
+    def get_lines_from_region( reg, parent_region_stack ):
+        subregion_lines = []
+        if 'lines' in reg:
+            for l in reg['lines']:
+                l['parents']=parent_region_stack
+        subregion_lines = list(itertools.chain.from_iterable([ get_lines_from_region( inner_reg, [inner_reg['id']] + parent_region_stack ) for inner_reg in reg['regions']])) if 'regions' in reg else []
+        return (reg['lines'] if 'lines' in reg else []) + subregion_lines
+    return get_lines_from_region( copy.deepcopy(segmentation_dict), [] )
+
+
+def region_dicts_from_segmentation_dict( segmentation_dict: dict ) -> list[dict]:
+    """From a segmentation dictionary, return a flat list of all (possibly nested) regions."
+
+    Args:
+        segmentation_dict (dict): a dictionary, typically constructed from a JSON file.
+    Returns:
+        list[dict]: a list of region dictionaries.
+    """
+    def get_regions( reg, reg_accum ):
+        if reg != segmentation_dict:
+            reg_accum.append( reg )
+        if 'regions' not in reg:
+            return []
+        for inner_reg in reg['regions']:
+            get_regions( inner_reg, reg_accum )
+    regions = []
+    get_regions( copy.deepcopy(segmentation_dict), regions )
+    for r in regions:
+        if 'regions' in r:
+            del r['regions']
+    return regions
+
+

@@ -22,9 +22,10 @@ dependencies = [
 	"matplotlib",
 	"tensorboard",
 	"pillow",
-	"scikit-image"
+	"shapely",
+	"scikit-image",
 	"tormentor",
-	"fargv",  ]
+	"fargv"  ]
 
 [project.urls]
 Homepage = "https://github.com/Didip-eu/ddpa_lines_ng"

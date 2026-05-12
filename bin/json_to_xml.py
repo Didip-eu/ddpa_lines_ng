@@ -43,7 +43,7 @@ if __name__ == '__main__':
             segdict = json.load( json_if )
             if args.line_height_factor != 1.0:
                 line_polygons = seglib.line_polygons_from_segmentation_dict( segdict, polygon_key=args.polygon_key, factor=args.line_height_factor )
-                line_dicts = seglib.line_dicts_from_segmentation_dict( segdict )
+                line_dicts = sgf.line_dicts_from_segmentation_dict( segdict )
                 for polyg, line in zip( line_polygons, line_dicts ):
                     line[args.polygon_key]=polyg
                 segdict['line_height_factor']=args.line_height_factor
