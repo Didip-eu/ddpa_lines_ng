@@ -257,7 +257,6 @@ def segmentation_dict_from_xml(page_source: str, get_text=True, regions_as_boxes
 
             elif elt.tag == "{{{}}}TextRegion".format(ns['pc']):
                 process_region(elt, region_accum, parent_region_ids)
-        print(region_accum)
 
     # if source is an XML string
     page_tree, ns = None, {}
