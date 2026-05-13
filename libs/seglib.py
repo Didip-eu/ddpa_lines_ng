@@ -17,7 +17,7 @@ from torch import Tensor
 import numpy as np
 
 # local
-from . import segformats as sgf
+from . import segformats as sgf, line_geometry as lgm
 
 """
 Any routine that involves joint manipulation of images and segmentation metadata.
