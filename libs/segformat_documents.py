@@ -77,7 +77,7 @@ XslAltoPage="""<?xml version = "1.0" encoding = "UTF-8"?>
     xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
     xmlns:alto="http://www.loc.gov/standards/alto/ns-v4#"
 >
-    <xsl:output method="xml" encoding="utf8"/>
+    <xsl:output method="xml" encoding="utf-8"/>
     <xsl:param name="today"/>
     <xsl:param name="source"/>
 

@@ -6,6 +6,7 @@ import json
 import re
 import copy
 import itertools
+from io import StringIO
 from enum import Enum
 from datetime import datetime 
 from typing import Callable, Optional, Union, Mapping, Any
@@ -15,7 +16,7 @@ import numpy as np
 import shapely
 import jsonschema
 
-from .documents import JsonSchema, XslAltoPage
+from .segformat_documents import JsonSchema, XslAltoPage, PageXmlSchema
 
 SegFormat = Enum('SegFormat', [('Unknown',0),('PAGE',1), ('ALTO',2), ('JSON',3)])
 
@@ -264,7 +265,7 @@ def segmentation_dict_from_xml(page_source: str, get_text=True, regions_as_boxes
         page_root = ET.fromstring( page_source )
         print(f"Read from string (type={type(page_tree)}")
         ns['pc'] = re.search(r'xmlns="([^"]+)"', page_source).group(1)
-    except ET.ParseError as e:
+    except (ET.ParseError) as e:
         with open( page_source, 'r' ) as page_file:
             for line in page_file:
                 m = re.search(r'xmlns="([^"]+)"', line)
@@ -293,8 +294,6 @@ def segmentation_dict_from_xml(page_source: str, get_text=True, regions_as_boxes
                     'comments': f"Converted from PageXML file {page_source} with {Path(__file__).name}.",
                 }
         }
-    print(page_dict)
-
     page_dict['type']='baselines'
     page_dict['text_direction']='horizontal-lr'
 
@@ -422,7 +421,7 @@ def segdict_sink_lines_deprecate(segdict: dict):
     return segdict
 
 
-def alto_to_xml( segfile: str, xslfile=None, pagexml_filename: str='', as_string=False ):
+def alto_to_page_xml( segfile: str, xslfile=None, pagexml_filename: str='', as_string=False ):
     """
     ALTO → Page conversion tool with embedded XSL stylesheet.
 
@@ -470,19 +469,17 @@ def alto_to_xml( segfile: str, xslfile=None, pagexml_filename: str='', as_string
 
     LET.indent( newdom, space='\t', level=0)
     if pagexml_filename:
-        newdom.write_output( pagexml_filename)
-        return ''
+        newdom.write_output( pagexml_filename )
     elif as_string:
-        return '<?xml version="1.0" encoding="UTF-8"?>\n' + LET.tostring( newdom ).decode()
+        return LET.tostring( newdom ).decode()
     else:
-        print( LET.tostring(newdom, pretty_print=True).decode())
-        return ''
-
+        sys.stdout.write('<?xml version="1.0" encoding="utf-8"?>')
+        sys.stdout.write( LET.tostring( newdom ).decode() )
+        
 
 def json_validate( segdict: dict, schema_dict=None)->bool:
     """
-    Validate the dictionary against the given schema (this module's built-in schema
-    is used as a fallback).
+    Validate the dictionary against the given schema
 
     Args:
         segdict (dict): a DiDip-style segmentation dictionary.
@@ -499,6 +496,36 @@ def json_validate( segdict: dict, schema_dict=None)->bool:
         return 0
     return 1
      
+
+def page_xml_validate( page_source: str, schema_source: str=PageXmlSchema ):
+    """
+    Validate a Page XML file, from a string or file.
+    See `segformat_documents.py` module for Schema spec.
+
+    Args:
+        page_source (str): either a file path or an XML string.
+        schema_file = 
+
+    Returns:
+        bool: True for successful validation; 0 otherwise.
+    """
+    xmlschema = None
+    try:
+        xmlschema=LET.XMLSchema( LET.parse( StringIO( schema_source )))
+    except (LET.ParseError, LET.XMLSyntaxError) as e:
+        if Path(schema_source).exists():
+            xmlschema = LET.parse( schema_source )
+    if not xmlschema:
+        print("Could not parse a schema.")
+        return False
+    try:
+        page_root = LET.fromstring( page_source )
+        print(f"Read from string (type={type(page_source)}")
+    except (LET.ParseError, LET.XMLSyntaxError) as e:
+        page_root = LET.parse( page_source )
+        print(f"Read from file {page_source}")
+
+    return xmlschema.validate( page_root )
 
 def json_doctor( segdict: dict, operations={'region_fit': True, 'line_surgery': True} )->dict:
     """

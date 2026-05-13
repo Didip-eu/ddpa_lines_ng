@@ -111,6 +111,13 @@ def test_flatten_segmentation_dict_nested( nested_regions_dict):
     flat_dict = sgf.flatten_segmentation_dict( nested_regions_dict )
     assert len(flat_dict['lines'])==7
     assert len(flat_dict['regions'])==5
+
+def test_alto_xml_to_page_xml( data_path ):
+    """ Testing both the Alto → Page conversion and the validation function.
+    """
+    alto_path = data_path.joinpath('217_d9c7f_default.alto.xml')
+    page_string = sgf.alto_to_page_xml( alto_path, as_string=True )
+    assert sgf.page_xml_validate( page_string )
     
 def test_page_xml_to_json( data_path ):
     page_xml_path = str(data_path.joinpath('217_d9c7f_default.page.xml'))
@@ -121,7 +128,7 @@ def test_alto_xml_to_json( data_path ):
     """ Testing both Alto → Page conversion and PageXML-as-string ingestion to JSON converter
     """
     alto_xml_path = str(data_path.joinpath('217_d9c7f_default.alto.xml'))
-    page_xml_str = sgf.alto_to_xml( alto_xml_path, as_string=True )
+    page_xml_str = sgf.alto_to_page_xml( alto_xml_path, as_string=True )
     segdict = sgf.segmentation_dict_from_xml( page_xml_str )
     assert sgf.json_validate( segdict )
 
