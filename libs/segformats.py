@@ -15,153 +15,11 @@ import numpy as np
 import shapely
 import jsonschema
 
+from .documents import JsonSchema, XslAltoPage
+
 SegFormat = Enum('SegFormat', [('Unknown',0),('PAGE',1), ('ALTO',2), ('JSON',3)])
 
-JsonSchema = { 
-  "id": "https://didip.uni-graz.at/segmentation.schema.json",
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$comment": "Created by NPR on 2026.02.06 - use the following: 'check-jsonschema --schemafile schema.json *.lines.gt.json' for CLI validation or 'jsonschema.validate(instance=dict, schema=dict)' for in-script validation.",
-  "title": "Page Description",
-  "description": "Line segmentation metadata schema, for DiDip/VRE internal use: structure of *.lines.{pred,gt}.json files.",
-  "type": "object",
-  "required": ["metadata", "image_filename", "image_width", "image_height","regions"],
-  "properties": {
-    "metadata": {
-      "type": "object",
-      "properties": {
-        "created": { "type": "string" },
-        "creator": { "type": "string" },
-        "comment": { "type": "string" } },
-      "required": ["created", "creator"] },
-    "image_filename": { "type": "string" },
-    "image_width": { "type": "integer" },
-    "image_height": { "type": "integer" },
-    "type": { "type": "string" },
-    "text_direction": { "type": "string" },
-    "lines": {"not":{}},
-    "regions": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["id", "coords"],
-        "properties": {
-          "id": { "type": "string" },
-          "coords": { "type": "array" }, 
-          "regions": {"$ref": "#regions"},
-          "lines": { 
-            "type": "array",
-            "items": {
-              "type": "object", 
-              "required": ["id", "coords", "baseline"],
-              "properties": { 
-                "id": { "type": "string" }, 
-                "coords": { 
-                  "type": "array",
-                  "items": {
-                    "type": "array",
-                    "items": { "type": "integer" },
-		    "minItems": 2,
-		    "maxItems": 2 } }, 
-                "x-height": { "type": "integer" },
-                "centerline": { 
-                  "type": "array",
-                  "items": {
-                    "type": "array",
-                    "items": { "type": "integer" },
-		    "minItems": 2,
-		    "maxItems": 2 },
-		  "minItems": 2 },
-                "baseline": { 
-                  "type": "array",
-                  "items": {
-                    "type": "array",
-                    "items": { "type": "integer" },
-		    "minItems": 2,
-		    "maxItems": 2 },
-		  "minItems": 2 } } } } } } } } }
 
-
-XslAltoPage="""<?xml version = "1.0" encoding = "UTF-8"?>
-<!-- 
-    Author: nprenet@gmail.com
-    Date: 2026-04-15 10:52:43
--->
-<xsl:stylesheet version = "1.0"
-    xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
-    xmlns:alto="http://www.loc.gov/standards/alto/ns-v4#"
->
-    <xsl:output method="xml"/>
-    <xsl:param name="today"/>
-    <xsl:param name="source"/>
-
-    <xsl:template match="/">
-        <PcGts xmlns="http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15 http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15/pagecontent.xsd">
-            <MetaData>
-                <Creator>prov=Universität Graz/DDH/nicolas.renet@uni-graz.at</Creator>
-                <Created>
-                    <xsl:value-of select="$today"/>
-                </Created>
-                <Comments>Converted from ALTO file '<xsl:value-of select="$source"/>'</Comments>
-            </MetaData>
-            <Page>
-                <xsl:attribute name="imageFilename">
-                    <xsl:value-of select="//alto:Description/alto:sourceImageInformation/alto:fileName"/>
-                </xsl:attribute>
-
-                <xsl:attribute name="imageWidth">
-                    <xsl:value-of select="//alto:Layout/alto:Page/@WIDTH"/>
-                </xsl:attribute>
-                <xsl:attribute name="imageHeight">
-                    <xsl:value-of select="//alto:Layout/alto:Page/@HEIGHT"/>
-                </xsl:attribute>
-                <xsl:for-each select="//alto:TextBlock[@WIDTH and @HEIGHT]">
-                    <TextRegion>
-                        <xsl:attribute name="id">
-                            <xsl:value-of select="@ID"/>
-                        </xsl:attribute>
-                        <xsl:variable name="regionWidth" select="@WIDTH"/>
-                        <xsl:variable name="regionHeight" select="@HEIGHT"/>
-                        <Coords>
-                        <xsl:attribute name="points">
-                            <xsl:value-of select="format-number(@HPOS, '#####')"/>,<xsl:value-of select="format-number(@VPOS, '#####')"/>
-                            <xsl:text> </xsl:text>	
-                            <xsl:value-of select="format-number(@HPOS + $regionWidth, '#####')"/>,<xsl:value-of select="format-number(@VPOS, '#####')"/>
-                            <xsl:text> </xsl:text>	
-                            <xsl:value-of select="format-number(@HPOS + $regionWidth, '#####')"/>,<xsl:value-of select="format-number(@VPOS + $regionHeight, '#####')"/>
-                            <xsl:text> </xsl:text>	
-                            <xsl:value-of select="format-number(@HPOS, '#####')"/>,<xsl:value-of select="format-number(@VPOS + $regionHeight, '#####')"/>
-                        </xsl:attribute>
-                        </Coords>
-                        <xsl:for-each select="alto:TextLine">
-                            <TextLine>
-                                <xsl:attribute name="id">
-                                    <xsl:value-of select="@ID"/>
-                                </xsl:attribute>
-                                <Coords>
-                                    <xsl:attribute name="points">
-                                        <xsl:value-of select="alto:Shape/alto:Polygon/@POINTS"/>
-                                    </xsl:attribute>
-                                </Coords>
-                                <TextEquiv>
-                                    <Unicode>
-                                    <xsl:value-of select="alto:String/@CONTENT"/>
-                                    </Unicode>
-                                </TextEquiv>
-                                <Baseline>
-                                    <xsl:attribute name="points">
-                                        <xsl:value-of select="@BASELINE"/>
-                                    </xsl:attribute>
-                                </Baseline>
-                            </TextLine>
-                        </xsl:for-each>
-
-                    </TextRegion>
-                </xsl:for-each>
-            </Page>
-        </PcGts>
-    </xsl:template>
-</xsl:stylesheet>
-""" 
 
 def get_format( segfile: str )->int:
     """
@@ -226,11 +84,11 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
         "xmlns": "http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15", 
         "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance", 
         "xsi:schemaLocation": "http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15 http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15/pagecontent.xsd"})
-    metadataElt = ET.SubElement(rootElt, 'MetaData')
+    metadataElt = ET.SubElement(rootElt, 'Metadata')
     creatorElt = ET.SubElement( metadataElt, 'Creator')
     creatorElt.text=seg_dict['metadata']['creator'] if ('metadata' in seg_dict and 'creator' in seg_dict['metadata']) else 'Universität Graz/DH/nicolas.renet@uni-graz.at'
     createdElt = ET.SubElement( metadataElt, 'Created')
-    createdElt.text=datetime.now().isoformat()
+    createdElt.text=datetime.now().isoformat("T", "seconds")
     lastChangeElt = ET.SubElement( metadataElt, 'LastChange')
     lastChangeElt.text=createdElt.text
     commentElt = ET.SubElement( metadataElt, 'Comments')
@@ -366,7 +224,6 @@ def segmentation_dict_from_xml(page_source: str, get_text=True, regions_as_boxes
     def process_region( region: ET.Element, region_accum: list, parent_region_ids:list ):
         # order of regions: inner -> outer
         parent_region_ids = [ region.get('id') ] + parent_region_ids
-        line_children = []
         region_coord_elt, rg_points = region.find('./pc:Coords', ns), None
         if region_coord_elt is not None:
             rg_points = region_coord_elt.get('points')
@@ -378,12 +235,11 @@ def segmentation_dict_from_xml(page_source: str, get_text=True, regions_as_boxes
                 left, right, top, bottom = min(xs), max(xs), min(ys), max(ys)
                 rg_points = [[left,top], [right,top], [right,bottom], [left, bottom]]
 
-        region_accum.append( {'id': region.get('id'), 'coords': rg_points } )
+        region_accum.append( {'id': region.get('id'), 'coords': rg_points, 'lines': [] } )
 
         for line_idx, elt in enumerate( list(region.iter())[1:] ):
             if elt.tag == "{{{}}}TextLine".format(ns['pc']):
                 line_entry = construct_line_entry( elt )
-                #print(line_entry)
                 if line_entry is None:
                     continue
                 overlap = line_to_region_overlap(line_entry, region_accum[-1] )
@@ -396,9 +252,11 @@ def segmentation_dict_from_xml(page_source: str, get_text=True, regions_as_boxes
                     #else:
                     #    print(f"Line {line_entry['id']} does not meet overlap threshold with region ({overlap:.2f} < {region_line_overlap}): skipping.")
                     #    continue
-                line_children.append( line_entry )
+                region_accum[-1]['lines'].append( line_entry )
+
             elif elt.tag == "{{{}}}TextRegion".format(ns['pc']):
                 process_region(elt, region_accum, parent_region_ids)
+        print(region_accum)
 
     # if source is an XML string
     page_tree, ns = None, {}
@@ -421,19 +279,21 @@ def segmentation_dict_from_xml(page_source: str, get_text=True, regions_as_boxes
     if 'pc' not in ns:
         raise ValueError(f"Could not find a name space in file {page_root}. Parsing aborted.")
 
-    regions, page_dict = [], []
+    regions, page_dict = [], {}
     metadata_elt = page_root.find('./pc:Metadata', ns)
+    creation_timestamp = datetime.now().isoformat('T', 'seconds')
     if metadata_elt is None:
-        page_dict = { 'metadata': { 'created': str(datetime.now()), 'creator': __file__, } }
+        page_dict = { 'metadata': { 'created': creation_timestamp, 'creator': Path(__file__).name, } }
     else:
-        created_elt, creator_elt, comments_elt = [ metadata_elt.find(f"./pc:{tag}", ns) for tag in ('Created', 'Creator', 'Comments') ]
-        page_dict: {
+        created_elt, creator_elt = [ metadata_elt.find(f"./pc:{tag}", ns) for tag in ('Created', 'Creator') ]
+        page_dict = {
                 'metadata': {
-                    'created': created_elt.text if created_elt else str(datetime.datetime.now()),
-                    'creator': creator_elt.text if creator_elt else __filename__,
-                    'comments': comments_elt.text if comments_elt else "",
+                    'created': created_elt.text if created_elt else creation_timestamp,
+                    'creator': creator_elt.text if creator_elt else Path(__file__).name,
+                    'comments': f"Converted from PageXML file {page_source} with {Path(__file__).name}.",
                 }
         }
+    print(page_dict)
 
     page_dict['type']='baselines'
     page_dict['text_direction']='horizontal-lr'
@@ -606,14 +466,14 @@ def alto_to_xml( segfile: str, xslfile=None, pagexml_filename: str='', as_string
 
     # XSL transform
     transform = LET.XSLT( LET.parse( xslfile )) if xslfile and Path(xslfile).exists() else LET.XSLT( LET.XML( XslAltoPage.encode() ))
-    newdom = transform(dom, today=LET.XSLT.strparam(str(datetime.now())), source=LET.XSLT.strparam(Path(source_file).name))
+    newdom = transform(dom, today=LET.XSLT.strparam(datetime.now().isoformat("T","seconds")), source=LET.XSLT.strparam(Path(source_file).name))
 
+    LET.indent( newdom, space='\t', level=0)
     if pagexml_filename:
-        LET.indent( newdom, space='\t', level=0)
-        newdom.write( pagexml_filename, encoding='utf-8' )
+        newdom.write_output( pagexml_filename)
         return ''
     elif as_string:
-        return LET.tostring( newdom ).decode()
+        return '<?xml version="1.0" encoding="UTF-8"?>\n' + LET.tostring( newdom ).decode()
     else:
         print( LET.tostring(newdom, pretty_print=True).decode())
         return ''

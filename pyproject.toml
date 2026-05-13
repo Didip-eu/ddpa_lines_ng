@@ -25,6 +25,7 @@ dependencies = [
 	"shapely",
 	"scikit-image",
 	"tormentor",
+	"jsonschema",
 	"fargv"  ]
 
 [project.urls]

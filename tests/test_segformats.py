@@ -118,11 +118,12 @@ def test_page_xml_to_json( data_path ):
     assert sgf.json_validate( segdict )
 
 def test_alto_xml_to_json( data_path ):
-    """ Testing both Alto → Page conversion and PageXML-as-string ingestion 
+    """ Testing both Alto → Page conversion and PageXML-as-string ingestion to JSON converter
     """
     alto_xml_path = str(data_path.joinpath('217_d9c7f_default.alto.xml'))
     page_xml_str = sgf.alto_to_xml( alto_xml_path, as_string=True )
     segdict = sgf.segmentation_dict_from_xml( page_xml_str )
     assert sgf.json_validate( segdict )
+
 
 
