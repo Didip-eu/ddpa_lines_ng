@@ -45,7 +45,7 @@ if __name__ == '__main__':
 
         # Raise an exception if invalid
         if args.validate:
-            sgf.json_validate( instance=segdict )
+            sgf.json_validate( segdict )
 
         segdict_str = json.dumps( segdict, indent=2 )
         if args.output_format == 'stdout':

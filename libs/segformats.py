@@ -21,7 +21,6 @@ from .segformat_documents import JsonSchema, XslAltoPage, PageXmlSchema
 SegFormat = Enum('SegFormat', [('Unknown',0),('PAGE',1), ('ALTO',2), ('JSON',3)])
 
 
-
 def get_format( segfile: str )->int:
     """
     Detect and return segmentation metadata format:
@@ -38,29 +37,24 @@ def get_format( segfile: str )->int:
     alto_regexp = r'<([^:<>]+:)?alto.+xmlns'
     with open(segfile) as segfile_if:
         current_line = segfile_if.readline()
-        if re.match(r'<\?xml', current_line):
-            # when everything on a single line
-            if re.search(alto_regexp, current_line):
-                return SegFormat.ALTO
-            elif re.search(page_regexp, current_line):
-                return SegFormat.PAGE
+        # pass xml declaration and any empty subsequent line
+        if re.match(r'<\?xml[^>]+>\s*$', current_line):
             while True:
                 current_line = segfile_if.readline()
                 if not re.match(r'^\s*$', current_line ):
                     break
-            if re.search(alto_regexp, current_line):
-                return SegFormat.ALTO
-            elif re.search(page_regexp, current_line):
-                return SegFormat.PAGE
-            else:
-                return SegFormat.Unknown
-        try:
+        if re.search(alto_regexp, current_line):
+            return SegFormat.ALTO
+        elif re.search(page_regexp, current_line):
+            return SegFormat.PAGE
+        else:
             segfile_if.seek(0)
-            json.load( segfile_if )
-            return SegFormat.JSON
-        except ValueError:
-            print("Could not parse JSON content: unknown (non-XML) format!")
-            return SegFormat.Unknown
+            try:
+                json.load( segfile_if )
+                return SegFormat.JSON
+            except ValueError:
+                print("Could not parse JSON content: unknown (non-XML) format!")
+                return SegFormat.Unknown
 
 
 def page_xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_key='coords', with_text=False):

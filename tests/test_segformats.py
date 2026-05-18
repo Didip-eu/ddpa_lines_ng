@@ -77,6 +77,7 @@ def nested_regions_dict( regular_dict ):
 
 def test_get_format( data_path ):
     assert sgf.get_format( data_path.joinpath('217_d9c7f_default.alto.xml')) == sgf.SegFormat.ALTO
+    assert sgf.get_format( data_path.joinpath('btv1b84473026_f25.chocomufin.xml')) == sgf.SegFormat.ALTO
     assert sgf.get_format( data_path.joinpath('217_d9c7f_default.page.xml')) == sgf.SegFormat.PAGE
     assert sgf.get_format( data_path.joinpath('217_d9c7f_default.json')) == sgf.SegFormat.JSON
 

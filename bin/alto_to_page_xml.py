@@ -18,6 +18,7 @@ if len(sys.argv) < 2 or re.match(r'--?h', sys.argv[1]):
 source_file = sys.argv[1]
 
 if len(sys.argv)>2:
+    print(f"{sys.argv[1]} → {sys.argv[2]}")
     segformats.alto_to_page_xml( source_file, pagexml_filename=sys.argv[2] )
 else:
     segformats.alto_to_page_xml( source_file )

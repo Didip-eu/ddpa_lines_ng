@@ -17,7 +17,7 @@ from torch import Tensor
 import numpy as np
 
 # local
-from . import segformats as sgf, line_geometry as lgm
+from . import segformats as sgf
 
 """
 Any routine that involves joint manipulation of images and segmentation metadata.
@@ -41,7 +41,7 @@ def polygon_map_from_json_file(  segmentation_json: str) -> Tensor:
         return polygon_map_from_segmentation_dict( json.load( json_file ))
 
 
-def polygon_map_from_xml_file( page_xml: str ) -> Tensor:
+def polygon_map_from_page_xml_file( page_xml: str ) -> Tensor:
     """Read line polygons from a PageXML file and store them into a tensor, as pixel maps.
     Channels allow for easy storage of overlapping polygons.
 
@@ -115,7 +115,7 @@ def line_binary_mask_from_json_file( segmentation_json: str, polygon_key='coords
         return line_binary_mask_from_segmentation_dict( json.load( json_file ), polygon_key=polygon_key, channels=channels)
 
 
-def line_binary_mask_from_xml_file( page_xml: str, channels=1 ) -> Tensor:
+def line_binary_mask_from_page_xml_file( page_xml: str, channels=1 ) -> Tensor:
     """From a PageXML file describing polygons, return a boolean mask where any pixel belonging
     to a polygon is 1 and the other pixels 0.
 
@@ -256,7 +256,7 @@ def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='
     for line in flat_dict['lines']:
         # look for innermost containing region
         ltrb = tuple(np.array( id_to_reg[line['regions'][-1]]['coords'])[[0,2]].flatten())
-        line_polygons.append( lgm.strip_from_baseline( line['baseline'], line['x-height'], factor, ltrb=ltrb ) if 'x-height' in line else line[polygon_key] )
+        line_polygons.append( strip_from_baseline( line['baseline'], line['x-height'], factor, ltrb=ltrb ) if 'x-height' in line else line[polygon_key] )
     return line_polygons
  
 
@@ -285,7 +285,7 @@ def line_metrics_from_segmentation_dict( segmentation_dict: dict) -> dict:
     return { k:v.round().item() for k,v in metrics_dict.items() }
 
 
-def line_images_from_img_xml_files(img: str, page_xml: str, as_dictionary=False ) -> list[tuple[np.ndarray, np.ndarray]]:
+def line_images_from_img_page_xml_files(img: str, page_xml: str, as_dictionary=False ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From an image file path and a segmentation PageXML file describing polygons, return
     a list of pairs (<line cropped BB>, <polygon mask>), or optionally a full page dictionary with
     those enriched lines as a top element.
@@ -402,7 +402,7 @@ def line_images_from_img_polygon_map(img_wh: Image.Image, polygon_map_chw: Tenso
     return pairs_line_bb_and_mask
 
 
-def line_masks_from_img_xml_files(img: str, page_xml: str ) -> list[tuple[np.ndarray, np.ndarray]]:
+def line_masks_from_img_page_xml_files(img: str, page_xml: str ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From an image file path and a segmentation PageXML file describing polygons, return
     the bounding box coordinates and the boolean masks.
 
@@ -639,4 +639,37 @@ def promote_regions_from_json_file( filename: Path ):
                 assert( region_img.size == (new_segdict['image_width'], new_segdict['image_height']))
             region_list.append( (region_img, new_segdict) )
         return region_list
+
+
+## This purely geometric function---used to extract scaled line polygons---is only duplicated
+## here (from line_geometry.py) to avoid a one-line coupling of two libraries that otherwise 
+## have different purposes.
+def strip_from_centerline(centerline_n2xy: np.ndarray, height: float) -> np.ndarray:
+    """
+    Given a centerline, construct the strip-shaped polygon with given height.
+
+    Args:
+        centerline_n2xy (np.ndarray): a (N,2) sequence of (x,y) points.
+        height (float): the strip height.
+    Returns:
+        np.ndarray: a (N,2) clockwise sequence of (x,y) points.
+    """
+    left_dummy_pt = np.array( [ 2*centerline_n2xy[0][0]-centerline_n2xy[1][0], 2*centerline_n2xy[0][1]-centerline_n2xy[1][1] ])
+    right_dummy_pt = np.array( [ 2*centerline_n2xy[-1][0]-centerline_n2xy[-2][0], 2*centerline_n2xy[-1][1]-centerline_n2xy[-2][1] ])
+    centerline_n2xy = np.concatenate( [ [left_dummy_pt], centerline_n2xy, [right_dummy_pt] ], dtype='float')
+
+    vertebras_n2xy = []
+    vertebra_north_south_2xy = np.array([[0,-height/2], [0,height/2]])
+    for ctr_idx in range(1,len(centerline_n2xy)-1):
+        left, mid, right = centerline_n2xy[ctr_idx-1:ctr_idx+2]
+        try:
+            rotation_matrix = bisection_rotation_matrix( left-mid, right-mid )
+            rotated_vertebra_north_south_2xy=np.matmul( rotation_matrix, vertebra_north_south_2xy.T).T
+            vertebras_n2xy.append( rotated_vertebra_north_south_2xy + mid ) # shift to actual pos.
+        except Exception as e:
+            logger.warning(e)
+            continue
+    vertebras_n2xy = np.stack(vertebras_n2xy)
+    contour_pts_n2xy = np.concatenate( [vertebras_n2xy[:,0], vertebras_n2xy[::-1,1], vertebras_n2xy[0:1,0]])
+    return contour_pts_n2xy.astype('int32')
 
