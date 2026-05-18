@@ -18,6 +18,7 @@ import numpy as np
 
 # local
 from . import segformats as sgf
+from . import polygon_utils
 
 """
 Any routine that involves joint manipulation of images and segmentation metadata.
@@ -255,8 +256,8 @@ def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='
     id_to_reg = { r['id']:r for r in flat_dict['regions'] }
     for line in flat_dict['lines']:
         # look for innermost containing region
-        ltrb = tuple(np.array( id_to_reg[line['regions'][-1]]['coords'])[[0,2]].flatten())
-        line_polygons.append( strip_from_baseline( line['baseline'], line['x-height'], factor, ltrb=ltrb ) if 'x-height' in line else line[polygon_key] )
+        ltrb = tuple(np.array( id_to_reg[line['parents'][0]]['coords'])[[0,2]].flatten())
+        line_polygons.append( polygon_utils.strip_from_baseline( line['baseline'], line['x-height'], factor, ltrb=ltrb ) if 'x-height' in line else line[polygon_key] )
     return line_polygons
  
 
@@ -269,13 +270,13 @@ def line_metrics_from_segmentation_dict( segmentation_dict: dict) -> dict:
     Returns:
         dict: a list of dictionary.
     """
-    lines = [ ld for ld in sgf.line_dicts_from_segmentation_dict( segmentation_dict ) if len(ld['baseline'])>=3 ]
+    lines = [ ld for ld in sgf.line_dicts_from_segmentation_dict( segmentation_dict ) if len(ld['baseline'])>=2 ]
     x_heights = np.array([ l['x-height'] for l in lines ])
-    line_spacing = -1
+    line_spacings = -1
     if len(lines)>=3:
         # subtract means of baseline's y-values 
         line_spacings = [ np.abs(np.mean([ pt[1] for pt in lines[l]['baseline']])-np.mean([ pt[1] for pt in lines[l+1]['baseline']])) for l in range(len(lines)-1) ]
-    
+
     metrics_dict = { 
              'x_height_avg': np.mean( x_heights),
              'x_height_std': np.var( x_heights ),
@@ -292,8 +293,7 @@ def line_images_from_img_page_xml_files(img: str, page_xml: str, as_dictionary=F
 
     Args:
         img (str): the input image's file path
-        page_xml: :type page_xml: str a Page XML file describing the
-            lines.
+        page_xml (str): a Page XML file describing the lines.
         as_dictionary (bool): return segmentation dict where each line is a tuple (<img>,<msk>,<line_dict>); useful
             for keeping track of line ids when running inference.
 
@@ -640,36 +640,4 @@ def promote_regions_from_json_file( filename: Path ):
             region_list.append( (region_img, new_segdict) )
         return region_list
 
-
-## This purely geometric function---used to extract scaled line polygons---is only duplicated
-## here (from line_geometry.py) to avoid a one-line coupling of two libraries that otherwise 
-## have different purposes.
-def strip_from_centerline(centerline_n2xy: np.ndarray, height: float) -> np.ndarray:
-    """
-    Given a centerline, construct the strip-shaped polygon with given height.
-
-    Args:
-        centerline_n2xy (np.ndarray): a (N,2) sequence of (x,y) points.
-        height (float): the strip height.
-    Returns:
-        np.ndarray: a (N,2) clockwise sequence of (x,y) points.
-    """
-    left_dummy_pt = np.array( [ 2*centerline_n2xy[0][0]-centerline_n2xy[1][0], 2*centerline_n2xy[0][1]-centerline_n2xy[1][1] ])
-    right_dummy_pt = np.array( [ 2*centerline_n2xy[-1][0]-centerline_n2xy[-2][0], 2*centerline_n2xy[-1][1]-centerline_n2xy[-2][1] ])
-    centerline_n2xy = np.concatenate( [ [left_dummy_pt], centerline_n2xy, [right_dummy_pt] ], dtype='float')
-
-    vertebras_n2xy = []
-    vertebra_north_south_2xy = np.array([[0,-height/2], [0,height/2]])
-    for ctr_idx in range(1,len(centerline_n2xy)-1):
-        left, mid, right = centerline_n2xy[ctr_idx-1:ctr_idx+2]
-        try:
-            rotation_matrix = bisection_rotation_matrix( left-mid, right-mid )
-            rotated_vertebra_north_south_2xy=np.matmul( rotation_matrix, vertebra_north_south_2xy.T).T
-            vertebras_n2xy.append( rotated_vertebra_north_south_2xy + mid ) # shift to actual pos.
-        except Exception as e:
-            logger.warning(e)
-            continue
-    vertebras_n2xy = np.stack(vertebras_n2xy)
-    contour_pts_n2xy = np.concatenate( [vertebras_n2xy[:,0], vertebras_n2xy[::-1,1], vertebras_n2xy[0:1,0]])
-    return contour_pts_n2xy.astype('int32')
 

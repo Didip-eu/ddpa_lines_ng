@@ -251,15 +251,10 @@ def segmentation_dict_from_page_xml(page_source: str, get_text=True, regions_as_
 
             elif elt.tag == "{{{}}}TextRegion".format(ns['pc']):
                 process_region(elt, region_accum, parent_region_ids)
-
-    # if source is an XML string
-    page_tree, ns = None, {}
-    try:
-        page_root = ET.fromstring( page_source )
-        print(f"Read from string (type={type(page_tree)}")
-        ns['pc'] = re.search(r'xmlns="([^"]+)"', page_source).group(1)
-    except (ET.ParseError) as e:
-        with open( page_source, 'r' ) as page_file:
+    
+    def extract_ns_from_file( f ):
+        page_root, ns = None, {}
+        with open( f, 'r' ) as page_file:
             for line in page_file:
                 m = re.search(r'xmlns="([^"]+)"', line)
                 if m:
@@ -267,6 +262,18 @@ def segmentation_dict_from_page_xml(page_source: str, get_text=True, regions_as_
                     page_file.seek(0)
                     break
             page_root = ET.parse( page_file ).getroot()
+        return page_root, ns
+
+    # if source is an XML string
+    page_root, ns = None, {}
+    if isinstance( page_source, Path):
+        page_root, ns = extract_ns_from_file( page_source )
+    else:
+        try:
+            page_root = ET.fromstring( page_source )
+            ns['pc'] = re.search(r'xmlns="([^"]+)"', page_source).group(1)
+        except (ET.ParseError) as e:
+            page_root, ns = extract_ns_from_file( page_source )
 
     if page_root is None:
         raise ValueError("Could not parse the source. Abort.")
