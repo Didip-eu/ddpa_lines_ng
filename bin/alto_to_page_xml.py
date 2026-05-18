@@ -17,7 +17,7 @@ if len(sys.argv) < 2 or re.match(r'--?h', sys.argv[1]):
 
 source_file = sys.argv[1]
 
-if len(sys.argv)>2 and Path(sys.argv[2]).exists():
+if len(sys.argv)>2:
     segformats.alto_to_page_xml( source_file, pagexml_filename=sys.argv[2] )
 else:
-    print( segformats.alto_to_page_xml( source_file, as_string=True ) )
+    segformats.alto_to_page_xml( source_file )

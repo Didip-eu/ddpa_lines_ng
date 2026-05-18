@@ -63,7 +63,7 @@ def get_format( segfile: str )->int:
             return SegFormat.Unknown
 
 
-def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_key='coords', with_text=False):
+def page_xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_key='coords', with_text=False):
     """Serialize a JSON dictionary describing the lines into a PageXML file.
     Caution: this is a crude function, with no regard for validation.
 
@@ -134,7 +134,7 @@ def xml_from_segmentation_dict(seg_dict: str, pagexml_filename: str='', polygon_
         tree.write( sys.stdout, encoding='unicode' )
 
 
-def segmentation_dict_from_xml(page_source: str, get_text=True, regions_as_boxes=True, strict=False, region_line_overlap=.9) -> dict[str,Union[str,list[Any]]]:
+def segmentation_dict_from_page_xml(page_source: str, get_text=True, regions_as_boxes=True, strict=False, region_line_overlap=.9) -> dict[str,Union[str,list[Any]]]:
     """Given a pageXML file name, return a JSON dictionary describing the lines.
     The resulting dictionary is flat, with two separate entries for lines and regions.
 
@@ -419,20 +419,16 @@ def segdict_sink_lines_deprecate(segdict: dict):
             reg['lines']=[]
     return segdict
 
-
-def alto_to_page_xml( segfile: str, xslfile=None, pagexml_filename: str='', as_string=False ):
+def alto_to_page_xml_string( segfile: str, xslfile=None)->str:
     """
     ALTO → Page conversion tool with embedded XSL stylesheet.
 
     Args:
         segfile (str): segmentation data (ALTO format)
         xslfile (str): XSL stylesheet (optional: use built-in stylesheet as a fallback).
-        pagexml_filename (str): if provided, output is saved in a PageXML file (standard output is the default).
-        as_string (bool): return 
 
     Returns:
-        str: if `as_string` parameter is True, return the transformed XML output as a string; otherwise return
-            the empty string.
+        str: transformed XML output as a string.
     """
 
     if not Path(segfile).exists():
@@ -467,14 +463,37 @@ def alto_to_page_xml( segfile: str, xslfile=None, pagexml_filename: str='', as_s
     newdom = transform(dom, today=LET.XSLT.strparam(datetime.now().isoformat("T","seconds")), source=LET.XSLT.strparam(Path(source_file).name))
 
     LET.indent( newdom, space='\t', level=0)
-    if pagexml_filename:
-        newdom.write_output( pagexml_filename )
-    elif as_string:
-        return LET.tostring( newdom ).decode()
+    return LET.tostring( newdom ).decode()
+
+def alto_to_page_xml( segfile: str, xslfile=None, pagexml_filename: str='', overwrite_existing=True):
+    """
+    ALTO → Page conversion tool with embedded XSL stylesheet.
+
+    Args:
+        segfile (str): segmentation data (ALTO format)
+        xslfile (str): XSL stylesheet (optional: use built-in stylesheet as a fallback).
+1G      pagexml_filename (str): if provided, output is saved in a PageXML file (standard output is the default).
+    """
+
+    xml_str = alto_to_page_xml_string( segfile, xslfile=xslfile )
+    if pagexml_filename and (not Path(pagexml_filename).exists() or overwrite_existing):
+        with open( pagexml_filename, 'w') as pagexml_of:
+            pagexml_of.write('<?xml version="1.0" encoding="utf-8"?>\n')
+            pagexml_of.write( xml_str )
     else:
-        sys.stdout.write('<?xml version="1.0" encoding="utf-8"?>')
-        sys.stdout.write( LET.tostring( newdom ).decode() )
-        
+       print('<?xml version="1.0" encoding="utf-8"?>\n{}'.format(xml_str))
+     
+
+def alto_to_segmentation_dict( segfile: str )->dict:
+    """
+    ALTO → DiDip-style JSON dictionary.
+
+    Args:
+        segfile (str): segmentation data (ALTO format)
+    Returns:
+        dict: a segmentation dictionary.
+    """
+    return segmentation_dict_from_page_xml( alto_to_page_xml_string( segfile ))
 
 def json_validate( segdict: dict, schema_dict=None)->bool:
     """

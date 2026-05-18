@@ -41,7 +41,7 @@ if __name__ == '__main__':
         if args.verbose:
             print(xml_path)
 
-        segdict = sgf.segmentation_dict_from_xml( xml_path, get_text=args.get_text )
+        segdict = sgf.segmentation_dict_from_page_xml( xml_path, get_text=args.get_text )
 
         # Raise an exception if invalid
         if args.validate:

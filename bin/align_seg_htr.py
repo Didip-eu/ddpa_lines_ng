@@ -133,7 +133,7 @@ if __name__ == "__main__":
         reference_file_path = Path( str(segfile_path).replace( args.segfile_suffix, args.htr_suffix)) 
         if not reference_file_path.exists():
             raise FileNotFoundError()
-        reference_dict = sgf.segmentation_dict_from_xml( reference_file_path, get_text=True )
+        reference_dict = sgf.segmentation_dict_from_page_xml( reference_file_path, get_text=True )
         reference_dict = sgf.segdict_sink_lines( reference_dict)
         #print(reference_dict)
 

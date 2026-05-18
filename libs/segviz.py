@@ -148,7 +148,7 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
 
     if segdict==None:
         if str(segfile)[-3:]=='xml' or segfile_suffix[-3:]=='xml':
-            segdict = segformats.segmentation_dict_from_xml( segfile )
+            segdict = segformats.segmentation_dict_from_page_xml( segfile )
         elif str(segfile)[-4:]=='json' or segfile_suffix[-3:]=='json':
             with open( segfile, 'r' ) as segfile_in:
                 segdict = json.load( segfile_in )
@@ -407,9 +407,9 @@ def any_to_ascii( segfile: str, scale_hw=(.01,.02), lines=False)->str:
         with open(segfile) as seg_if:
             segdict = json.load( seg_if )
     elif segmentation_format == segformats.SegFormat.PAGE:
-        segdict = segformats.segmentation_dict_from_xml( segfile )
+        segdict = segformats.segmentation_dict_from_page_xml( segfile )
     elif segmentation_format == segformats.SegFormat.ALTO:
-        segdict = segformats.segmentation_dict_from_xml( segformats.alto_to_xml( segfile, as_string=True ))
+        segdict = segformats.segmentation_dict_from_page_xml( segformats.alto_to_xml( segfile, as_string=True ))
 
     if not segdict:
         raise ValueError("Could not parse a valid segmentation dictionary. Abort.")

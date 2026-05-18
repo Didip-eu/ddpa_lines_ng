@@ -252,7 +252,7 @@ if __name__ == "__main__":
 
                     if str(layout_file_path)[-4:]=='.xml':
                         logger.warning("Extracting text regions from PageXML file {}".format( layout_file_path ))
-                        layout_data = seglib.crops_from_segdict( img, sgf.segmentation_dict_from_xml( layout_file_path ), force_rgb=True, ignore_empty_regions=True)
+                        layout_data = seglib.crops_from_segdict( img, sgf.segmentation_dict_from_page_xml( layout_file_path ), force_rgb=True, ignore_empty_regions=True)
                     else:
                         regseg = json.load( regseg_if ) 
                         # extract crops from layout analysis file

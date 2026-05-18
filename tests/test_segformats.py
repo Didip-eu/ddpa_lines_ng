@@ -63,6 +63,7 @@ def regular_dict():
       {'id': 'eSc_textblock_b16cd7c7',
        'coords': [[1534, 2854], [1964, 2854], [1964, 3163], [1534, 3163]],
        'lines': []}]}
+
 # 3 upper-level regions, 2 nested regions, 7 lines
 @pytest.fixture
 def nested_regions_dict( regular_dict ):
@@ -72,6 +73,12 @@ def nested_regions_dict( regular_dict ):
     nested_dict['regions'].pop(3)
     nested_dict['regions'].pop(2)
     return nested_dict
+
+
+def test_get_format( data_path ):
+    assert sgf.get_format( data_path.joinpath('217_d9c7f_default.alto.xml')) == sgf.SegFormat.ALTO
+    assert sgf.get_format( data_path.joinpath('217_d9c7f_default.page.xml')) == sgf.SegFormat.PAGE
+    assert sgf.get_format( data_path.joinpath('217_d9c7f_default.json')) == sgf.SegFormat.JSON
 
 def test_line_extraction_for_line_count_regular( regular_dict ):
     line_dicts = sgf.line_dicts_from_segmentation_dict( regular_dict )
@@ -116,21 +123,23 @@ def test_alto_xml_to_page_xml( data_path ):
     """ Testing both the Alto → Page conversion and the validation function.
     """
     alto_path = data_path.joinpath('217_d9c7f_default.alto.xml')
-    page_string = sgf.alto_to_page_xml( alto_path, as_string=True )
+    page_string = sgf.alto_to_page_xml_string( alto_path )
     assert sgf.page_xml_validate( page_string )
     
 def test_page_xml_to_json( data_path ):
     page_xml_path = str(data_path.joinpath('217_d9c7f_default.page.xml'))
-    segdict = sgf.segmentation_dict_from_xml( page_xml_path )
+    segdict = sgf.segmentation_dict_from_page_xml( page_xml_path )
     assert sgf.json_validate( segdict )
 
-def test_alto_xml_to_json( data_path ):
+def test_alto_xml_to_json_two_steps( data_path ):
     """ Testing both Alto → Page conversion and PageXML-as-string ingestion to JSON converter
     """
     alto_xml_path = str(data_path.joinpath('217_d9c7f_default.alto.xml'))
-    page_xml_str = sgf.alto_to_page_xml( alto_xml_path, as_string=True )
-    segdict = sgf.segmentation_dict_from_xml( page_xml_str )
+    page_xml_str = sgf.alto_to_page_xml_string( alto_xml_path )
+    segdict = sgf.segmentation_dict_from_page_xml( page_xml_str )
     assert sgf.json_validate( segdict )
 
-
-
+def test_alto_xml_to_json( data_path ):
+    alto_xml_path = str(data_path.joinpath('217_d9c7f_default.alto.xml'))
+    segdict = sgf.alto_to_segmentation_dict( alto_xml_path )
+    assert sgf.json_validate( segdict ) 
