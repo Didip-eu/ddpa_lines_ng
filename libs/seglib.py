@@ -154,11 +154,15 @@ def line_binary_mask_from_segmentation_dict( segmentation_dict: dict, polygon_ke
 
 
 def didip_json_to_label_mask( segmentation_json: str, channels=3, largest_dimension=1248, output_file_path='', overwrite_existing=False ):
-    """Convert a DiDip JSON segmentation file into a Doc-UFCN label mask.
+    """Convert a DiDip JSON segmentation file into a Doc-UFCN label mask, which 
+    is a line mask meeting a size constraint.
 
     Args:
-        label_file (str): path to a segmentation file, DiDip-style
-        out (str): output file; if empty, use the standard output.
+        segmentation_json (str): path to a segmentation file, DiDip-style
+        channels (int): number of channels (default: 3)
+        largest_dimension (int): the resulting mask's largest dimension.
+        output_file_path (str): output file; if empty, use the standard output.
+        overwrite_existing (bool): if False, do not write over older masks.
     """
     with open( segmentation_json, 'r' ) as json_file:
         segmentation_dict = json.load( json_file )
@@ -185,6 +189,7 @@ def didip_json_to_docufcn_label_json( segmentation_json: Path, output_file_path=
     Args:
         label_file (str): path to a segmentation file, DiDip-style
         out (str): output file; if empty, use the standard output.
+        overwrite_existing (bool): if False, do not write over older masks.
     """
     with open( segmentation_json, 'r' ) as json_file:
         segmentation_dict = json.load( json_file )
