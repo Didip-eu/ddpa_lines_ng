@@ -162,3 +162,5 @@ def test_alto_xml_to_json( data_path ):
     alto_xml_path = str(data_path.joinpath('217_d9c7f_default.alto.xml'))
     segdict = sgf.alto_to_segmentation_dict( alto_xml_path )
     assert sgf.json_validate( segdict ) 
+
+

@@ -110,3 +110,14 @@ def test_line_polygons_from_segmentation_dict_scaled( regular_dict ):
     scaled_polygons = seglib.line_polygons_from_segmentation_dict( regular_dict, factor=1.25 )
     assert len(scaled_polygons)==7
     assert scaled_polygons != polygons
+
+def test_promote_regions_bad_file( data_path ):
+    """Fail on improper file (lines not within their intended regions)"""
+    json_path = str(data_path.joinpath('217_d9c7f_default.json'))
+    with pytest.raises(AssertionError):
+        seglib.promote_regions_from_json_file( json_path )
+
+def test_promote_regions( data_path ):
+    json_path = str(data_path.joinpath('4550c41616f9ef3a1a95a94155e67fe9.json'))
+    assert seglib.promote_regions_from_json_file( json_path )
+

@@ -159,8 +159,8 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
             skeleton_coords.append( approximate_pagewide_skl_yx )
 
             if not raw_polygons:
-                polyg = strip_from_centerline( skeleton_coords[-1][:,::-1], line_heights[-1]*height_factor )[:,::-1]
-                polyg = boxed_in( polyg, box_limits)#(0,0,*[ d-1 for d in labeled_msk_hw.shape] ))
+                polyg = polygon_utils.strip_from_centerline( skeleton_coords[-1][:,::-1], line_heights[-1]*height_factor )[:,::-1]
+                polyg = polygon_utils.boxed_in( polyg, box_limits)#(0,0,*[ d-1 for d in labeled_msk_hw.shape] ))
                 polygon_coords[-1] = polyg
                 polyg_rr, polyg_cc = ski.draw.polygon( *(polygon_coords[-1]).transpose())
                 labeled_msk_regular_hw[ polyg_rr, polyg_cc ]=lbl
@@ -243,7 +243,7 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
         device (str): computing device - 'cuda' or 'cpu' (default).
 
     Returns:
-        np.ndarray: a (1,H,W) binary mask.
+        np.ndarray: a (1,H,W) binary mask, or None if error occurs.
     """
     assert model is not None
     img_hwc = np.array( img )
@@ -264,6 +264,9 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
     #logger.info("Lines: count={}, density={}".format( line_count_est, line_density ))
 
     while True:
+
+        if new_width < patch_size or new_height < patch_size:
+            return None
         tile_tls = seglib.tile_img( (new_width, new_height), patch_size, constraint=int(overlap*max(width,height)) )
 
         # (a) small, single-patch images with a high estimated line count (>25) scaled up for better results
@@ -277,7 +280,7 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
             rescaled=True
             continue
         # (b) very large images scaled down
-        if  len(tile_tls) > max_patches or line_count_estimate( img )[0] < 10:
+        if  len(tile_tls) > max_patches or line_count_estimate( img )[0] < 5:
             logger.debug("Image slices into {} 1024-pixel patches: limit ({}) exceeded.".format(len(tile_tls), max_patches))
             new_height, new_width = int(new_height/resize_factor), int(new_width/resize_factor)
             img_hwc = ski.transform.resize( img_hwc, (new_height, new_width)) 

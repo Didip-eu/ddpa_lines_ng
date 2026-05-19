@@ -8,6 +8,7 @@ import re
 import sys
 import math
 import copy
+from datetime import datetime
 
 # 3rd-party
 from PIL import Image, ImageDraw
@@ -554,7 +555,7 @@ def layout_regseg_check_class(regseg: dict, region_labels: list[str] ) -> list[b
 
 
 
-def tile_img( img_wh: tuple[int,int], size, constraint=20, channel_dim=2 ):
+def tile_img( img_wh: tuple[int,int], size, constraint=20, channel_dim=2 )->list[list]:
     """ Slice an image into patches: return list of patch coordinates.
 
     Args:
@@ -603,10 +604,18 @@ def get_binary_mask( img_whc: Image.Image, thresholding_alg: Callable=ski.filter
     return img_bin_hw
 
 
-def promote_regions_from_json_file( filename: Path ):
+def promote_regions_from_json_file( filename: Path, validate=False ):
     """
     From a segmentation dictionary, promote regions as new stand-alone images
-    and create 1+ dictionaries accordingly. Assumes that regions are top-level elements.
+    and create 1+ dictionaries accordingly. Assumes that 
+
+    + regions are top-level elements: this is normally ensured by the DiDip JSON format;
+    + lines are entirely contained within their region: if needed, use this module's 
+      repair routine: `segdict_reassign_lines` or `json_doctor`.
+
+    Args:
+        filename (Union[str,Path]): a JSON segmentation dictionary.
+        validate (bool): if True, validate resulting dictionaries against schema; default is False.
 
     Returns:
         list[tuple[Image,dict]]: a list of tuples (image,dictionary).
@@ -618,7 +627,7 @@ def promote_regions_from_json_file( filename: Path ):
         for reg_idx, region in enumerate(segdict['regions']):
             new_segdict = copy.deepcopy(segdict)
             new_segdict['metadata']['created']=str(datetime.now())
-            new_segdict['regions'] = new_segdict['regions'][reg_idx:reg_idx+1] 
+            new_segdict['regions'] = new_segdict['regions'][reg_idx:reg_idx+1]
             # new region coordinates (crop-wide)
             new_segdict['regions'][0]['coords'] = (np.array( region['coords'] ) - region['coords'][0]).tolist()
             # new image dimensions
@@ -628,6 +637,7 @@ def promote_regions_from_json_file( filename: Path ):
             for line_idx, line in enumerate(region['lines']):
                 for attr in ('coords', 'centerline', 'baseline'):
                     new_coords=np.array(line[attr])-[x_offset, y_offset]
+                    print(new_coords)
                     assert np.all( new_coords >= 0 )
                     new_segdict['regions'][0]['lines'][line_idx][attr]=new_coords.tolist()
             # crop region
@@ -636,8 +646,9 @@ def promote_regions_from_json_file( filename: Path ):
                 region_img = page_img.crop( tuple(np.array( region['coords'])[[0,2]].flatten().tolist() ))
                 region_img_filename = re.sub(r'\.(img\.)?(png|jpg)$', f".r{reg_idx}"+r'\g<0>', segdict['image_filename'])
                 new_segdict['image_filename']=region_img_filename
-                assert( region_img.size == (new_segdict['image_width'], new_segdict['image_height']))
+                assert region_img.size == (new_segdict['image_width'], new_segdict['image_height'])
+                if validate:
+                    assert json_validate( new_segdict )
             region_list.append( (region_img, new_segdict) )
         return region_list
-
 
