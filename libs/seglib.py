@@ -182,32 +182,37 @@ def didip_json_to_label_mask( segmentation_json: str, channels=3, largest_dimens
         else:
             return np.array( img_array )
 
-def didip_json_to_docufcn_label_json( segmentation_json: Path, output_file_path='', overwrite_existing=False):
+def didip_json_to_docufcn_label_json( segmentation_json: Union[Path,dict], output_file_path='', overwrite_existing=False):
     """ Convert a DiDip JSON segmentation file into a Doc-UFCN label file.
     Note: assumes a single-region file; only for evaluation use in segmentation pipeline.
 
     Args:
-        label_file (str): path to a segmentation file, DiDip-style
+        label_file (Union[Path,dict]): path to a segmentation file, DiDip-style, or the dictionary itself
         out (str): output file; if empty, use the standard output.
         overwrite_existing (bool): if False, do not write over older masks.
     """
-    with open( segmentation_json, 'r' ) as json_file:
-        segmentation_dict = json.load( json_file )
-        new_segdict = {
-                "img_size": [ segmentation_dict["image_width"], segmentation_dict["image_height"]],
-                "textline": [],
-        }
-        for line in segmentation_dict["regions"][0]["lines"]:
-            new_segdict["textline"].append({
-                "confidence": 1.0,
-                "polygon": line['coords'],
-                })
+    segmentation_dict = {}
+    if type( segmentation_json ) is dict:
+        segmentation_dict = segmentation_json
+    else:
+        with open( segmentation_json, 'r' ) as json_file:
+            segmentation_dict = json.load( json_file )
 
-        if output_file_path and overwrite_existing:
-            with open( output_file_path, 'w') as output_file:
-                output_file.write( json.dumps( new_segdict, indent=2 ))
-        else:
-            return new_segdict
+    new_segdict = {
+            "img_size": [ segmentation_dict["image_width"], segmentation_dict["image_height"]],
+            "textline": [],
+    }
+    for line in segmentation_dict["regions"][0]["lines"]:
+        new_segdict["textline"].append({
+            "confidence": 1.0,
+            "polygon": line['coords'],
+            })
+
+    if output_file_path and overwrite_existing:
+        with open( output_file_path, 'w') as output_file:
+            output_file.write( json.dumps( new_segdict, indent=2 ))
+    else:
+        return new_segdict
 
 
 def line_binary_mask_stack_from_json_file( segmentation_json: str, polygon_key='coords' ) -> Tensor:

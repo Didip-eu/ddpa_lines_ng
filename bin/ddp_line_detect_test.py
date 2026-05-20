@@ -46,7 +46,7 @@ from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
 src_root = Path(__file__).parents[1]
 sys.path.append( str( src_root ))
 from libs.train_utils import duration_estimate
-from libs import segmodel as sgm, line_geometry as lgm
+from libs import segmodel as sgm, line_geometry as lgm, seglib
 from libs import segformats as sgf
 
 logging_format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s"
@@ -61,10 +61,9 @@ p = {
         "appname": "lines",
         "model_path": str(src_root.joinpath("best.mlmodel")),
         "img_paths": FargvPositional(default=[]),
-        "charter_dirs": [],
         "img_suffix": (r".img.*p*g", "Image file suffix."),
         "line_attributes": (["centerline", "x-height"], "Non-standard line properties to be included in the dictionary."),
-        "output_format": FargvChoice(["json", "xml", "stdout", "quiet"], description="Segmentation output: json=<JSON file>, xml=<PageXML file>, stdout=JSON on standard output, quiet=nothing (for testing and timing)"),
+        "output_format": FargvChoice(["json", "xml", "docufcn", "stdout", "quiet"], description="Segmentation output: json=<JSON file>, xml=<PageXML file>, stdout=JSON on standard output, quiet=nothing (for testing and timing)"),
         "output_dir": ('', "Output directory; if not provided, defaults to the image path's parent."),
         'mask_threshold': (.6, "In the post-processing phase, threshold to use for line soft masks."),
         'box_threshold': (0.75, "Threshold used for line bounding boxes."),
@@ -77,6 +76,7 @@ p = {
         'timer': (0, "Aggregate performance metrics. A strictly positive integer <n> computes the mean time for every batch of <n> images."),
         'timer_logs': ('stdout', "Filename for timer logs."),
         'verbosity': (2,"Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"),
+        'validate': (True, "Validate output against JSON schema;"),
 }
 
 
@@ -151,7 +151,8 @@ def pack_inputs_outputs( args:dict ) -> list[tuple]:
     for img_path in all_img_paths:
         img_stem = re.sub(r'{}$'.format( args.img_suffix), '', img_path.name )
         output_dir = img_path.parent if not args.output_dir else Path(args.output_dir)
-        path_pairs.append( ( img_path, output_dir.joinpath( f'{img_stem}.{args.appname}.pred.{args.output_format}')))
+        path_pairs.append( ( img_path, output_dir.joinpath( 
+            f'{img_stem}.{args.appname}.docufcn.json' if args.output_format=='docufcn' else f'{img_stem}.{args.appname}.pred.{args.output_format}')))
     return sorted( path_pairs, key=lambda x: str(x))
 
 
@@ -224,6 +225,9 @@ if __name__ == "__main__":
                     segmentation_record = lgm.get_morphology( binary_mask, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor ) 
                     logger.debug(f"segmentation_record={segmentation_record}")
                     segdict = build_segdict( img_metadata, segmentation_record, args.line_attributes, line_height_factor=args.line_height_factor ) 
+                    if args.validate and not sgf.json_validate( segdict ):
+                        logger.warning('Validation failed. Skipping item.')
+                        continue
                 except (TypeError, ValueError) as e:
                     logger.warning("{}\tFailed to polygonize line masks ({}): abort segmentation.".format( img_path, e ))
                     continue
@@ -235,13 +239,15 @@ if __name__ == "__main__":
                     print(json.dumps(segdict))
                 elif args.overwrite_existing or not output_file_path.exists() or sentinel_path.exists():
                     open( sentinel_path, 'w' )
-                    if args.output_format == 'json':
+                    if args.output_format == 'json' or args.output_format== 'docufcn':
+                        if args.output_format == 'docufcn':
+                            segdict = seglib.didip_json_to_docufcn_label_json( segdict )
                         with open(output_file_path, 'w') as of:
                             #segdict['image_wh']=img.size
                             of.write(json.dumps( segdict, indent=4 ))
                     elif args.output_format == 'xml':
                         #segdict['image_wh']=img.size
-                        sgf.xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
+                        sgf.page_xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
                     sentinel_path.unlink()
                     if args.output_format != 'quiet':
                         logger.debug("Segmentation output saved in {}".format( output_file_path ))

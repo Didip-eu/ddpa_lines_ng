@@ -301,7 +301,7 @@ if __name__ == "__main__":
                             of.write(json.dumps( segdict, indent=4 ))
                     elif args.output_format == 'xml':
                         #segdict['image_wh']=img.size
-                        sgf.xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
+                        sgf.page_xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
                     sentinel_path.unlink()
                     if args.output_format != 'quiet':
                         logger.debug("Segmentation output saved in {}".format( output_file_path ))

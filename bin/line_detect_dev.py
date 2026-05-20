@@ -39,13 +39,11 @@ import logging
 import itertools
 import shutil
 import math
-import gzip
 from hashlib import md5
 from time import time
 
 # 3rd party
 from PIL import Image, UnidentifiedImageError
-import skimage as ski
 import numpy as np
 
 # Didip
@@ -378,7 +376,7 @@ if __name__ == "__main__":
                     of.write(json.dumps( segdict, indent=4 ))
             elif args.output_format == 'xml':
                 #segdict['image_wh']=img.size
-                sgf.xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
+                sgf.page_xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
             elif args.output_format == 'npy':
                 np.save( output_file_path, binary_mask )
             logger.debug("Segmentation output saved in {}".format( output_file_path ))
