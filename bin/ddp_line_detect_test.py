@@ -1,27 +1,22 @@
 #!/usr/bin/env python3
 
 # nprenet@gmail.com
-# 11.2025
+# 05.2026
 
 """
-Line detection app, i.e. the specialized, fsdb-specific version:
-+ inference is run on the regions detected by the layout app, provided a class name (ex. `Wr:Oldtext`) 
-+ each region is processed in patches (default: 1024x1024), assuming that the model used has been trained accordingly
+Line detection script, not intended for production use, but for evaluation purpose: 
 
-For more options (page-wide inference, flexible row/col processing, NN prediction cache), see its fully-featured companion `ddp_line_detect_full.py`.
-In both apps, the heavy lifting is done by the Mask-RCNN model defined in module `ddp_lineseg_train`.
++ inference is run on single image-as-a-region (no layout metadata expected)
++ use arbitrary image paths (no FSDB assumed)
 
 Output formats: 
+
 + PageXML: core polygon and baseline only.
 + JSON: custom format, including features that are not in the PageXML spec: centerline, line height.
 
-Example calls::
+Example call:
     
-    export FSDB_ROOT=~/tmp/data/1000CV
-    PYTHONPATH=. python3 ./bin/ddp_line_detect --img_paths "${FSDB_ROOT}"/*/*/d9ae9ea49832ed79a2238c2d87cd0765/*layout.crops/*OldText*.jpg --model_path best.mlmodel --region_classes Wr:OldText
-
-    # patch-trained model, exporting raw polygons (instead of abstract reconstructions)
-    PYTHONPATH=. python3 ./bin/ddp_line_detect --img_paths "${FSDB_ROOT}"/*/*/d9ae9ea49832ed79a2238c2d87cd0765/*layout.crops/*OldText*.jpg --model_path best.mlmodel --region_classes Wr:OldText --raw_polygons
+    PYTHONPATH=. python3 ./bin/ddp_line_detect_test.py --img_paths dataset/test/*.img.jpg --output_dir dataset/test/predictions --device gpu
 
 Notes:
 
@@ -50,9 +45,8 @@ from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
 
 src_root = Path(__file__).parents[1]
 sys.path.append( str( src_root ))
-from libs import seglib, line_geometry as lgm
 from libs.train_utils import duration_estimate
-from libs import segmodel as sgm
+from libs import segmodel as sgm, line_geometry as lgm
 from libs import segformats as sgf
 
 logging_format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s"
@@ -68,9 +62,7 @@ p = {
         "model_path": str(src_root.joinpath("best.mlmodel")),
         "img_paths": FargvPositional(default=[]),
         "charter_dirs": [],
-        "region_classes": (["Wr:OldText"], "Names of the layout-app regions on which lines are to be detected. Eg. '[Wr:OldText']. If empty (default), detection is run on the entire page."),
         "img_suffix": (r".img.*p*g", "Image file suffix."),
-        "layout_suffix": (".layout.pred.json", "Regions are given by segmentation file that is <img name stem><suffix>."),
         "line_attributes": (["centerline", "x-height"], "Non-standard line properties to be included in the dictionary."),
         "output_format": FargvChoice(["json", "xml", "stdout", "quiet"], description="Segmentation output: json=<JSON file>, xml=<PageXML file>, stdout=JSON on standard output, quiet=nothing (for testing and timing)"),
         "output_dir": ('', "Output directory; if not provided, defaults to the image path's parent."),
@@ -97,13 +89,12 @@ def check_patch_size_against_model( live_model: dict, patch_size ):
            return live_model.hyper_parameters['img_size'][0]
     return patch_size
 
-def build_segdict_composite( img_metadata, boxes, segmentation_records, line_attributes, contour_tolerance=4.0, line_height_factor=1.0):
+def build_segdict( img_metadata, segmentation_record, line_attributes, contour_tolerance=4.0, line_height_factor=1.0):
     """
     Construct the region + line segmentation dictionary.
 
     Args:
         img_metadata (dict): original image's metadata.
-        boxes (list[tuple]): list of LTRB coordinate vectors, one for each region.
         segmentation_records (list[tuple[np.ndarray, list[tuple]]]): a list of N tuples (one per region) with
             - label map (np.ndarray)
             - a list of line attribute dicts (label, centroid pt, ..., area, polygon_coords)
@@ -119,66 +110,49 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, line_att
     segdict['regions']=[]
 
     region_id = 0
-    for box, record in zip(boxes, segmentation_records):
-        this_region_lines = []
-        line_id = 0
-        _, atts = record
-        offset = np.array([box[1],box[0]])
-        centroid_ys = [] 
-        for att_dict in atts:
-            label, polygon_coords, centroid,line_height, centerline, baseline = [ att_dict[k] for k in ('label','polygon_coords','centroid','line_height', 'centerline', 'baseline')]
-            # adding box offsets
-            polygon_coords += offset.astype(polygon_coords.dtype)
-            centroid_ys.append( centroid[0].item() )
-            baseline += offset.astype(baseline.dtype)
-            centerline += offset.astype(centerline.dtype)
-            dict_line_entry = {'id': f'l{line_id}', 'coords': polygon_coords[:,::-1].astype('int').tolist(), 'baseline': baseline[:,::-1].astype('int').tolist() }
-            if 'x-height' in line_attributes:
-                dict_line_entry['x-height']=int(line_height)
-            if 'centerline' in line_attributes:
-                dict_line_entry['centerline']=centerline[:,::-1].tolist() # yx to xy
-            this_region_lines.append( dict_line_entry )
-            line_id += 1
-        line_spacings = np.array(centroid_ys[1:]) - np.array(centroid_ys[:-1])
-        line_spacing_avg, line_spacing_min, line_spacing_max, line_spacing_std = [ int(v.item()) for v in (np.mean(line_spacings), np.min(line_spacings), np.max(line_spacings), np.std(line_spacings)) ] if len(centroid_ys)>1 else (-1,-1,-1,-1)
-        segdict['regions'].append( { 
-            'id': f'r{region_id}', 'type': 'text_region', 
-            'coords': [[int(pt[0]),int(pt[1])] for pt in ([box[0],box[1]],[box[2],box[1]],[box[2],box[3]],[box[0],box[3]])], 
-            'line_spacing': {'avg': line_spacing_avg, 'min': line_spacing_min, 'max': line_spacing_max, 'std': line_spacing_std }, 
-            'lines': this_region_lines } )
-        region_id += 1
+    this_region_lines = []
+    line_id = 0
+    _, atts = segmentation_record
+    centroid_ys = [] 
+    for att_dict in atts:
+        label, polygon_coords, centroid,line_height, centerline, baseline = [ att_dict[k] for k in ('label','polygon_coords','centroid','line_height', 'centerline', 'baseline')]
+        centroid_ys.append( centroid[0].item() )
+        dict_line_entry = {'id': f'l{line_id}', 'coords': polygon_coords[:,::-1].astype('int').tolist(), 'baseline': baseline[:,::-1].astype('int').tolist() }
+        if 'x-height' in line_attributes:
+            dict_line_entry['x-height']=int(line_height)
+        if 'centerline' in line_attributes:
+            dict_line_entry['centerline']=centerline[:,::-1].tolist() # yx to xy
+        this_region_lines.append( dict_line_entry )
+        line_id += 1
+    line_spacings = np.array(centroid_ys[1:]) - np.array(centroid_ys[:-1])
+    line_spacing_avg, line_spacing_min, line_spacing_max, line_spacing_std = [ int(v.item()) for v in (np.mean(line_spacings), np.min(line_spacings), np.max(line_spacings), np.std(line_spacings)) ] if len(centroid_ys)>1 else (-1,-1,-1,-1)
+    segdict['regions'].append( { 
+        'id': f'r{region_id}', 'type': 'text_region', 
+        'coords': [[0,0],[img_metadata['image_width'],0],[img_metadata['image_width'], img_metadata['image_height']],[0,img_metadata['image_height']]],
+        'line_spacing': {'avg': line_spacing_avg, 'min': line_spacing_min, 'max': line_spacing_max, 'std': line_spacing_std }, 
+        'lines': this_region_lines } )
 
     return segdict
 
 
-def pack_fsdb_inputs_outputs( args:dict, layout_suffix:str ) -> list[tuple]:
+def pack_inputs_outputs( args:dict ) -> list[tuple]:
     """
-    Compile image files and/or charter paths in the CLI arguments.
+    Compile image files in the CLI arguments.
     No existence check on the dependency (layout segmentation path).
 
     Args:
         dict: the parsed arguments.
-        layout_suffix (str): suffix of the expected layout segmentation file.
     Returns:
-        list[tuple]: a list of triplets (<img file path>, <layout file path>, <output file path>)
+        list[tuple]: a list of pairs (<img file path>, <output file path>)
     """
     all_img_paths = set([ Path(p) for p in args.img_paths ])
 
-    for charter_dir in args.charter_dirs:
-        charter_dir_path = Path( charter_dir )
-        if charter_dir_path.is_dir() and charter_dir_path.joinpath("CH.cei.xml").exists():
-            new_imgs = charter_dir_path.glob("*{}".format(args.img_suffix))
-            all_img_paths = all_img_paths.union( charter_dir_path.glob("*{}".format(args.img_suffix)))
-    path_triplets = []
+    path_pairs = []
     for img_path in all_img_paths:
         img_stem = re.sub(r'{}$'.format( args.img_suffix), '', img_path.name )
-        layout_path = Path( re.sub(r'{}$'.format( args.img_suffix), layout_suffix, str(img_path) ))
-        if layout_path == img_path:
-            raise FileNotFoundError( "Layout segmentation file {} cannot be identical to image path: check that the -img_suffix has been set correctly (suggestion: -img_suffix '{}')".format(layout_path, re.sub(r'^[^.]+(\..+)$', r'\1', img_path.name)))
         output_dir = img_path.parent if not args.output_dir else Path(args.output_dir)
-        path_triplets.append( ( img_path, layout_path, output_dir.joinpath( f'{img_stem}.{args.appname}.pred.{args.output_format}')))
-    #return path_triplets
-    return sorted( path_triplets, key=lambda x: str(x))
+        path_pairs.append( ( img_path, output_dir.joinpath( f'{img_stem}.{args.appname}.pred.{args.output_format}')))
+    return sorted( path_pairs, key=lambda x: str(x))
 
 
 if __name__ == "__main__":
@@ -187,10 +161,6 @@ if __name__ == "__main__":
 
     if args.verbosity != 2:
         logging.basicConfig( level=logging_levels[args.verbosity], format=logging_format, force=True )
-
-    if not args.region_classes:
-        logger.info("The 'region_classes' parameter must contain at least one valid region name (from the layout app).a)")
-        sys.exit()
 
     if not Path( args.model_path ).exists():
         raise FileNotFoundError(args.model_path)
@@ -223,11 +193,11 @@ if __name__ == "__main__":
     else:
         computing_device = args.device
 
-    charter_iterator = pack_fsdb_inputs_outputs( args, args.layout_suffix )
-    for img_idx, img_triplet in enumerate( charter_iterator ):
-        img_path, layout_file_path, output_file_path = img_triplet
+    charter_iterator = pack_inputs_outputs( args )
+    for img_idx, img_pair in enumerate( charter_iterator ):
+        img_path, output_file_path = img_pair
         logger.info(f"image_path={img_path}")
-        logger.debug( "layout_path={}, output path={}".format(layout_file_path, output_file_path))
+        logger.debug( "output path={}".format(output_file_path))
         if not args.overwrite_existing and output_file_path.exists():
             logger.debug("File {} exists: skipped.".format( output_file_path ))
             continue
@@ -237,56 +207,26 @@ if __name__ == "__main__":
                 img_metadata = { 'image_filename': str(img_path.name), 'image_width': img.size[0], 'image_height': img.size[1] }
                 binary_mask, segdict = None, {}
 
-                if not layout_file_path.exists():
-                    logger.warning("{}\tCould not find layout segmentation file {}. Skipping item.".format( img_path, layout_file_path.name ))
+                # Inference from fixed-size patches
+                patch_size = check_patch_size_against_model( live_model, args.patch_size )
+                try:
+                    binary_mask = lgm.binary_mask_from_fixed_patches( img, patch_size=patch_size, model=live_model, mask_threshold=thresholds['mask_threshold'], box_threshold=thresholds['box_threshold'], device=computing_device)
+                    logger.debug(f"binary_mask={binary_mask}")
+                    if binary_mask is None:
+                        logger.warning("{}\tNo line mask found in crop {}: skipping item.".format( img_path, crop_idx ))
+                        continue
+                except RuntimeError as e:
+                    logger.warning(e)
+                    logger.warning("→ falling back to CPU")
+                    binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=thresholds['mask_threshold'], box_threshold=thresholds['box_threshold'], device='cpu')
+                try:
+                    # Post-processing: pixel maps → lines & polygons
+                    segmentation_record = lgm.get_morphology( binary_mask, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor ) 
+                    logger.debug(f"segmentation_record={segmentation_record}")
+                    segdict = build_segdict( img_metadata, segmentation_record, args.line_attributes, line_height_factor=args.line_height_factor ) 
+                except (TypeError, ValueError) as e:
+                    logger.warning("{}\tFailed to polygonize line masks ({}): abort segmentation.".format( img_path, e ))
                     continue
-                
-                with open(layout_file_path, 'r') as regseg_if:
-                    layout_data = tuple()
-
-                    if str(layout_file_path)[-4:]=='.xml':
-                        logger.warning("Extracting text regions from PageXML file {}".format( layout_file_path ))
-                        layout_data = seglib.crops_from_segdict( img, sgf.segmentation_dict_from_page_xml( layout_file_path ), force_rgb=True, ignore_empty_regions=True)
-                    else:
-                        regseg = json.load( regseg_if ) 
-                        # extract crops from layout analysis file
-                        layout_data = seglib.layout_regseg_to_crops( img, regseg, args.region_classes, force_rgb=True )
-                    if not layout_data:
-                        logger.warning("Could not find relevant region in the layout segmentation file {}. Skipping item.".format( layout_file_path ))
-                        continue
-                    crops_pil, boxes, _ = layout_data 
-                    logger.debug(crops_pil, boxes)
-
-                    binary_masks = []
-                    for crop_idx, crop_whc in enumerate(crops_pil):
-                        logger.debug(f"Processing crop #{crop_idx}")
-                        binary_mask = None
-                        # Inference from fixed-size patches
-                        patch_size = check_patch_size_against_model( live_model, args.patch_size )
-                        try:
-                            binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=thresholds['mask_threshold'], box_threshold=thresholds['box_threshold'], device=computing_device)
-                            if binary_mask is None:
-                                logger.warning("{}\tNo line mask found in crop {}: skipping item.".format( img_path, crop_idx ))
-                                continue
-                        except RuntimeError as e:
-                            logger.warning(e)
-                            logger.warning("→ falling back to CPU")
-                            binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=thresholds['mask_threshold'], box_threshold=thresholds['box_threshold'], device='cpu')
-                        binary_masks.append( binary_mask )
-                    try:
-                        # Post-processing: pixel maps → lines & polygons
-                        segmentation_records = [ lgm.get_morphology( msk, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor ) for msk in binary_masks ]
-                        keep = [ i for i in range(len(segmentation_records)) if segmentation_records[i] is not None ]
-                        if len(keep) != len(segmentation_records):
-                            logger.warning("No valid segmentation record for regions {}.".format( set(range(len(segmentation_records)))-set(keep)))
-                        if not keep:
-                            continue
-                        boxes = [ b for i,b in enumerate(boxes) if i in keep ]
-                        segmentation_records = [ sr for i,sr in enumerate(segmentation_records) if i in keep ]
-                        segdict = build_segdict_composite( img_metadata, boxes, segmentation_records, args.line_attributes, line_height_factor=args.line_height_factor ) 
-                    except (TypeError, ValueError) as e:
-                        logger.warning("{}\tFailed to polygonize line masks ({}): abort segmentation.".format( img_path, e ))
-                        continue
 
                 ############ Output #################
 
