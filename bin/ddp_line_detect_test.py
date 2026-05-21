@@ -8,6 +8,7 @@ Line detection script, not intended for production use, but for evaluation purpo
 
 + inference is run on single image-as-a-region (no layout metadata expected)
 + use arbitrary image paths (no FSDB assumed)
++ guaranteed to return a valid segmentation dictionary (even with no lines)
 
 Output formats: 
 
@@ -62,6 +63,7 @@ p = {
         "model_path": str(src_root.joinpath("best.mlmodel")),
         "img_paths": FargvPositional(default=[]),
         "img_suffix": (r".img.*p*g", "Image file suffix."),
+        "output_suffix": '',
         "line_attributes": (["centerline", "x-height"], "Non-standard line properties to be included in the dictionary."),
         "output_format": FargvChoice(["json", "xml", "docufcn", "stdout", "quiet"], description="Segmentation output: json=<JSON file>, xml=<PageXML file>, stdout=JSON on standard output, quiet=nothing (for testing and timing)"),
         "output_dir": ('', "Output directory; if not provided, defaults to the image path's parent."),
@@ -89,7 +91,7 @@ def check_patch_size_against_model( live_model: dict, patch_size ):
            return live_model.hyper_parameters['img_size'][0]
     return patch_size
 
-def build_segdict( img_metadata, segmentation_record, line_attributes, contour_tolerance=4.0, line_height_factor=1.0):
+def build_segdict( img_metadata, segmentation_record=None, line_attributes=['x-height', 'centerline'], contour_tolerance=4.0, line_height_factor=1.0):
     """
     Construct the region + line segmentation dictionary.
 
@@ -101,13 +103,17 @@ def build_segdict( img_metadata, segmentation_record, line_attributes, contour_t
         contour_tolerance (float): value for contour approximation (default: 4)
 
     Return:
-        dict: a segmentation dictionary
+        dict: a segmentation dictionaryi, with image-as-a-region.
     """
     segdict = { 'metadata': {'created': str(datetime.now()), 'creator': __file__, }}
     segdict.update( img_metadata )
     segdict['line_height_factor']=line_height_factor
-    logger.debug(segdict)
-    segdict['regions']=[]
+    
+    segdict['regions']=[ {
+        'coords': [[0,0],[img_metadata['image_width'],0],[img_metadata['image_width'], img_metadata['image_height']],[0,img_metadata['image_height']]] } ]
+
+    if not segmentation_record:
+        return segdict
 
     region_id = 0
     this_region_lines = []
@@ -126,11 +132,11 @@ def build_segdict( img_metadata, segmentation_record, line_attributes, contour_t
         line_id += 1
     line_spacings = np.array(centroid_ys[1:]) - np.array(centroid_ys[:-1])
     line_spacing_avg, line_spacing_min, line_spacing_max, line_spacing_std = [ int(v.item()) for v in (np.mean(line_spacings), np.min(line_spacings), np.max(line_spacings), np.std(line_spacings)) ] if len(centroid_ys)>1 else (-1,-1,-1,-1)
-    segdict['regions'].append( { 
+    segdict['regions'][0] = { 
         'id': f'r{region_id}', 'type': 'text_region', 
         'coords': [[0,0],[img_metadata['image_width'],0],[img_metadata['image_width'], img_metadata['image_height']],[0,img_metadata['image_height']]],
         'line_spacing': {'avg': line_spacing_avg, 'min': line_spacing_min, 'max': line_spacing_max, 'std': line_spacing_std }, 
-        'lines': this_region_lines } )
+        'lines': this_region_lines } 
 
     return segdict
 
@@ -148,11 +154,19 @@ def pack_inputs_outputs( args:dict ) -> list[tuple]:
     all_img_paths = set([ Path(p) for p in args.img_paths ])
 
     path_pairs = []
+    if args.output_format == 'docufcn' and not args.output_suffix:
+        logger.warning("No output suffix provided for chosen Doc-UFCN output format: using '.json'")
     for img_path in all_img_paths:
         img_stem = re.sub(r'{}$'.format( args.img_suffix), '', img_path.name )
         output_dir = img_path.parent if not args.output_dir else Path(args.output_dir)
-        path_pairs.append( ( img_path, output_dir.joinpath( 
-            f'{img_stem}.{args.appname}.docufcn.json' if args.output_format=='docufcn' else f'{img_stem}.{args.appname}.pred.{args.output_format}')))
+        output_file_name = f'{img_stem}.stdout'
+        if args.output_suffix:
+            output_file_name = f'{img_stem}{args.output_suffix}'
+        elif args.output_format=='xml' or args.output_format=='json':
+            output_file_name = f'{img_stem}.{args.appname}.pred.{args.output_format}'
+        elif args.output_format=='docufcn':
+            output_file_name = f'{img_stem}.json'
+        path_pairs.append( ( img_path, output_dir.joinpath( output_file_name )))
     return sorted( path_pairs, key=lambda x: str(x))
 
 
@@ -210,23 +224,18 @@ if __name__ == "__main__":
 
                 # Inference from fixed-size patches
                 patch_size = check_patch_size_against_model( live_model, args.patch_size )
-                try:
-                    binary_mask = lgm.binary_mask_from_fixed_patches( img, patch_size=patch_size, model=live_model, mask_threshold=thresholds['mask_threshold'], box_threshold=thresholds['box_threshold'], device=computing_device)
-                    logger.debug(f"binary_mask={binary_mask}")
-                    if binary_mask is None:
-                        logger.warning("{}\tNo line mask found in crop {}: skipping item.".format( img_path, crop_idx ))
-                        continue
-                except RuntimeError as e:
-                    logger.warning(e)
-                    logger.warning("→ falling back to CPU")
-                    binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=thresholds['mask_threshold'], box_threshold=thresholds['box_threshold'], device='cpu')
+                binary_mask = lgm.binary_mask_from_fixed_patches( img, patch_size=patch_size, model=live_model, mask_threshold=thresholds['mask_threshold'], box_threshold=thresholds['box_threshold'], device=computing_device)
+                logger.debug(f"binary_mask={binary_mask}")
+                if binary_mask is None:
+                    logger.warning("{}\tNo line mask found in crop {}: skipping item.".format( img_path, crop_idx ))
+                    # dict with no lines
+                    segdict = build_segdict( img_metadata )
                 try:
                     # Post-processing: pixel maps → lines & polygons
                     segmentation_record = lgm.get_morphology( binary_mask, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor ) 
-                    logger.debug(f"segmentation_record={segmentation_record}")
                     segdict = build_segdict( img_metadata, segmentation_record, args.line_attributes, line_height_factor=args.line_height_factor ) 
                     if args.validate and not sgf.json_validate( segdict ):
-                        logger.warning('Validation failed. Skipping item.')
+                        logger.error('Validation failed. Skipping item.')
                         continue
                 except (TypeError, ValueError) as e:
                     logger.warning("{}\tFailed to polygonize line masks ({}): abort segmentation.".format( img_path, e ))
@@ -243,10 +252,8 @@ if __name__ == "__main__":
                         if args.output_format == 'docufcn':
                             segdict = seglib.didip_json_to_docufcn_label_json( segdict )
                         with open(output_file_path, 'w') as of:
-                            #segdict['image_wh']=img.size
                             of.write(json.dumps( segdict, indent=4 ))
                     elif args.output_format == 'xml':
-                        #segdict['image_wh']=img.size
                         sgf.page_xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
                     sentinel_path.unlink()
                     if args.output_format != 'quiet':
