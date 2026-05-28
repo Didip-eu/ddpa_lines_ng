@@ -26,6 +26,7 @@ import skimage as ski
 import numpy as np
 import torch
 import torchvision
+import shapely
 
 from libs import segmodel as sgm
 from libs import seglib
@@ -148,9 +149,15 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
         polygon_box=polygon_to_mask_pil( (max_y-min_y+1, max_x-min_x+1), coords )
         
         # 2. Skeletonize and prune
+        # Operations:
+        #                  Mandatory    Risky
+        # - skeletonize    1            0
+        # - prune                       1
+        # - line-height    1            0
+        # - fix_ends                    2
         try:
-            box_limits = (0,0,*[ d-1 for d in labeled_msk_hw.shape] )
-            _, this_skeleton_yx = prune_skeleton( ski.morphology.skeletonize( polygon_box ))
+            #_, this_skeleton_yx = prune_skeleton( ski.morphology.skeletonize( polygon_box ))
+            _, this_skeleton_yx = prune_skeleton( ski.morphology.medial_axis( polygon_box ))
             # 3. Avg line height = area of polygon / length of skeleton
             line_heights.append( (np.sum(polygon_box) // len( this_skeleton_yx)).item() )
             this_skeleton_yx = fix_ends( this_skeleton_yx, line_heights[-1], polygon_box.shape[1] )
@@ -160,7 +167,7 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
 
             if not raw_polygons:
                 polyg = polygon_utils.strip_from_centerline( skeleton_coords[-1][:,::-1], line_heights[-1]*height_factor )[:,::-1]
-                polyg = polygon_utils.boxed_in( polyg, box_limits)#(0,0,*[ d-1 for d in labeled_msk_hw.shape] ))
+                polyg = np.clip( polyg, [0,0], [d-1 for d in labeled_msk_hw.shape] )
                 polygon_coords[-1] = polyg
                 polyg_rr, polyg_cc = ski.draw.polygon( *(polygon_coords[-1]).transpose())
                 labeled_msk_regular_hw[ polyg_rr, polyg_cc ]=lbl
@@ -192,7 +199,7 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
 
 
 
-def binary_mask_from_patches( img: Image.Image, row_count=2, col_count=1, overlap=.04, model=None, mask_threshold=.25, box_threshold=.8):
+def binary_mask_from_patches( img: Image.Image, row_count=2, col_count=1, overlap=.05, model=None, mask_threshold=.25, box_threshold=.8):
     """
     Construct a single binary mask from predictions on <row_count>x<col_count> patches.
 
@@ -228,7 +235,7 @@ def binary_mask_from_patches( img: Image.Image, row_count=2, col_count=1, overla
     return page_mask[None,:]
 
 
-def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.04, model=None, mask_threshold=.25, box_threshold=.8, cached_prediction_prefix='', cached_prediction_path=Path('/tmp'), max_patches=16, device='cpu') -> np.ndarray:
+def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.05, model=None, mask_threshold=.25, box_threshold=.8, cached_prediction_prefix='', cached_prediction_path=Path('/tmp'), max_patches=16, device='cpu') -> np.ndarray:
     """
     Construct a single binary mask from predictions on patches of size <patch_size> x <patch_size>.
 
@@ -519,3 +526,25 @@ def thresholds_from_model( model_path: Path, defaults: dict):
         logger.warning(f"{e} → Using default threshold parameters {defaults}")
     finally:
         return defaults 
+
+def interpolate( polygon: np.array, density=1 ):
+    ds, dtype = 0, polygon.dtype
+    while ds < density:
+        interpolated_arr=[]
+        for i in range(len(polygon)-1):
+            interpolated_arr.extend([polygon[i], (polygon[i]+polygon[i+1])/2])
+        polygon=np.array(interpolated_arr, dtype=dtype )
+        print(polygon)
+        ds += 1
+    return np.array( interpolated_arr, dtype=polygon.dtype)
+
+def centerline( polygon: np.array, interpolate=False ):
+
+    # normalize and interpolate
+    points = polygon-np.min( polygon, axis=0)
+    if interpolate:
+        points = interpolate( points, density=2)
+    # suppress duplicated points
+    points = shapely.remove_repeated_points( shapely.Polygon(points) )
+    return points
+    return shapely.voronoi_polygons(points, only_edges=True)

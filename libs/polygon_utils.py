@@ -16,7 +16,7 @@ def strip_from_baseline(baseline_n2xy: list[tuple[int,int]], x_height: int, fact
     """
     raw_polygon = strip_from_centerline( np.array( baseline_n2xy )-[0,x_height/2], int(x_height*factor) )
     if ltrb:
-        return boxed_in( raw_polygon, ltrb ).tolist()
+        return np.clip( raw_polygon, ltrb[:2], ltrb[2:] ).tolist()
     return raw_polygon.tolist()
 
 
@@ -56,33 +56,6 @@ def strip_from_centerline(centerline_n2xy: np.ndarray, height: float) -> np.ndar
     return contour_pts_n2xy.astype('int32')
 
 
-def boxed_in( sequence_n2xy: np.ndarray, ltrb: tuple[float,float,float,float] )->np.ndarray:
-    """
-    Given a sequence of points, shift its elements' coordinates  s.t. they are contained
-    within the given box. Can be used for (y,x) points: be sure to pass the box as (t,l,b,r).
-
-    Args: 
-        sequence_n2xy (np.ndarray) a (N,2) sequence of (x,y) points.
-        ltrb (tuple[float,float,float,float]): the left, top, right, and bottom coordinates.
-    Returns:
-        polyg_n2xy (np.ndarray): a (N,2) sequence of (x,y) points.
-    """
-    left, top, right, bottom = ltrb
-    shifted_pts = []
-    for pt in sequence_n2xy:
-        x, y = pt
-        if x < left:
-            x = left
-        elif x > right:
-            x = right
-        if y < top:
-            y = top
-        elif y > bottom:
-            y = bottom
-        shifted_pts.append( [x,y] )
-    return np.array( shifted_pts )
-
-
 def bisection_rotation_matrix(left, right):
     """ Given 2 vectors <left> and <right>, return the matrix that rotates a vertical vector 
     such that it bisects the angle formed by <left> and <right>.
@@ -110,5 +83,6 @@ def bisection_rotation_matrix(left, right):
     cosg, sing = np.cos( gamma ), np.sin( gamma )
     rotation_matrix = np.array([[cosg, -sing],[sing, cosg]])
     return rotation_matrix
+
 
 

@@ -187,9 +187,9 @@ def didip_json_to_docufcn_label_json( segmentation_json: Union[Path,dict], outpu
     Note: assumes a single-region file; only for evaluation use in segmentation pipeline.
 
     Args:
-        label_file (Union[Path,dict]): path to a segmentation file, DiDip-style, or the dictionary itself
-        out (str): output file; if empty, use the standard output.
-        overwrite_existing (bool): if False, do not write over older masks.
+        segmentation_json (Union[Path,dict]): path to a segmentation file, DiDip-style, or the dictionary itself
+        output_file_path (str): output file; if empty, use the standard output.
+        overwrite_existing (bool): if False, do not write over older files.
     """
     segmentation_dict = {}
     if type( segmentation_json ) is dict:
@@ -213,6 +213,46 @@ def didip_json_to_docufcn_label_json( segmentation_json: Union[Path,dict], outpu
             output_file.write( json.dumps( new_segdict, indent=2 ))
     else:
         return new_segdict
+
+def docufcn_label_to_didip_json( segmentation_json: Path, segfile_suffix='.json', img_suffix='.img.jpg', output_file_path='', overwrite_existing=True):
+    """ Convert a Doc-UFCN label file into a DiDip JSON segmentation file.
+    Note: assumes a single-region file; only for evaluation use in segmentation pipeline.
+
+    Args:
+        segmentation_file (Union[Path,dict]): path to a segmentation file, Doc-UFCN style.
+        img_suffix (str): image file suffix.
+        segfile_suffix (str): _input_ segmentation file suffix.
+        output_file_path (str): output file; if empty, use the standard output.
+        overwrite_existing (bool): if False, do not write over older files.
+    """
+    with open(segmentation_json) as seg_if:
+        segdict = json.load( seg_if )
+        image_width, image_height = segdict['img_size']
+        new_segdict = {
+                "metadata": {
+                    "created": datetime.now().isoformat("T","seconds"),
+                    "creator": 'Universität Graz/DH/nicolas.renet@uni-graz.at',
+                    "comment": "Image name is a guess!",
+                },
+                "image_filename": segmentation_json.name.replace( segfile_suffix, img_suffix ),
+                "image_width": image_width,
+                "image_height": image_height,
+                "regions": [
+                    { 
+                        "id": "r0",
+                        "coords": [ [0,0], [image_width-1, 0], [image_width-1, image_height-1], [0, image_height-1]],
+                        "lines": [ { "id": f"l{i}", "coords": l['polygon']  } 
+                                    for i,l in enumerate(segdict['textline']) 
+                                ],
+                        
+                    }
+                ]
+        }
+        if output_file_path and overwrite_existing:
+            with open( output_file_path, 'w') as output_file:
+                output_file.write( json.dumps( new_segdict, indent=2 ))
+        else:
+            return new_segdict
 
 
 def line_binary_mask_stack_from_json_file( segmentation_json: str, polygon_key='coords' ) -> Tensor:
@@ -636,7 +676,7 @@ def promote_regions_from_json_file( filename: Path, validate=False ):
         region_list = []
         for reg_idx, region in enumerate(segdict['regions']):
             new_segdict = copy.deepcopy(segdict)
-            new_segdict['metadata']['created']=str(datetime.now())
+            new_segdict['metadata']['created']=datetime.now().isoformat("T","seconds")
             new_segdict['regions'] = new_segdict['regions'][reg_idx:reg_idx+1]
             # new region coordinates (crop-wide)
             new_segdict['regions'][0]['coords'] = (np.array( region['coords'] ) - region['coords'][0]).tolist()
