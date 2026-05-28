@@ -182,7 +182,7 @@ def didip_json_to_label_mask( segmentation_json: str, channels=3, largest_dimens
         else:
             return np.array( img_array )
 
-def didip_json_to_docufcn_label_json( segmentation_json: Union[Path,dict], output_file_path='', overwrite_existing=False):
+def didip_json_to_docufcn_label_json( segmentation_json: Union[Path,dict], output_file_path='', overwrite_existing=False)->dict:
     """ Convert a DiDip JSON segmentation file into a Doc-UFCN label file.
     Note: assumes a single-region file; only for evaluation use in segmentation pipeline.
 
@@ -190,6 +190,16 @@ def didip_json_to_docufcn_label_json( segmentation_json: Union[Path,dict], outpu
         segmentation_json (Union[Path,dict]): path to a segmentation file, DiDip-style, or the dictionary itself
         output_file_path (str): output file; if empty, use the standard output.
         overwrite_existing (bool): if False, do not write over older files.
+    
+    Returns:
+        dict: a Doc-UFCN dictionary of the form::
+
+            { "img_size": [ <img_width>, <img_height> ],
+              " textline": [
+                    { "confidence": 1.0, "polygon": [[<x1,y1>], [<x2,y2>], ..., [<xn,yn>]] },
+                    ...
+                ]
+            }
     """
     segmentation_dict = {}
     if type( segmentation_json ) is dict:
@@ -211,19 +221,29 @@ def didip_json_to_docufcn_label_json( segmentation_json: Union[Path,dict], outpu
     if output_file_path and overwrite_existing:
         with open( output_file_path, 'w') as output_file:
             output_file.write( json.dumps( new_segdict, indent=2 ))
-    else:
-        return new_segdict
+    return new_segdict
 
-def docufcn_label_to_didip_json( segmentation_json: Path, segfile_suffix='.json', img_suffix='.img.jpg', output_file_path='', overwrite_existing=True):
+def docufcn_label_to_didip_json( segmentation_json: Path, segfile_suffix='.json', img_suffix='.img.jpg', output_file_path='', overwrite_existing=True)->dict:
     """ Convert a Doc-UFCN label file into a DiDip JSON segmentation file.
     Note: assumes a single-region file; only for evaluation use in segmentation pipeline.
 
     Args:
-        segmentation_file (Union[Path,dict]): path to a segmentation file, Doc-UFCN style.
+        segmentation_file (Union[Path,dict]): path to a segmentation file, Doc-UFCN style, of the form::
+
+            { "img_size": [ <img_width>, <img_height> ],
+              " textline": [
+                    { "confidence": 1.0, "polygon": [[<x1,y1>], [<x2,y2>], ..., [<xn,yn>]] },
+                    ...
+                ]
+            }
+
         img_suffix (str): image file suffix.
         segfile_suffix (str): _input_ segmentation file suffix.
         output_file_path (str): output file; if empty, use the standard output.
         overwrite_existing (bool): if False, do not write over older files.
+
+    Returns:
+        dict: a loose, ad-hoc DiDip-style JSON segmentation dictionary, that is not meant to be validated.
     """
     with open(segmentation_json) as seg_if:
         segdict = json.load( seg_if )
@@ -231,7 +251,7 @@ def docufcn_label_to_didip_json( segmentation_json: Path, segfile_suffix='.json'
         new_segdict = {
                 "metadata": {
                     "created": datetime.now().isoformat("T","seconds"),
-                    "creator": 'Universität Graz/DH/nicolas.renet@uni-graz.at',
+                    "creator": __name__,
                     "comment": "Image name is a guess!",
                 },
                 "image_filename": segmentation_json.name.replace( segfile_suffix, img_suffix ),
@@ -251,8 +271,7 @@ def docufcn_label_to_didip_json( segmentation_json: Path, segfile_suffix='.json'
         if output_file_path and overwrite_existing:
             with open( output_file_path, 'w') as output_file:
                 output_file.write( json.dumps( new_segdict, indent=2 ))
-        else:
-            return new_segdict
+        return new_segdict
 
 
 def line_binary_mask_stack_from_json_file( segmentation_json: str, polygon_key='coords' ) -> Tensor:

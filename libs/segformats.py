@@ -320,7 +320,7 @@ def segmentation_dict_from_page_xml(page_source: str, get_text=True, regions_as_
 
     return page_dict 
 
-def segdict_reassign_lines( segdict: dict):
+def segdict_reassign_lines( segdict: dict, verbose=False):
     """
     Given a segmentation dictionary, reassign lines to their most likely containing regions:
     assign each line to region with maximum overlap, as a ratio of the line's area; between
@@ -362,11 +362,13 @@ def segdict_reassign_lines( segdict: dict):
             if this_overlap > max_overlap:
                 max_overlap = this_overlap
                 line_to_region[l_idx]=(r_idx, this_overlap )
-                print(f"asssign line {l['id']} to region {r['id']}: overlap={this_overlap}")
+                if verbose:
+                    print(f"asssign line {l['id']} to region {r['id']}: overlap={this_overlap}")
             elif this_overlap == max_overlap and line_to_region[l_idx][0]>=0:
                 stored_region_idx = line_to_region[l_idx][0] # region index
                 if region_to_bbox[r_idx].area < region_to_bbox[stored_region_idx].area:
-                    print(f"asssign line {l['id']} to smaller region {r['id']}: overlap={this_overlap}")
+                    if verbose:
+                        print(f"asssign line {l['id']} to smaller region {r['id']}: overlap={this_overlap}")
                     line_to_region[l_idx]=(r_idx, this_overlap )
     # assign each line to its region object
     # (vertical sorting by centroid has been done previously)
@@ -557,16 +559,58 @@ def page_xml_validate( page_source: str, schema_source: str=PageXmlSchema ):
 
     return xmlschema.validate( page_root )
 
-def json_doctor( segdict: dict, operations={'region_fit': True, 'line_surgery': True} )->dict:
+def json_doctor( segdict: dict, operations={'region_fit': True, 'line_surgery': True}, verbose=False )->dict:
     """
     Fix semantic issues in a JSON segmentation dictionary:
 
-    + 
-    + extend regions to encompass their line bounding boxes
     + re-assign lines to their proper regions
-    + 
+    + extend regions to encompass their line bounding boxes
+    
+    Args:
+        segdict (dict): segmentation dictionary, DiDip-style.
+
+    Returns:
+        dict: a modified copy of the input dictionary.
     """
-    pass
+    # Steps:
+    # 1. Clip all coordinates to image size
+    # 2. Line reassignment: fix most glaring errors regarding line-to-region assignments (tolerance
+    #     for line region overlap is a parameter)
+    # 3. Fine-tuning: regions can be extended to fit their line coordinates (overlap between regions
+    #    is not considered an issue in most contexts)
+
+    def extend_box( outer_coords, inner_coords ):
+        """
+        Extend outer box to fit the inner coordinates, within the image's limits.
+        """
+        outer_coords, inner_coords = np.array( outer_coords ), np.array( inner_coords )
+        l, t = inner_coords.min(axis=0).tolist()
+        r, b = inner_coords.max(axis=0).tolist()
+        if r >= segdict['image_width']:
+            r = segdict['image_width']-1
+        if b >= segdict['image_height']:
+            b = segdict['image_height']-1
+        print([[l,t],[r,t],[r,b],[l,b]])
+        return [[l,t],[r,t],[r,b],[l,b]]
+
+    segdict_new = copy.deepcopy( segdict )
+    # ensure that every line polygon is within image's limits
+    for r in segdict_new['regions']:
+        for l in r['lines']:
+            new_coords=np.clip( l['coords'], [0,0], [segdict['image_width']-1, segdict['image_height']-1] ).tolist()
+            if verbose and new_coords != l['coords']:
+                print(f"region  {r['id']}, line {l['id']}: coords → {new_coords}")
+            l['coords']=new_coords
+
+    segdict_butchered = segdict_reassign_lines( segdict_new, verbose=verbose )
+    if verbose and segdict_butchered != segdict_new:
+        print("Some lines were reassigned!")
+    for reg in segdict_butchered['regions']:
+        new_coords = extend_box( reg['coords'], [ c for l in reg['lines'] for c in l['coords']])
+        if verbose and new_coords != reg['coords']:
+            print(f"region  {r['id']} extended: coords → {r['coords']}")
+        reg['coords']=new_coords
+    return segdict_butchered
 
 
 def flatten_segmentation_dict( segmentation_dict: dict ) -> dict:
