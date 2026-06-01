@@ -794,7 +794,7 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->
 
     summary_text = "\n".join([ f"Image size: {segdict['image_width']} x {segdict['image_height']}",
                f"Regions: {len(segdict['regions'])}",
-               f"Lines: {len(line_ids)}"]) if summary else ''
+               f"Lines: {len(line_ids)}\n"]) if summary else ''
 
     return summary_text + '\n'.join([(''.join([ chr(c) for c in l ])) for l in canvas ] )
 
