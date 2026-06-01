@@ -562,9 +562,6 @@ def json_doctor( segdict: dict, operations={'region_fit': True, 'line_surgery': 
     if verbose:
         print("Extend regions around their lines...")
     for reg in segdict_butchered['regions']:
-        if verbose:
-            print(f"Reg {reg['id']}:")
-            print(f"\tALL line coords: {[ c for l in reg['lines'] for c in l['coords']]}")
         new_coords = extend_box( reg['coords'], [ c for l in reg['lines'] for c in l['coords']])
         if verbose and new_coords != reg['coords']:
             print(f"region  {reg['id']} extended: {reg['coords']} → {new_coords}")
@@ -703,14 +700,15 @@ def region_dicts_from_segmentation_dict( segmentation_dict: dict ) -> list[dict]
     return regions
 
 
-def any_to_ascii( segfile: str, scale_hw=(.01,.02), lines=False)->str:
+def any_to_ascii( segfile: str, scale_hw=(.01,.02), lines=0)->str:
     """
     ASCII-rendition of a segmentation dictionary.
 
     Args:
         segfile (str): path of a JSON (Page) segmentation file.
         scale_hw (tuple[float,float]): scaling factor for pixel-to-line/char (respectively) coordinate transformation.
-        lines (bool): show line ids within their regions.
+        lines (int): if non-zeero, show line ids within their regions: 1=only lines that fit within region display box;
+            2=lines that fit within canvas display box.
 
     Returns:
         str: a character-based rendition of the layout.
@@ -733,14 +731,15 @@ def any_to_ascii( segfile: str, scale_hw=(.01,.02), lines=False)->str:
 
     return segdict_to_ascii( segdict_sink_lines(segdict), scale_hw=scale_hw, lines=lines)
 
-def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=False)->str:
+def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->str:
     """
     ASCII-rendition of a JSON segmentation dictionary.
 
     Args:
         segdict (dict): path of a JSON segmentation file.
         scale_hw (tuple[float,float]): scaling factor for pixel-to-line/char (respectively) coordinate transformation.
-        lines (bool): show lines  within their regions.
+        lines (int): if non-zeero, show line ids within their regions: 1=only lines that fit within region display box;
+            2=lines that fit within canvas display box.
 
     Returns:
         str: an terminal-friendly representation of the layout.
@@ -762,12 +761,14 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=False)->str:
     canvas = np.full( (np.array([height,width])*scale_hw).astype('uint16'), ord(' '))
     canvas[[0,0,-1,-1],[0,-1,-1,0]]=ord('╋')
     reg_id_prefix = longest_common_prefix( [ reg['id'] for reg in segdict['regions']] )
-    line_id_prefix = longest_common_prefix( [ l['id'] for reg in segdict['regions'] if 'lines' in reg for l in reg['lines']] ) if lines else ''
+    line_ids = [ l['id'] for reg in segdict['regions'] if 'lines' in reg for l in reg['lines']]
+    line_id_prefix = longest_common_prefix( line_ids ) if lines else ''
     for reg in segdict['regions'][:]:
         reg['id']=reg['id'].replace( reg_id_prefix, 'r:')
         reg_arr = np.array( [c[::-1] for c in reg['coords']] ).astype('uint16')
+        lt, rb = reg_arr[:,::-1].min(axis=0).tolist(), reg_arr[:,::-1].max(axis=0).tolist()
         scaled_reg_arr = (reg_arr*scale_hw).astype('uint16').T
-        print(f"{reg['id']}:{reg_arr}")
+        print(f"{reg['id']}:{lt, rb}")
         canvas[ scaled_reg_arr[0], scaled_reg_arr[1] ]=ord('+')
         canvas[ scaled_reg_arr[0,0:4], scaled_reg_arr[1,0:4] ]=[ ord(c) for c in '┌┐┘└']
         canvas[ scaled_reg_arr[0,0]+1:scaled_reg_arr[0,2], scaled_reg_arr[1,[0,1]]]=ord('│')
@@ -783,14 +784,17 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=False)->str:
                 line_id_offset = region_id_offset+2
                 canvas_row_idx, canvas_col_idx = scaled_reg_arr[0,0]+2+i, scaled_reg_arr[1,0]+line_id_offset
                 # omitting lines beyond the canvas' size
-                if canvas_row_idx < canvas.shape[0]-2:
+                if (lines==1 and canvas_row_idx >= scaled_reg_arr[0,2]-1) or (lines == 2 and canvas_row_idx >= canvas.shape[0]-2): 
+                    canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+len('...')] = [ ord(c) for c in '...' ]
+                    break
+                else:
                     #if len(l_id_as_intlist) < line_display_length:
                     canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+line_display_length ] = [ ord('.') ] * line_display_length 
                     canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+len(l_id_as_intlist)] = l_id_as_intlist
 
-                else:
-                    canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+len('...')] = [ ord(c) for c in '...' ]
-                    break
+    summary_text = "\n".join([ f"Image size: {segdict['image_width']} x {segdict['image_height']}",
+               f"Regions: {len(segdict['regions'])}",
+               f"Lines: {len(line_ids)}"]) if summary else ''
 
-    return '\n'.join([(''.join([ chr(c) for c in l ])) for l in canvas ] )
+    return summary_text + '\n'.join([(''.join([ chr(c) for c in l ])) for l in canvas ] )
 
