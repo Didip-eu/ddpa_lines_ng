@@ -527,7 +527,6 @@ def json_doctor( segdict: dict, operations={'region_fit': True, 'line_surgery': 
         Extend outer box to fit the inner coordinates, within the image's limits.
         """
         outer_coords, inner_coords = np.array( outer_coords ), np.array( inner_coords )
-        print(f"outer_coords={outer_coords}, inner_coords={inner_coords[:10]}")
         o_l, o_t, o_r, o_b = *(outer_coords.min(axis=0).tolist()), *(outer_coords.max(axis=0).tolist())
         i_l, i_t, i_r, i_b = *(inner_coords.min(axis=0).tolist()), *(inner_coords.max(axis=0).tolist())
 
@@ -540,8 +539,8 @@ def json_doctor( segdict: dict, operations={'region_fit': True, 'line_surgery': 
             r = segdict['image_width']-1
         if b >= segdict['image_height']:
             b = segdict['image_height']-1
-        if verbose:
-            print([[l,t],[r,t],[r,b],[l,b]])
+        #if verbose:
+        #    print(f"extended region: {[[l,t],[r,t],[r,b],[l,b]]}")
         return [[l,t],[r,t],[r,b],[l,b]]
 
     segdict_new = copy.deepcopy( segdict )
@@ -556,7 +555,7 @@ def json_doctor( segdict: dict, operations={'region_fit': True, 'line_surgery': 
             l['coords']=new_coords
 
     if verbose:
-        print("Rassign lines...")
+        print("Re-assign lines...")
     segdict_butchered = segdict_reassign_lines( segdict_new, verbose=verbose )
     if verbose and segdict_butchered != segdict_new:
         print("Some lines were reassigned!")
@@ -564,10 +563,11 @@ def json_doctor( segdict: dict, operations={'region_fit': True, 'line_surgery': 
         print("Extend regions around their lines...")
     for reg in segdict_butchered['regions']:
         if verbose:
-            print("Reg {reg['id']}:")
+            print(f"Reg {reg['id']}:")
+            print(f"\tALL line coords: {[ c for l in reg['lines'] for c in l['coords']]}")
         new_coords = extend_box( reg['coords'], [ c for l in reg['lines'] for c in l['coords']])
         if verbose and new_coords != reg['coords']:
-            print(f"region  {r['id']} extended: {r['coords']} → {new_coords}")
+            print(f"region  {reg['id']} extended: {reg['coords']} → {new_coords}")
         reg['coords']=new_coords
     return segdict_butchered
 
@@ -625,12 +625,16 @@ def segdict_reassign_lines( segdict: dict, verbose=False):
     # assign each line to its region object
     # (vertical sorting by centroid has been done previously)
     for l_idx, lr in enumerate( line_to_region ):
-        l_l, l_t, l_r, l_b = *(np.array(lines[l_idx]['coords']).min(axis=0).tolist()), *(np.array(lines[l_idx]['coords']).max(axis=0).tolist())
-        r_l, r_t, r_r, r_b = *(np.array(new_segdict['regions'][lr[0]]['coords']).min(axis=0).tolist()), *(np.array(new_segdict['regions'][lr[0]]['coords']).max(axis=0).tolist())
-        
-        print(f"line {[l_l,l_t,l_r,l_b]} into region {new_segdict['regions'][lr[0]]['id'].replace('eSc_textblock_','')}: {[r_l,r_t,r_r,r_b]}")
         del lines[l_idx]['bbox']
         new_segdict['regions'][ lr[0] ]['lines'].append( lines[l_idx] )
+    if verbose: 
+        for r in new_segdict['regions']:
+            r_id, r_l, r_t, r_r, r_b = r['id'].replace('eSc_textblock_',''), *(np.array(r['coords']).min(axis=0).tolist()), *(np.array(r['coords']).max(axis=0).tolist())
+            print(f"region {r_id}: [<{r_l},{r_r}>, <{r_t}, {r_b}>]")
+            region_bboxes=[ (l['id'].replace('eSc_line_',''), *(np.array(l['coords']).min(axis=0).tolist()), *(np.array(l['coords']).max(axis=0).tolist()) ) for l in r['lines'] ]
+            for  l_id, l_l, l_t, l_r, l_b in sorted( region_bboxes, key=lambda x: x[2] ):
+                print(f"\tline {l_id}: [<{l_l},{l_r}>, <{l_t},{l_b}>]")
+
     return new_segdict
 
 
@@ -736,7 +740,7 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=False)->str:
     Args:
         segdict (dict): path of a JSON segmentation file.
         scale_hw (tuple[float,float]): scaling factor for pixel-to-line/char (respectively) coordinate transformation.
-        lines (bool): show line ids within their regions.
+        lines (bool): show lines  within their regions.
 
     Returns:
         str: an terminal-friendly representation of the layout.
@@ -765,23 +769,28 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=False)->str:
         scaled_reg_arr = (reg_arr*scale_hw).astype('uint16').T
         print(f"{reg['id']}:{reg_arr}")
         canvas[ scaled_reg_arr[0], scaled_reg_arr[1] ]=ord('+')
-        canvas[ scaled_reg_arr[0,0]+1:scaled_reg_arr[0,2], scaled_reg_arr[1,[0,1]]]=ord('|')
-        canvas[ scaled_reg_arr[0,[1,2]], scaled_reg_arr[1,0]+1:scaled_reg_arr[1,2]]=ord('-')
+        canvas[ scaled_reg_arr[0,0:4], scaled_reg_arr[1,0:4] ]=[ ord(c) for c in '┌┐┘└']
+        canvas[ scaled_reg_arr[0,0]+1:scaled_reg_arr[0,2], scaled_reg_arr[1,[0,1]]]=ord('│')
+        canvas[ scaled_reg_arr[0,[1,2]], scaled_reg_arr[1,0]+1:scaled_reg_arr[1,2]]=ord('─')
         reg_id_as_intlist = [ ord(c) for c in reg['id'] ]
         region_id_offset = 1
         canvas[ scaled_reg_arr[0,0]+1, scaled_reg_arr[1,0]+region_id_offset:scaled_reg_arr[1,0]+region_id_offset+len( reg['id'] )]=reg_id_as_intlist
         if lines and 'lines' in reg:
             for i,l in enumerate([l['id'].replace(line_id_prefix,'l:') for l in reg['lines']]):
+                l_xs =np.array( reg['lines'][i]['coords'] )[:,0]
+                line_display_length = int(np.floor((l_xs.max()-l_xs.min()+1) * scale_hw[1] ))-1
                 l_id_as_intlist = [ ord(c) for c in l ]
                 line_id_offset = region_id_offset+2
                 canvas_row_idx, canvas_col_idx = scaled_reg_arr[0,0]+2+i, scaled_reg_arr[1,0]+line_id_offset
                 # omitting lines beyond the canvas' size
                 if canvas_row_idx < canvas.shape[0]-2:
+                    #if len(l_id_as_intlist) < line_display_length:
+                    canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+line_display_length ] = [ ord('.') ] * line_display_length 
                     canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+len(l_id_as_intlist)] = l_id_as_intlist
+
                 else:
                     canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+len('...')] = [ ord(c) for c in '...' ]
                     break
-            #print(f"  {l['id']}:{[c[::-1] for c in l['coords'][:7]]}...") 
 
     return '\n'.join([(''.join([ chr(c) for c in l ])) for l in canvas ] )
 
