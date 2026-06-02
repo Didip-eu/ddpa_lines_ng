@@ -4,6 +4,7 @@ JSON -> JSON conversion
 
 Read a JSON segmentation file, with a choice of options:
 
++ repair a faulty file
 + expand polygon heights wr/ original x-height
 + remove transcription data
 + add a comment
@@ -42,6 +43,8 @@ p = {
     'overwrite_existing': (False, "Overwrite an existing output file."),
     'drop_transcription': (False, "Extract line transcription, if it exists."),
     'promote_regions': (False, "For each region, create one separate file (pre-pend 'r<reg_nbr>' to input suffix."),
+    'repair': (False, "Repair a faulty dictionary: re-assign lines to their proper regions; expand regions to include 
+        every pixel of the line polygon."),
     'delete_line_features': ([], "Line items to be removed (used with caution!)"),
     "comment": ('',"A text string to be added to the <Comments> elt."),
 }
@@ -54,41 +57,48 @@ if __name__ == '__main__':
     for file_path in args.file_paths:
         json_path = Path( file_path )
 
-        # region-as-a-file extraction
-        if args.promote_regions:
-            from PIL import Image
-            for reg_idx, region_tuple in enumerate( seglib.promote_regions_from_json_file( json_path )):
-                region_img, region_segdict = region_tuple
-                #region_img.show( region_img )
-                # construct image and json file names
-                output_json_path = args.file_path.replace( args.input_suffix, f".r{reg_idx}" + args.input_suffix )
-                #re.sub( r'\.lines.*\.json$', f".r{reg_idx}"+r'\g<0>', args.file_path )
-                if not args.overwrite_existing and Path(output_json_path).exists():
-                    continue
-                output_img_path = json_path.parent.joinpath( region_segdict['image_filename'] )
-                with open( output_json_path,'w') as of:
-                    of.write( json.dumps( region_segdict, indent=2))
-                    print(f"Compiled region file {output_json_path}")
-                region_img.save( output_img_path )
-                print(f"Saved region image {output_img_path}")
-            continue
-
-        output_file_path = Path( file_path.replace( args.input_suffix, args.output_suffix )) if args.output_suffix else None
-        print(f'{file_path} → {output_file_path}')
-        if output_file_path and not args.overwrite_existing and output_file_path.exists():
-            print(f"Existing {output_file_path}: skipping." )
-            continue
-
         segdict = None
         with open( json_path, 'r') as json_if:
-            line_dicts = seglib.line_dicts_from_segmentation_dict( json.load( json_if) )
+            segdict = json.load( json_if )
+
+            if args.repair:
+                pritn("Repairing file")
+                segdict = segformats.json_doctor( segdict )
+
+            # region-as-a-file extraction
+            if args.promote_regions:
+                from PIL import Image
+                for reg_idx, region_tuple in enumerate( seglib.promote_regions_from_segdict( segdict, json_path.parent )):
+                    region_img, region_segdict = region_tuple
+                    #region_img.show( region_img )
+                    # construct image and json file names
+                    output_json_path = args.file_path.replace( args.input_suffix, f".r{reg_idx}" + args.input_suffix )
+                    #re.sub( r'\.lines.*\.json$', f".r{reg_idx}"+r'\g<0>', args.file_path )
+                    if not args.overwrite_existing and Path(output_json_path).exists():
+                        continue
+                    output_img_path = json_path.parent.joinpath( region_segdict['image_filename'] )
+                    with open( output_json_path,'w') as of:
+                        of.write( json.dumps( region_segdict, indent=2))
+                        print(f"Compiled region file {output_json_path}")
+                    region_img.save( output_img_path )
+                    print(f"Saved region image {output_img_path}")
+                continue
+
+            output_file_path = Path( file_path.replace( args.input_suffix, args.output_suffix )) if args.output_suffix else None
+            print(f'{file_path} → {output_file_path}')
+            if output_file_path and not args.overwrite_existing and output_file_path.exists():
+                print(f"Existing {output_file_path}: skipping." )
+                continue
+
+            line_dicts = seglib.line_dicts_from_segmentation_dict( segdict )
 
             # delete unwanted features
-            for line in line_dicts:
-                for key in args.delete_line_features:
-                    if key not in line:
-                        continue
-                    del line[key]
+            if args.delete_line_features:
+                for line in line_dicts:
+                    for key in args.delete_line_features:
+                        if key not in line:
+                            continue
+                        del line[key]
 
             # expand polygons
             if args.line_height_factor != 1.0:

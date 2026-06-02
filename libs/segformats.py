@@ -562,7 +562,10 @@ def json_doctor( segdict: dict, operations={'region_fit': True, 'line_surgery': 
     if verbose:
         print("Extend regions around their lines...")
     for reg in segdict_butchered['regions']:
-        new_coords = extend_box( reg['coords'], [ c for l in reg['lines'] for c in l['coords']])
+        inner_line_coords = [ c for l in reg['lines'] for c in l['coords']]
+        if not inner_line_coords:
+            continue
+        new_coords = extend_box( reg['coords'], inner_line_coords )
         if verbose and new_coords != reg['coords']:
             print(f"region  {reg['id']} extended: {reg['coords']} → {new_coords}")
         reg['coords']=new_coords
@@ -706,9 +709,12 @@ def any_to_ascii( segfile: str, scale_hw=(.01,.02), lines=0)->str:
 
     Args:
         segfile (str): path of a JSON (Page) segmentation file.
-        scale_hw (tuple[float,float]): scaling factor for pixel-to-line/char (respectively) coordinate transformation.
-        lines (int): if non-zeero, show line ids within their regions: 1=only lines that fit within region display box;
-            2=lines that fit within canvas display box.
+        scale_hw (Union[tuple[float,float],float,int]): if passed a tuple, interpreted as scaling
+            factor for pixel-to-terminal-line and pixel-to-terminal-col (respectively) coordinate 
+            transformation; if passed a single number between .5 and 5, interpreted as a factor of
+            the default scale (=.01,.02).
+        lines (int): if non-zeero, show line ids within their regions: 1=only lines that fit within
+            region display box; 2=lines that fit within canvas display box.
 
     Returns:
         str: a character-based rendition of the layout.
@@ -729,7 +735,8 @@ def any_to_ascii( segfile: str, scale_hw=(.01,.02), lines=0)->str:
     if not segdict:
         raise ValueError("Could not parse a valid segmentation dictionary. Abort.")
 
-    return segdict_to_ascii( segdict_sink_lines(segdict), scale_hw=scale_hw, lines=lines)
+    print(f"any_to_ascii: {type(scale_hw)}")
+    return segdict_to_ascii( segdict, scale_hw=scale_hw, lines=lines)
 
 def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->str:
     """
@@ -737,9 +744,12 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->
 
     Args:
         segdict (dict): path of a JSON segmentation file.
-        scale_hw (tuple[float,float]): scaling factor for pixel-to-line/char (respectively) coordinate transformation.
-        lines (int): if non-zeero, show line ids within their regions: 1=only lines that fit within region display box;
-            2=lines that fit within canvas display box.
+        scale_hw (Union[tuple[float,float],float,int]): if passed a tuple, interpreted as scaling
+            factor for pixel-to-terminal-line and pixel-to-terminal-col (respectively) coordinate 
+            transformation; if passed a single number between .5 and 5, interpreted as a factor of
+            the default scale (=.01,.02).
+        lines (int): if non-zeero, show line ids within their regions: 1=only lines that fit within
+            region display box; 2=lines that fit within canvas display box.
 
     Returns:
         str: an terminal-friendly representation of the layout.
@@ -757,9 +767,18 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->
     if not segdict:
         raise ValueError("Provide a valid segmentation dictionary, or a segmentation file.")
         
+    default_scale = (.01,.02)
     width, height = segdict['image_width'], segdict['image_height']
+    if type(scale_hw) in [float,int]:
+        if scale_hw >= 0.5 and scale_hw <= 5:
+            scale_hw=[ s*scale_hw for s in default_scale ] 
+        else:
+            scale_hw=default_scale
+        print(scale_hw)
     canvas = np.full( (np.array([height,width])*scale_hw).astype('uint16'), ord(' '))
-    canvas[[0,0,-1,-1],[0,-1,-1,0]]=ord('╋')
+    canvas[[0,0,-1,-1],[0,-1,-1,0]]=ord('┼')#=ord('╋')
+    canvas[[0,-1],1:-1]=ord('┄')
+    canvas[1:-1,[0,-1]]=ord('┆')
     reg_id_prefix = longest_common_prefix( [ reg['id'] for reg in segdict['regions']] )
     line_ids = [ l['id'] for reg in segdict['regions'] if 'lines' in reg for l in reg['lines']]
     line_id_prefix = longest_common_prefix( line_ids ) if lines else ''
@@ -767,15 +786,24 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->
         reg['id']=reg['id'].replace( reg_id_prefix, 'r:')
         reg_arr = np.array( [c[::-1] for c in reg['coords']] ).astype('uint16')
         lt, rb = reg_arr[:,::-1].min(axis=0).tolist(), reg_arr[:,::-1].max(axis=0).tolist()
+        scaled_reg_hw = (rb[0]-lt[0]+1, rb[1]-lt[1]+1)
         scaled_reg_arr = (reg_arr*scale_hw).astype('uint16').T
-        print(f"{reg['id']}:{lt, rb}")
+        print(f"{reg['id']}:{lt, rb} (size={scaled_reg_hw})")
         canvas[ scaled_reg_arr[0], scaled_reg_arr[1] ]=ord('+')
         canvas[ scaled_reg_arr[0,0:4], scaled_reg_arr[1,0:4] ]=[ ord(c) for c in '┌┐┘└']
         canvas[ scaled_reg_arr[0,0]+1:scaled_reg_arr[0,2], scaled_reg_arr[1,[0,1]]]=ord('│')
         canvas[ scaled_reg_arr[0,[1,2]], scaled_reg_arr[1,0]+1:scaled_reg_arr[1,2]]=ord('─')
         reg_id_as_intlist = [ ord(c) for c in reg['id'] ]
         region_id_offset = 1
-        canvas[ scaled_reg_arr[0,0]+1, scaled_reg_arr[1,0]+region_id_offset:scaled_reg_arr[1,0]+region_id_offset+len( reg['id'] )]=reg_id_as_intlist
+        id_start_x = scaled_reg_arr[1,0]+region_id_offset
+        id_end_x = id_start_x + len( reg['id'] )
+        cut = canvas.shape[1]-1-id_end_x
+        if cut:
+            id_end_end_x = canvas.shape[1]-1
+            print("cut=",cut)
+        print(f"canvas[{scaled_reg_arr[0,0]+1}, {id_start_x}:{id_end_x}] (length={id_end_x-id_start_x}, id_length={len(reg_id_as_intlist)})")
+        print(canvas[ scaled_reg_arr[0,0]+1, id_start_x:id_end_x ].shape)
+        canvas[ scaled_reg_arr[0,0]+1, id_start_x:id_end_x ]=reg_id_as_intlist[0:len(reg_id_as_intlist)-cut]
         if lines and 'lines' in reg:
             for i,l in enumerate([l['id'].replace(line_id_prefix,'l:') for l in reg['lines']]):
                 l_xs =np.array( reg['lines'][i]['coords'] )[:,0]
@@ -792,9 +820,16 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->
                     canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+line_display_length ] = [ ord('.') ] * line_display_length 
                     canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+len(l_id_as_intlist)] = l_id_as_intlist
 
-    summary_text = "\n".join([ f"Image size: {segdict['image_width']} x {segdict['image_height']}",
-               f"Regions: {len(segdict['regions'])}",
-               f"Lines: {len(line_ids)}\n"]) if summary else ''
+    lines_per_region = '\n'.join([ f"  {reg['id']}: {len(reg['lines'])} l." for reg in segdict['regions'] ])
+    summary_text = "\n".join([ 
+                f"Image filename: {segdict['image_filename']}",
+                f"Image size: {segdict['image_width']} x {segdict['image_height']}",
+                f"Lines: {len(line_ids)}",
+                f"Regions: {len(segdict['regions'])}",
+                lines_per_region
+                              ]) if summary else ''
 
-    return summary_text + '\n'.join([(''.join([ chr(c) for c in l ])) for l in canvas ] )
+    page_display = '\n'.join([(''.join([ chr(c) for c in l ])) for l in canvas ] )
+
+    return f"\n{summary_text}\n{page_display}" 
 

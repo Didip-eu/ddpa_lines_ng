@@ -28,6 +28,7 @@ p = {
     'overwrite_existing': (False, "Overwrite an existing file."),
     "comment": ('',"A text string to be added to the <Comments> elt."),
     "verbose": False,
+    "repair": (False, "Repair a faulty dictionary (reassign lines to regions, fix region bounding boxes"),
     "validate": (False, "Validate against a JSON schema."),
 }
 
@@ -42,6 +43,9 @@ if __name__ == '__main__':
             print(xml_path)
 
         segdict = sgf.segmentation_dict_from_page_xml( xml_path, get_text=args.get_text )
+
+        if args.repair:
+            segdict = sgf.json_doctor( segdict, verbose=args.verbose )
 
         # Raise an exception if invalid
         if args.validate:
