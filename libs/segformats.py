@@ -735,7 +735,6 @@ def any_to_ascii( segfile: str, scale_hw=(.01,.02), lines=0)->str:
     if not segdict:
         raise ValueError("Could not parse a valid segmentation dictionary. Abort.")
 
-    print(f"any_to_ascii: {type(scale_hw)}")
     return segdict_to_ascii( segdict, scale_hw=scale_hw, lines=lines)
 
 def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->str:
@@ -750,6 +749,7 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->
             the default scale (=.01,.02).
         lines (int): if non-zeero, show line ids within their regions: 1=only lines that fit within
             region display box; 2=lines that fit within canvas display box.
+        summary (bool): print a short summy of the layout features (image size, regions and lines)
 
     Returns:
         str: an terminal-friendly representation of the layout.
@@ -774,7 +774,6 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->
             scale_hw=[ s*scale_hw for s in default_scale ] 
         else:
             scale_hw=default_scale
-        print(scale_hw)
     canvas = np.full( (np.array([height,width])*scale_hw).astype('uint16'), ord(' '))
     canvas[[0,0,-1,-1],[0,-1,-1,0]]=ord('┼')#=ord('╋')
     canvas[[0,-1],1:-1]=ord('┄')
@@ -788,7 +787,6 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->
         lt, rb = reg_arr[:,::-1].min(axis=0).tolist(), reg_arr[:,::-1].max(axis=0).tolist()
         scaled_reg_hw = (rb[0]-lt[0]+1, rb[1]-lt[1]+1)
         scaled_reg_arr = (reg_arr*scale_hw).astype('uint16').T
-        print(f"{reg['id']}:{lt, rb} (size={scaled_reg_hw})")
         canvas[ scaled_reg_arr[0], scaled_reg_arr[1] ]=ord('+')
         canvas[ scaled_reg_arr[0,0:4], scaled_reg_arr[1,0:4] ]=[ ord(c) for c in '┌┐┘└']
         canvas[ scaled_reg_arr[0,0]+1:scaled_reg_arr[0,2], scaled_reg_arr[1,[0,1]]]=ord('│')
@@ -797,12 +795,8 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->
         region_id_offset = 1
         id_start_x = scaled_reg_arr[1,0]+region_id_offset
         id_end_x = id_start_x + len( reg['id'] )
-        cut = canvas.shape[1]-1-id_end_x
-        if cut:
-            id_end_end_x = canvas.shape[1]-1
-            print("cut=",cut)
-        print(f"canvas[{scaled_reg_arr[0,0]+1}, {id_start_x}:{id_end_x}] (length={id_end_x-id_start_x}, id_length={len(reg_id_as_intlist)})")
-        print(canvas[ scaled_reg_arr[0,0]+1, id_start_x:id_end_x ].shape)
+        cut = id_end_x-canvas.shape[1]
+        #print(f"id_start_x={id_start_x}, id_end_x={id_end_x}, cut={cut}, canvas.width={canvas.shape[1]}")
         canvas[ scaled_reg_arr[0,0]+1, id_start_x:id_end_x ]=reg_id_as_intlist[0:len(reg_id_as_intlist)-cut]
         if lines and 'lines' in reg:
             for i,l in enumerate([l['id'].replace(line_id_prefix,'l:') for l in reg['lines']]):
@@ -820,7 +814,10 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->
                     canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+line_display_length ] = [ ord('.') ] * line_display_length 
                     canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+len(l_id_as_intlist)] = l_id_as_intlist
 
-    lines_per_region = '\n'.join([ f"  {reg['id']}: {len(reg['lines'])} l." for reg in segdict['regions'] ])
+    # sort regions by area size
+    lines_per_region = '\n'.join([ f"  {reg['id']}: {len(reg['lines'])} l." 
+                                  for reg in sorted( segdict['regions'], 
+                                                    key=lambda r: (r['coords'][1][0]-r['coords'][0][0])*(r['coords'][2][1]-r['coords'][1][1]), reverse=True )])
     summary_text = "\n".join([ 
                 f"Image filename: {segdict['image_filename']}",
                 f"Image size: {segdict['image_width']} x {segdict['image_height']}",
@@ -831,5 +828,5 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->
 
     page_display = '\n'.join([(''.join([ chr(c) for c in l ])) for l in canvas ] )
 
-    return f"\n{summary_text}\n{page_display}" 
+    return f"\n{summary_text}\n\n{page_display}" 
 
