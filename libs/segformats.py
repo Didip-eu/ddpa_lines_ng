@@ -793,11 +793,11 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->
         canvas[ scaled_reg_arr[0,[1,2]], scaled_reg_arr[1,0]+1:scaled_reg_arr[1,2]]=ord('─')
         reg_id_as_intlist = [ ord(c) for c in reg['id'] ]
         region_id_offset = 1
-        id_start_x = scaled_reg_arr[1,0]+region_id_offset
+        id_start_x = int(scaled_reg_arr[1,0]+region_id_offset)
         id_end_x = id_start_x + len( reg['id'] )
-        cut = id_end_x-canvas.shape[1]
+        cut = id_end_x-canvas.shape[1] # region's id too long to fit into the canvas
         #print(f"id_start_x={id_start_x}, id_end_x={id_end_x}, cut={cut}, canvas.width={canvas.shape[1]}")
-        canvas[ scaled_reg_arr[0,0]+1, id_start_x:id_end_x ]=reg_id_as_intlist[0:len(reg_id_as_intlist)-cut]
+        canvas[ scaled_reg_arr[0,0]+1, id_start_x:id_end_x ]=reg_id_as_intlist[0:len(reg_id_as_intlist)-(cut if cut > 0 else 0)]
         if lines and 'lines' in reg:
             for i,l in enumerate([l['id'].replace(line_id_prefix,'l:') for l in reg['lines']]):
                 l_xs =np.array( reg['lines'][i]['coords'] )[:,0]
@@ -811,8 +811,20 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->
                     break
                 else:
                     #if len(l_id_as_intlist) < line_display_length:
+                    line_end_x = int(canvas_col_idx+max(line_display_length, len(l_id_as_intlist)))
+                    line_cut = line_end_x - int(scaled_reg_arr[1,2])
+                    if l.find('15b9')>=0:
+                        print(f"{l}: {canvas_col_idx} + {line_display_length} = {line_end_x} ({type(line_end_x)}) [scaled_reg_arr[1,2]={scaled_reg_arr[1,2]}]")
+                        print(f"line_cut={line_cut}")
+                        print(f"{line_display_length}-{line_cut}-2")
+                        print(f"{line_display_length}={line_display_length}")
+                    if line_cut > 0:
+                        line_display_length = line_display_length - line_cut
+                    #line_display_length -= 1
+                    #if len(l_id_as_intlist) < line_display_length and cut==0:
+                    #    l_id_as_intlist = l_id_as_intlist[:line_display_length]
                     canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+line_display_length ] = [ ord('.') ] * line_display_length 
-                    canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+len(l_id_as_intlist)] = l_id_as_intlist
+                    #canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+len(l_id_as_intlist)] = l_id_as_intlist
 
     # sort regions by area size
     lines_per_region = '\n'.join([ f"  {reg['id']}: {len(reg['lines'])} l." 
