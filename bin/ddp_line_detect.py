@@ -244,13 +244,15 @@ if __name__ == "__main__":
                 with open(layout_file_path, 'r') as regseg_if:
                     layout_data = tuple()
 
-                    if str(layout_file_path)[-4:]=='.xml':
-                        logger.warning("Extracting text regions from PageXML file {}".format( layout_file_path ))
-                        layout_data = seglib.crops_from_segdict( img, sgf.segmentation_dict_from_page_xml( layout_file_path ), force_rgb=True, ignore_empty_regions=True)
+                    segformat = sgf.get_format( layout_file_path )
+                    segdict = sgf.segmentation_dict_from_page_xml( layout_file_path ) if segformat == sgf.SegFormat.PAGE else json.load( regseg_if )
+                    if segformat in [ sgf.SegFormat.PAGE, sgf.SegFormat.JSON ]:
+                    #if str(layout_file_path)[-4:]=='.xml':
+                        logger.warning("Extracting text regions from file {}".format( layout_file_path ))
+                        layout_data = seglib.crops_from_segdict( img, segdict, force_rgb=True, ignore_empty_regions=True)
                     else:
-                        regseg = json.load( regseg_if ) 
-                        # extract crops from layout analysis file
-                        layout_data = seglib.layout_regseg_to_crops( img, regseg, args.region_classes, force_rgb=True )
+                        # extract crops from YOLO layout analysis file
+                        layout_data = seglib.layout_regseg_to_crops( img, segdict, args.region_classes, force_rgb=True )
                     if not layout_data:
                         logger.warning("Could not find relevant region in the layout segmentation file {}. Skipping item.".format( layout_file_path ))
                         continue

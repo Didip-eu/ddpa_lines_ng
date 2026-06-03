@@ -67,7 +67,7 @@ def get_format( segfile: str )->int:
                     return SegFormat.JSON
                 return SegFormat.Unknown
             except ValueError:
-                print("Could not parse JSON content: unknown (non-XML) format!")
+                print(f"{Path(__file__).name}.get_format: unknown (non-JSON) format!")
                 return SegFormat.Unknown
 
 
@@ -725,7 +725,7 @@ def any_to_ascii( segfile: str, scale_hw=(.01,.02), lines=0)->str:
     segdict = None
     segmentation_format = get_format( segfile )
     if segmentation_format == SegFormat.Unknown:
-        logger.warning("Could not determine input format. Abort.")
+        print(f"{Path(__file__).name}.any_to_ascii: Could not determine input format. Abort.")
         return ''
     if segmentation_format == SegFormat.JSON:
         with open(segfile) as seg_if:
@@ -733,7 +733,7 @@ def any_to_ascii( segfile: str, scale_hw=(.01,.02), lines=0)->str:
     elif segmentation_format == SegFormat.PAGE:
         segdict = segmentation_dict_from_page_xml( segfile )
     elif segmentation_format == SegFormat.ALTO:
-        segdict = segmentation_dict_from_page_xml( alto_to_xml( segfile, as_string=True ))
+        segdict = segmentation_dict_from_page_xml( alto_to_page_xml_string( segfile ))
 
     if not segdict:
         raise ValueError("Could not parse a valid segmentation dictionary. Abort.")
@@ -778,9 +778,10 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->
         else:
             scale_hw=default_scale
     canvas = np.full( (np.array([height,width])*scale_hw).astype('uint16'), ord(' '))
-    canvas[[0,0,-1,-1],[0,-1,-1,0]]=ord('┼')#=ord('╋')
-    canvas[[0,-1],1:-1]=ord('┄')
+    # page box
+    canvas[[0,0,-1,-1],[0,-1,-1,0]]=ord('┼')
     canvas[1:-1,[0,-1]]=ord('┆')
+    canvas[[0,-1],1:-1]=ord('┄')
     reg_id_prefix = longest_common_prefix( [ reg['id'] for reg in segdict['regions']] )
     line_ids = [ l['id'] for reg in segdict['regions'] if 'lines' in reg for l in reg['lines']]
     line_id_prefix = longest_common_prefix( line_ids ) if lines else ''
@@ -790,16 +791,20 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->
         lt, rb = reg_arr[:,::-1].min(axis=0).tolist(), reg_arr[:,::-1].max(axis=0).tolist()
         scaled_reg_hw = (rb[0]-lt[0]+1, rb[1]-lt[1]+1)
         scaled_reg_arr = (reg_arr*scale_hw).astype('uint16').T
+        # boxes
         canvas[ scaled_reg_arr[0], scaled_reg_arr[1] ]=ord('+')
         canvas[ scaled_reg_arr[0,0:4], scaled_reg_arr[1,0:4] ]=[ ord(c) for c in '┌┐┘└']
         canvas[ scaled_reg_arr[0,0]+1:scaled_reg_arr[0,2], scaled_reg_arr[1,[0,1]]]=ord('│')
         canvas[ scaled_reg_arr[0,[1,2]], scaled_reg_arr[1,0]+1:scaled_reg_arr[1,2]]=ord('─')
+
+        # region ids
         reg_id_as_intlist = [ ord(c) for c in reg['id'] ]
         region_id_offset = 1
         reg_id_start_x = int(scaled_reg_arr[1,0]+region_id_offset)
         reg_id_end_x = reg_id_start_x + len( reg['id'] )
         reg_id_cut = max(0, reg_id_end_x-canvas.shape[1]) # region's id too long to fit into the canvas
         canvas[ scaled_reg_arr[0,0]+1, reg_id_start_x:reg_id_end_x ]=reg_id_as_intlist[0:len(reg_id_as_intlist)-reg_id_cut]
+        # lines
         if lines and 'lines' in reg:
             for i,l in enumerate([l['id'].replace(line_id_prefix,'l:') for l in reg['lines']]):
                 l_xs =np.array( reg['lines'][i]['coords'] )[:,0]
@@ -808,7 +813,7 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->
                 line_id_offset = region_id_offset+2
                 canvas_row_idx, canvas_col_idx = scaled_reg_arr[0,0]+2+i, scaled_reg_arr[1,0]+line_id_offset
                 # omitting lines beyond the canvas' size
-                if (lines==1 and canvas_row_idx >= scaled_reg_arr[0,2]-1) or (lines == 2 and canvas_row_idx >= canvas.shape[0]-2): 
+                if len(reg['lines'])!=1 and (lines==1 and canvas_row_idx >= scaled_reg_arr[0,2]-1) or (lines == 2 and canvas_row_idx >= canvas.shape[0]-2): 
                     canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+len('...')] = [ ord(c) for c in '...' ]
                     break
                 else:
@@ -821,8 +826,7 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->
                     id_display_length = len(l_id_as_intlist) - id_cut
                     canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+id_display_length] = l_id_as_intlist[:id_display_length]
 
-
-    # sort regions by area size
+    # Summary: sort regions by area size
     lines_per_region = '\n'.join([ f"  {reg['id']}: {len(reg['lines'])} l." 
                                   for reg in sorted( segdict['regions'], 
                                                     key=lambda r: (r['coords'][1][0]-r['coords'][0][0])*(r['coords'][2][1]-r['coords'][1][1]), reverse=True )])
