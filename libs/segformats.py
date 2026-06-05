@@ -818,13 +818,15 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->
                     break
                 else:
                     line_end_x = int(canvas_col_idx+line_display_length)
-                    line_cut = max(0, line_end_x - scaled_reg_arr[1,2])
+                    line_cut = max(0, line_end_x - int(scaled_reg_arr[1,2]))
                     line_display_length -= line_cut
                     canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+line_display_length ] = [ ord('.') ] * line_display_length 
                     id_end_x = int(canvas_col_idx+len(l_id_as_intlist))
-                    id_cut = max(0, id_end_x - scaled_reg_arr[1,2] )
+                    id_cut = max(0, id_end_x - int(scaled_reg_arr[1,2] ))
                     id_display_length = len(l_id_as_intlist) - id_cut
                     canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+id_display_length] = l_id_as_intlist[:id_display_length]
+                    #id_end_x -= id_cut
+                    #canvas[ canvas_row_idx, canvas_col_idx:id_end_x] = l_id_as_intlist[:len(l_id_as_intlist)-id_cut] 
 
     # Summary: sort regions by area size
     lines_per_region = '\n'.join([ f"  {reg['id']}: {len(reg['lines'])} l." 
