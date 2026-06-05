@@ -706,18 +706,19 @@ def region_dicts_from_segmentation_dict( segmentation_dict: dict ) -> list[dict]
     return regions
 
 
-def any_to_ascii( segfile: str, scale_hw=(.01,.02), lines=0)->str:
+def any_to_ascii( segfile: str, scale_hw=(.01,.02), lines=0, repair=False)->str:
     """
-    ASCII-rendition of a segmentation dictionary.
+    ASCII-rendition of a segmentation file.
 
     Args:
-        segfile (str): path of a JSON (Page) segmentation file.
+        segfile (str): path of a JSON, Page, or Alto segmentation file.
         scale_hw (Union[tuple[float,float],float,int]): if passed a tuple, interpreted as scaling
             factor for pixel-to-terminal-line and pixel-to-terminal-col (respectively) coordinate 
             transformation; if passed a single number between .5 and 5, interpreted as a factor of
             the default scale (=.01,.02).
         lines (int): if non-zeero, show line ids within their regions: 1=only lines that fit within
             region display box; 2=lines that fit within canvas display box.
+        repair (bool): try repair a faulty segmentation (default: False).
 
     Returns:
         str: a character-based rendition of the layout.
@@ -738,6 +739,8 @@ def any_to_ascii( segfile: str, scale_hw=(.01,.02), lines=0)->str:
     if not segdict:
         raise ValueError("Could not parse a valid segmentation dictionary. Abort.")
 
+    if repair:
+        segdict = json_doctor( segdict )
     return segdict_to_ascii( segdict, scale_hw=scale_hw, lines=lines)
 
 def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->str:
@@ -806,8 +809,9 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->
         canvas[ scaled_reg_arr[0,0]+1, reg_id_start_x:reg_id_end_x ]=reg_id_as_intlist[0:len(reg_id_as_intlist)-reg_id_cut]
         # lines
         if lines and 'lines' in reg:
-            for i,l in enumerate([l['id'].replace(line_id_prefix,'l:') for l in reg['lines']]):
-                l_xs =np.array( reg['lines'][i]['coords'] )[:,0]
+            sorted_lines = sorted(reg['lines'], key=lambda x: x['coords'][0][1])
+            for i,l in enumerate([l['id'].replace(line_id_prefix,'l:') for l in sorted_lines]):
+                l_xs =np.array( sorted_lines[i]['coords'] )[:,0]
                 line_display_length = int(np.floor((l_xs.max()-l_xs.min()+1) * scale_hw[1] ))-1
                 l_id_as_intlist = [ ord(c) for c in l ]
                 line_id_offset = region_id_offset+2
