@@ -52,6 +52,7 @@ p = {
     "lines": FargvChoice(['1','2','0'], description="0=lines omitted, 1=lines within region limits, 2=lines within canvas limits."),
     "scale": (1.0, "Factor to be applied to the default scale."),
     "repair": (False, "Try repairing a faulty segmentation before rendition (file is not modified)."),
+    "text": (False, "Display text, if present."),
 }   
 
 bold_start, bold_end = '\033[1m', '\033[0m'
@@ -63,6 +64,7 @@ Key bindings:
     {bold_start}l{bold_end}: circle through {bold_start}l{bold_end}ine display modes (1=region, 2=canvas, 0=none)
     {bold_start}r{bold_end}: {bold_start}r{bold_end}epair segmentation before rendering
     {bold_start}q{bold_end}: {bold_start}q{bold_end}uit application (or exit this help screen).
+    {bold_start}t{bold_end}: display {bold_start}t{bold_end}ext.
     {bold_start}h{bold_end} or {bold_start}?{bold_end}: this {bold_start}h{bold_end}elp
 """
 
@@ -76,6 +78,7 @@ if __name__ == '__main__':
     file_count=0
     lines = int(args.lines)
     repair = args.repair
+    text = args.text
     help_screen = False
 
     try:
@@ -90,7 +93,7 @@ if __name__ == '__main__':
                 q=sys.stdin.read(1)
                 help_screen = False
                 continue
-            seg_rendition = segformats.any_to_ascii( args.file_paths[file_count], lines=lines, scale_hw=args.scale, repair=repair )
+            seg_rendition = segformats.any_to_ascii( args.file_paths[file_count], lines=lines, scale_hw=args.scale, repair=repair, text=text )
             seg_rendition_width = len(seg_rendition.split('\n')[-1])
             pagination=f"{file_count+1}/{len(args.file_paths)}" + (' [repaired]' if repair else '')
             footer_content=f"File {pagination}: {Path( args.file_paths[file_count] ).name}"
@@ -115,6 +118,8 @@ if __name__ == '__main__':
                 lines = (lines + 1) % 3
             elif q == 'r':
                 repair = not repair
+            elif q == 't':
+                text = not text
             elif q in ['h', '?']:
                 help_screen = True
     finally:

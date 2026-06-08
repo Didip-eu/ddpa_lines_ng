@@ -132,10 +132,17 @@ if __name__ == "__main__":
 
         reference_file_path = Path( str(segfile_path).replace( args.segfile_suffix, args.htr_suffix)) 
         if not reference_file_path.exists():
-            raise FileNotFoundError()
-        reference_dict = sgf.segmentation_dict_from_page_xml( reference_file_path, get_text=True )
-        reference_dict = sgf.segdict_sink_lines( reference_dict)
-        #print(reference_dict)
+            logger.warning(f"Could not find corresponding HTR file {reference_file_path}: abort.")
+            continue
+
+        reference_dict = {}
+        if sgf.get_format( reference_file_path) == sgf.SegFormat.PAGE:
+            reference_dict = sgf.segmentation_dict_from_page_xml( reference_file_path, get_text=True )
+        elif sgf.get_format( reference_file_path) == sgf.SegFormat.JSON:
+            reference_dict = json.load( open( reference_file_path ))
+        if not reference_dict:
+            logger.warning(f"Could not parse a valid segmentation dictionary from {reference_file_path}: abort.")
+            continue
 
         # 1. Match regions
         pred_reg_to_ref_reg = []

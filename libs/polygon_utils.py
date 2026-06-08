@@ -49,7 +49,7 @@ def strip_from_centerline(centerline_n2xy: np.ndarray, height: float) -> np.ndar
             rotated_vertebra_north_south_2xy=np.matmul( rotation_matrix, vertebra_north_south_2xy.T).T
             vertebras_n2xy.append( rotated_vertebra_north_south_2xy + mid ) # shift to actual pos.
         except Exception as e:
-            logger.warning(e)
+            #print(f"Warning: Could not build vertebra from this point: {e}")
             continue
     vertebras_n2xy = np.stack(vertebras_n2xy)
     contour_pts_n2xy = np.concatenate( [vertebras_n2xy[:,0], vertebras_n2xy[::-1,1], vertebras_n2xy[0:1,0]])

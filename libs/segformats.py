@@ -26,6 +26,7 @@ from typing import Callable, Optional, Union, Mapping, Any
 import numpy as np
 import shapely
 import jsonschema
+from unidecode import unidecode
 
 from .segformat_documents import JsonSchema, XslAltoPage, PageXmlSchema
 
@@ -706,7 +707,7 @@ def region_dicts_from_segmentation_dict( segmentation_dict: dict ) -> list[dict]
     return regions
 
 
-def any_to_ascii( segfile: str, scale_hw=(.01,.02), lines=0, repair=False)->str:
+def any_to_ascii( segfile: str, scale_hw=(.01,.02), lines=0, repair=False, text=False)->str:
     """
     ASCII-rendition of a segmentation file.
 
@@ -719,6 +720,7 @@ def any_to_ascii( segfile: str, scale_hw=(.01,.02), lines=0, repair=False)->str:
         lines (int): if non-zeero, show line ids within their regions: 1=only lines that fit within
             region display box; 2=lines that fit within canvas display box.
         repair (bool): try repair a faulty segmentation (default: False).
+        text (bool): display text, if present (default: False).
 
     Returns:
         str: a character-based rendition of the layout.
@@ -741,9 +743,9 @@ def any_to_ascii( segfile: str, scale_hw=(.01,.02), lines=0, repair=False)->str:
 
     if repair:
         segdict = json_doctor( segdict )
-    return segdict_to_ascii( segdict, scale_hw=scale_hw, lines=lines)
+    return segdict_to_ascii( segdict, scale_hw=scale_hw, lines=lines, text=text)
 
-def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->str:
+def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True, text=False)->str:
     """
     ASCII-rendition of a JSON segmentation dictionary.
 
@@ -859,11 +861,15 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->
                     line_cut = max(0, line_end_x - int(scaled_reg_arr[1,2]))
                     line_display_length -= line_cut
                     canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+line_display_length ] = [ ord('.') ] * line_display_length 
-                    id_end_x = int(canvas_col_idx+len(l_id_as_intlist))
+                    # display text content instead of id
+                    line_content = l_id_as_intlist
+                    if text and 'text' in sorted_lines[i]:
+                        line_content = [ ord(c) for c in unidecode(sorted_lines[i]['text']) ]
+                    id_end_x = int(canvas_col_idx+len(line_content))
                     id_cut = max(0, id_end_x - int(scaled_reg_arr[1,2] ))
-                    id_display_length = max(1, len(l_id_as_intlist) - id_cut)
+                    id_display_length = max(1, len(line_content) - id_cut)
                     #print(f"canvas[{canvas_col_idx}:{canvas_col_idx+id_display_length}")
-                    canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+id_display_length] = l_id_as_intlist[:id_display_length]
+                    canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+id_display_length] = line_content[:id_display_length]
                     #id_end_x -= id_cut
                     #canvas[ canvas_row_idx, canvas_col_idx:id_end_x] = l_id_as_intlist[:len(l_id_as_intlist)-id_cut] 
 

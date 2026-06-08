@@ -173,7 +173,7 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
                 labeled_msk_regular_hw[ polyg_rr, polyg_cc ]=lbl
         #except (ValueError, IndexError) as e:
         except Exception as e:
-            logger.warning("Failed to retrieve geometry from label mask #{}: {}".format(lbl, e))
+            logger.warning(":))) Failed to retrieve geometry from label mask #{}: {}".format(lbl, e))
             return None
         logger.debug("Done processing label {} - time: {:.5f}".format( lbl, time()-label_start ))
     logger.debug("Total label processing time: {:.5f}".format( time() - time_start ))
