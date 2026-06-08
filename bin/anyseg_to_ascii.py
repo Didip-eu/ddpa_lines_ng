@@ -1,6 +1,39 @@
 #!/usr/bin/env python3
 """
-ASCII rendition of a segmentation data file.
+ASCII rendition of segmentation data files.
+
+Eg.::
+
+    ┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┌────────────────┐┄┄┄┄┄┄┼
+    ┆                  │r:2a93943e      │      ┆
+    ┆     ┌────────────└──l:8┌────────────────┐┆
+    ┆     │r:ef1657c4       ││r:ed8f3022      │┆
+    ┆     │  l:1e355b0a...  ││  l:8590f3bf... │┆
+    ┆     │  l:1e1c59e1.... ││  l:5c1a7591... │┆
+    ┆     │  l:aa302e79...  ││  l:50a89193... │┆
+    ┆     │  l:0bcc2987...  ││  l:ab831781... │┆
+    ┆     │  l:f45a1fa8...  ││  l:b808a65a... │┆
+    ┆     │  l:1d001e4b...  ││  l:640bb0ff....│┆
+    ┆     │  l:e30c7a81..   │┌────┐0a959ab... │┆
+    ┆     │  l:7bb2bb1f.... ││r:8fa3e8012b... │┆
+    ┆     │  l:85832788...  ││  l:│7383a84... │┆
+    ┆     ┌──────┐d5625...  │└────┘bd94110..  │┆
+    ┆     │r:f77b369130..   ││  l:2b0c22bb... │┆
+    ┆     │  l:a6│ecf48...  ││  l:1dac6035... │┆
+    ┆     │  l:6f│ff3a2...  ││  l:acb1c73e... │┆
+    ┆     └──────┘60b9c...  ││  l:5393c17b... │┆
+    ┆     │  l:299e800c...  ││  l:4e171c9c... │┆
+    ┆     │  l:508f7f75...  ││  l:d1ffc59c... │┆
+    ┆     │  l:496470a0...  ││  l:5c56470d... │┆
+    ┆     │  l:0ba0e73a...  ││  l:8a93cee6    │┆
+    ┆     │  l:30b7e6ef...  ││  l:6d2db756    │┆
+    ┆     │  l:e66fbbbb...  ││  l:b48006e0... │┆
+    ┆     │  ...            ││  ...           │┆
+    ┆     └─────────────────┘└────────────────┘┆
+    ┆                                          ┆
+    ┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼
+
+
 """
 
 import sys
@@ -35,20 +68,21 @@ Key bindings:
 
 if __name__ == '__main__':
 
-    # line-oriented (default) → char-oriented input
-    setting = termios.tcgetattr(sys.stdin.fileno())
-    tty.setcbreak(sys.stdin)
 
     args, _ = fargv.parse( p )
     if not args.file_paths:
         print("Input file name expected! Abort.")
         sys.exit()
-    i=0
+    file_count=0
     lines = int(args.lines)
     repair = args.repair
     help_screen = False
 
     try:
+        # from line-oriented term (default) → char-oriented input
+        setting = termios.tcgetattr(sys.stdin.fileno())
+        tty.setcbreak(sys.stdin)
+
         while True:
             print('\x1b[2J')
             if help_screen:
@@ -56,23 +90,25 @@ if __name__ == '__main__':
                 q=sys.stdin.read(1)
                 help_screen = False
                 continue
-            seg_rendition = segformats.any_to_ascii( args.file_paths[i], lines=lines, scale_hw=args.scale, repair=repair )
+            seg_rendition = segformats.any_to_ascii( args.file_paths[file_count], lines=lines, scale_hw=args.scale, repair=repair )
             seg_rendition_width = len(seg_rendition.split('\n')[-1])
-            pagination=f"{i+1}/{len(args.file_paths)}" + (' [repaired]' if repair else '')
-            footer_content=f"File {pagination}: {Path( args.file_paths[i] ).name}"
+            pagination=f"{file_count+1}/{len(args.file_paths)}" + (' [repaired]' if repair else '')
+            footer_content=f"File {pagination}: {Path( args.file_paths[file_count] ).name}"
             footer = [' '] * seg_rendition_width
             footer[seg_rendition_width-( len(footer_content) + 4 ):seg_rendition_width-4]=footer_content
             print( seg_rendition )
             print(''.join(footer) )
+
+            # Key bindings
             q=sys.stdin.read(1)
             if q == 'q':
                 break
             elif q == 'n':
-                i = (i + 1) % len(args.file_paths)
+                file_count= (file_count+ 1) % len(args.file_paths)
                 lines =  int(args.lines)
                 repair = args.repair
             elif q == 'p':
-                i = (i - 1) % len(args.file_paths)
+                file_count= (file_count- 1) % len(args.file_paths)
                 lines = int(args.lines)
                 repair = args.repair
             elif q == 'l':
@@ -82,5 +118,6 @@ if __name__ == '__main__':
             elif q in ['h', '?']:
                 help_screen = True
     finally:
+        # no matter what, restore default terminal settings
         termios.tcsetattr( sys.stdin, termios.TCSADRAIN, setting )
         

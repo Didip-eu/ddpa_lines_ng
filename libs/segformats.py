@@ -747,6 +747,37 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->
     """
     ASCII-rendition of a JSON segmentation dictionary.
 
+    Eg.::
+
+        ┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┌────────────────┐┄┄┄┄┄┄┼
+        ┆                  │r:2a93943e      │      ┆
+        ┆     ┌────────────└──l:8┌────────────────┐┆
+        ┆     │r:ef1657c4       ││r:ed8f3022      │┆
+        ┆     │  l:1e355b0a...  ││  l:8590f3bf... │┆
+        ┆     │  l:1e1c59e1.... ││  l:5c1a7591... │┆
+        ┆     │  l:aa302e79...  ││  l:50a89193... │┆
+        ┆     │  l:0bcc2987...  ││  l:ab831781... │┆
+        ┆     │  l:f45a1fa8...  ││  l:b808a65a... │┆
+        ┆     │  l:1d001e4b...  ││  l:640bb0ff....│┆
+        ┆     │  l:e30c7a81..   │┌────┐0a959ab... │┆
+        ┆     │  l:7bb2bb1f.... ││r:8fa3e8012b... │┆
+        ┆     │  l:85832788...  ││  l:│7383a84... │┆
+        ┆     ┌──────┐d5625...  │└────┘bd94110..  │┆
+        ┆     │r:f77b369130..   ││  l:2b0c22bb... │┆
+        ┆     │  l:a6│ecf48...  ││  l:1dac6035... │┆
+        ┆     │  l:6f│ff3a2...  ││  l:acb1c73e... │┆
+        ┆     └──────┘60b9c...  ││  l:5393c17b... │┆
+        ┆     │  l:299e800c...  ││  l:4e171c9c... │┆
+        ┆     │  l:508f7f75...  ││  l:d1ffc59c... │┆
+        ┆     │  l:496470a0...  ││  l:5c56470d... │┆
+        ┆     │  l:0ba0e73a...  ││  l:8a93cee6    │┆
+        ┆     │  l:30b7e6ef...  ││  l:6d2db756    │┆
+        ┆     │  l:e66fbbbb...  ││  l:b48006e0... │┆
+        ┆     │  ...            ││  ...           │┆
+        ┆     └─────────────────┘└────────────────┘┆
+        ┆                                          ┆
+        ┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼
+
     Args:
         segdict (dict): path of a JSON segmentation file.
         scale_hw (Union[tuple[float,float],float,int]): if passed a tuple, interpreted as scaling
@@ -776,10 +807,13 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->
     default_scale = (.01,.02)
     width, height = segdict['image_width'], segdict['image_height']
     if type(scale_hw) in [float,int]:
-        if scale_hw >= 0.5 and scale_hw <= 5:
-            scale_hw=[ s*scale_hw for s in default_scale ] 
-        else:
-            scale_hw=default_scale
+        if scale_hw < .5:
+            print("Warning: scaling factor to be applied to the default display ratio set to lowest permissible value (0.5)")
+            scale_hw = .5
+        elif scale_hw > 3.0:
+            print("Warning: scaling factor to be applied to the default display ratio set to highest permissible value (3.0)")
+            scale_hw = 3.0
+        scale_hw=[ s*scale_hw for s in default_scale ] 
     canvas = np.full( (np.array([height,width])*scale_hw).astype('uint16'), ord(' '))
     # page box
     canvas[[0,0,-1,-1],[0,-1,-1,0]]=ord('┼')
@@ -827,7 +861,8 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True)->
                     canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+line_display_length ] = [ ord('.') ] * line_display_length 
                     id_end_x = int(canvas_col_idx+len(l_id_as_intlist))
                     id_cut = max(0, id_end_x - int(scaled_reg_arr[1,2] ))
-                    id_display_length = len(l_id_as_intlist) - id_cut
+                    id_display_length = max(1, len(l_id_as_intlist) - id_cut)
+                    #print(f"canvas[{canvas_col_idx}:{canvas_col_idx+id_display_length}")
                     canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+id_display_length] = l_id_as_intlist[:id_display_length]
                     #id_end_x -= id_cut
                     #canvas[ canvas_row_idx, canvas_col_idx:id_end_x] = l_id_as_intlist[:len(l_id_as_intlist)-id_cut] 
