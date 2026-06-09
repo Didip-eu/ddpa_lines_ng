@@ -156,8 +156,9 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
         # - line-height    1            0
         # - fix_ends                    2
         try:
-            #_, this_skeleton_yx = prune_skeleton( ski.morphology.skeletonize( polygon_box ))
-            _, this_skeleton_yx = prune_skeleton( ski.morphology.medial_axis( polygon_box ))
+            _, this_skeleton_yx = prune_skeleton( ski.morphology.skeletonize( polygon_box ))
+            # Doesn't work!
+            #_, this_skeleton_yx = prune_skeleton( ski.morphology.medial_axis( polygon_box ))
             # 3. Avg line height = area of polygon / length of skeleton
             line_heights.append( (np.sum(polygon_box) // len( this_skeleton_yx)).item() )
             this_skeleton_yx = fix_ends( this_skeleton_yx, line_heights[-1], polygon_box.shape[1] )
@@ -173,7 +174,7 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
                 labeled_msk_regular_hw[ polyg_rr, polyg_cc ]=lbl
         #except (ValueError, IndexError) as e:
         except Exception as e:
-            logger.warning(":))) Failed to retrieve geometry from label mask #{}: {}".format(lbl, e))
+            logger.debug(":))) Failed to retrieve geometry from label mask #{}: {}".format(lbl, e))
             return None
         logger.debug("Done processing label {} - time: {:.5f}".format( lbl, time()-label_start ))
     logger.debug("Total label processing time: {:.5f}".format( time() - time_start ))
@@ -186,16 +187,23 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
     #          Les 
     # - order that differs from labels may hint at messy reading order
     line_features = sorted( zip(labels, line_heights, skeleton_coords, polygon_coords, centroids), key=lambda t: t[4].tolist() )
+    if raw_polygons:
+        return labeled_msk_hw[None,:]
+
     # meant to filter out linear artefacts on the page (edges, non-textual lines...)
-    line_height_cutoff = np.mean( line_heights )-1.5*np.std( line_heights ) if not raw_polygons else 2
-    return (labeled_msk_hw[None,:] if raw_polygons else labeled_msk_regular_hw[None,:], [{
+    label_features_unfiltered = [ {
                 'label': lbl,
                 'centroid': center_yx,
                 'polygon_coords': plgc,
                 'line_height': lh, 
                 'centerline': skc,
                 'baseline': skc + [lh/2,0],
-    } for lbl, lh, skc, plgc, center_yx in line_features if lh>line_height_cutoff])
+    } for lbl, lh, skc, plgc, center_yx in line_features ]
+    line_height_cutoff = np.median( line_heights )-3.0*np.std( line_heights ) if not raw_polygons else 2
+    label_features_filtered = [ lf for lf in label_features_unfiltered if lf['line_height']>line_height_cutoff ]
+    if len(label_features_filtered) < len( label_features_unfiltered ):
+        logger.debug(f"{len( label_features_unfiltered )-len(label_features_filtered)} labels discarded because of line height cut-off.")
+    return (labeled_msk_regular_hw[None,:], label_features_filtered )
 
 
 

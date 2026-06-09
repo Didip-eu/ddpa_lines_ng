@@ -67,7 +67,7 @@ p = {
         "output_suffix": ('', "Output file suffix; if empty, write on standard output."),  
         "overwrite_existing": (False, "Do not overwrite existing output file"),
         "verbosity": (2, "Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"),
-        "matching_iou": (.15, "Tolerance for lengths of matching baselines."),
+        "iou_tolerance": (.15, "Tolerance for IoU of length of matching baselines."),
         'visual_check': (False, "Plot baseline estimate for visual checking."),
         "keep_all_predictions": (False, "Keep predicted lines with no reference match."),
     }
@@ -187,7 +187,7 @@ if __name__ == "__main__":
                     matches.append((p, r, length_p, length_r, score, text ))
 
             # keeping best <predicted number> matches, minus the ill-fitting ones (insufficient overlap)
-            matches = [ m for m in sorted( matches, key=lambda x: x[4])[:len(predicted_polynomials)] if abs((m[2] - m[3])/m[2]) <= args.matching_iou]
+            matches = [ m for m in sorted( matches, key=lambda x: x[4])[:len(predicted_polynomials)] if abs((m[2] - m[3])/m[2]) <= args.iou_tolerance]
             logger.debug(f"{len(matches)} matches.")
             #for m in sorted(matches,key=lambda x: x[0]):
             #    logger.debug(m)

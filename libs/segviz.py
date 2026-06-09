@@ -105,7 +105,7 @@ def batch_label_maps_to_img( inputs:list[Union[Tensor,dict,Path]], raw_maps: lis
     
     return list(zip(maps, attr, ids))
 
-def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path,str]=None, segfile_suffix:str='lines.pred.json', segdict=None, show:dict={}, alpha=.4, linewidth=2, color_count=-1, out_file='', crop=(1,1), output_file_path='', check_size=False ):
+def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path,str]=None, segdict=None, show:dict={}, alpha=.4, linewidth=2, color_count=-1, out_file='', crop=(1,1), output_file_path='', check_size=False ):
     """ Render segmentation data on an image.
     The segmentation dictionary is expected to have the following structure:
     
@@ -130,10 +130,7 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
         features = {'polygons': False, 'regions': False, 'baselines': False, 'centerlines': False}
         features.update( show )
 
-    if segfile is None:
-        segfile = str(img_path).replace('.img.jpg', f'.{segfile_suffix}') 
-    if not segdict:
-        assert Path(segfile).exists()
+    assert Path(segfile).exists()
 
     start = time()
 
@@ -147,11 +144,13 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
     bm_hw = np.zeros( img_hwc.shape[:2], dtype='bool' )
 
     if segdict==None:
-        if str(segfile)[-3:]=='xml' or segfile_suffix[-3:]=='xml':
+        if segformats.get_format( segfile ) == segformats.SegFormat.PAGE:
             segdict = segformats.segmentation_dict_from_page_xml( segfile )
-        elif str(segfile)[-4:]=='json' or segfile_suffix[-3:]=='json':
+        elif segformats.get_format( segfile ) == segformats.SegFormat.JSON:
             with open( segfile, 'r' ) as segfile_in:
                 segdict = json.load( segfile_in )
+        else:
+            logger.error("Unknown segmentation format: abort.")
         if segdict is None:
             logger.info("Could not parse a valid segmentation dictionary from {}: aborting.".format( segfile ))
             return

@@ -139,6 +139,9 @@ if __name__ == '__main__':
         # segmentation already provided: delegate to segviz lib
         if args.segfile or args.segfile_suffix:
                 segfile_path = Path(args.segfile) if args.segfile else Path( re.sub(r'{}$'.format(args.img_suffix), args.segfile_suffix, str(img_path)) )
+                if str(segfile_path)[-4:] != '.xml' and str(segfile_path)[-5:] != '.json':
+                    extension_found = re.sub(r'^.+(\.[^.]+)$', r'\1', str(segfile_path))
+                    logger.warning(f"Segmentation file extension is {extension_found}: check that 'segfile_suffix' parameter is correct.")
                 if not segfile_path.exists():
                     logger.warning("Could not find a segmentation file {}: skipping item;".format( Path(segfile_path)))
                     continue

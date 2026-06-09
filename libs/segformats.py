@@ -48,7 +48,10 @@ def get_format( segfile: str )->int:
     page_regexp = r'<([^:<>]+:)?PcGts.+xmlns'
     alto_regexp = r'<([^:<>]+:)?alto.+xmlns'
     with open(segfile) as segfile_if:
-        current_line = segfile_if.readline()
+        try:
+            current_line = segfile_if.readline()
+        except UnicodeDecodeError as e:
+            return SegFormat.Unknown
         # pass xml declaration and any empty subsequent line
         if re.match(r'<\?xml[^>]+>\s*$', current_line):
             while True:
@@ -865,11 +868,11 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True, t
                     line_content = l_id_as_intlist
                     if text and 'text' in sorted_lines[i]:
                         line_content = [ ord(c) for c in unidecode(sorted_lines[i]['text']) ]
-                    id_end_x = int(canvas_col_idx+len(line_content))
-                    id_cut = max(0, id_end_x - int(scaled_reg_arr[1,2] ))
-                    id_display_length = max(1, len(line_content) - id_cut)
+                    line_content_end_x = int(canvas_col_idx+len(line_content))
+                    line_content_cut = max(0, line_content_end_x - int(scaled_reg_arr[1,2] ))
+                    line_display_length = max(1, len(line_content) - line_content_cut)
                     #print(f"canvas[{canvas_col_idx}:{canvas_col_idx+id_display_length}")
-                    canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+id_display_length] = line_content[:id_display_length]
+                    canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+line_display_length] = line_content[:line_display_length]
                     #id_end_x -= id_cut
                     #canvas[ canvas_row_idx, canvas_col_idx:id_end_x] = l_id_as_intlist[:len(l_id_as_intlist)-id_cut] 
 
