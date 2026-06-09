@@ -832,7 +832,8 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True, t
         reg_arr = np.array( [c[::-1] for c in reg['coords']] ).astype('uint16')
         lt, rb = reg_arr[:,::-1].min(axis=0).tolist(), reg_arr[:,::-1].max(axis=0).tolist()
         scaled_reg_hw = (rb[0]-lt[0]+1, rb[1]-lt[1]+1)
-        scaled_reg_arr = (reg_arr*scale_hw).astype('uint16').T
+        #print(*(np.array(canvas.shape)-1, (reg_arr*scale_hw).astype('uint16').T))
+        scaled_reg_arr = np.clip((reg_arr*scale_hw).astype('uint16').T, None, [[canvas.shape[0]-1],[canvas.shape[1]-1]])
         # boxes
         canvas[ scaled_reg_arr[0], scaled_reg_arr[1] ]=ord('+')
         canvas[ scaled_reg_arr[0,0:4], scaled_reg_arr[1,0:4] ]=[ ord(c) for c in '┌┐┘└']
@@ -845,7 +846,9 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True, t
         reg_id_start_x = int(scaled_reg_arr[1,0]+region_id_offset)
         reg_id_end_x = reg_id_start_x + len( reg['id'] )
         reg_id_cut = max(0, reg_id_end_x-canvas.shape[1]) # region's id too long to fit into the canvas
-        canvas[ scaled_reg_arr[0,0]+1, reg_id_start_x:reg_id_end_x ]=reg_id_as_intlist[0:len(reg_id_as_intlist)-reg_id_cut]
+        # discard degenerate region on the canvas lower edge 
+        if scaled_reg_arr[0,0] < canvas.shape[0]-1:
+            canvas[ scaled_reg_arr[0,0]+1, reg_id_start_x:reg_id_end_x ]=reg_id_as_intlist[0:len(reg_id_as_intlist)-reg_id_cut]
         # lines
         if lines and 'lines' in reg:
             sorted_lines = sorted(reg['lines'], key=lambda x: x['coords'][0][1])
@@ -857,7 +860,7 @@ def segdict_to_ascii( segdict:dict, scale_hw=(.01,.02), lines=0, summary=True, t
                 canvas_row_idx, canvas_col_idx = scaled_reg_arr[0,0]+2+i, scaled_reg_arr[1,0]+line_id_offset
                 # omitting lines beyond the canvas' size
                 if len(reg['lines'])!=1 and (lines==1 and canvas_row_idx >= scaled_reg_arr[0,2]-1) or (lines == 2 and canvas_row_idx >= canvas.shape[0]-2): 
-                    canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+len('...')] = [ ord(c) for c in '...' ]
+                    #canvas[ canvas_row_idx, canvas_col_idx:canvas_col_idx+len('...')] = [ ord(c) for c in '...' ]
                     break
                 else:
                     line_end_x = int(canvas_col_idx+line_display_length)
