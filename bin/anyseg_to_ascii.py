@@ -93,7 +93,7 @@ if __name__ == '__main__':
                 q=sys.stdin.read(1)
                 help_screen = False
                 continue
-            seg_rendition = segformats.any_to_ascii( args.file_paths[file_count], lines=lines, scale_hw=args.scale, repair=repair, text=text )
+            seg_rendition = segformats.anyseg_to_ascii( args.file_paths[file_count], lines=lines, scale_hw=args.scale, repair=repair, text=text )
             seg_rendition_width = len(seg_rendition.split('\n')[-1])
             pagination=f"{file_count+1}/{len(args.file_paths)}" + (' [repaired]' if repair else '')
             footer_content=f"File {pagination}: {Path( args.file_paths[file_count] ).name}"

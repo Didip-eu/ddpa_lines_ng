@@ -43,8 +43,7 @@ p = {
     'overwrite_existing': (False, "Overwrite an existing output file."),
     'drop_transcription': (False, "Extract line transcription, if it exists."),
     'promote_regions': (False, "For each region, create one separate file (pre-pend 'r<reg_nbr>' to input suffix."),
-    'repair': (False, "Repair a faulty dictionary: re-assign lines to their proper regions; expand regions to include 
-        every pixel of the line polygon."),
+    'repair': (False, "Repair a faulty dictionary: re-assign lines to their proper regions; expand regions to include every pixel of the line polygon."),
     'delete_line_features': ([], "Line items to be removed (used with caution!)"),
     "comment": ('',"A text string to be added to the <Comments> elt."),
 }
@@ -62,7 +61,7 @@ if __name__ == '__main__':
             segdict = json.load( json_if )
 
             if args.repair:
-                pritn("Repairing file")
+                print("Repairing file")
                 segdict = segformats.json_doctor( segdict )
 
             # region-as-a-file extraction

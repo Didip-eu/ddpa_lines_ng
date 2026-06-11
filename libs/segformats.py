@@ -710,7 +710,7 @@ def region_dicts_from_segmentation_dict( segmentation_dict: dict ) -> list[dict]
     return regions
 
 
-def any_to_ascii( segfile: str, scale_hw=(.01,.02), lines=0, repair=False, text=False)->str:
+def anyseg_to_ascii( segfile: str, scale_hw=(.01,.02), lines=0, repair=False, text=False)->str:
     """
     ASCII-rendition of a segmentation file.
 

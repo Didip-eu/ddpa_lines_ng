@@ -7,12 +7,10 @@ import sys
 import json
 import re
 from pathlib import Path
-import xml.etree.ElementTree as ET
-from datetime import datetime
 from typing import Union, Any
 
 import fargv
-from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
+from fargv import FargvChoice, FargvPositional
 from jsonschema import validate
 
 src_root = Path(__file__).parents[1]
