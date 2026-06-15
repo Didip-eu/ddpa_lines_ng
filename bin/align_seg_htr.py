@@ -44,9 +44,9 @@ from numpy.polynomial import Polynomial, polynomial
 import matplotlib.pyplot as plt
 import fargv
 from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
+from segtformats import segtformats as sgf
 
 from libs import seglib
-from libs import segformats as sgf
 import warnings 
 #warnings.simplefilter('ignore', np.exceptions.RankWarning)
 

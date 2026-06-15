@@ -15,8 +15,10 @@ from torch import Tensor
 import skimage as ski
 from PIL import Image, ImageDraw
 
+# DiDip
+from segtformats import segtformats as sgf
+
 from . import seglib
-from . import segformats
 
 
 logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
@@ -144,9 +146,9 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
     bm_hw = np.zeros( img_hwc.shape[:2], dtype='bool' )
 
     if segdict==None:
-        if segformats.get_format( segfile ) == segformats.SegFormat.PAGE:
-            segdict = segformats.segmentation_dict_from_page_xml( segfile )
-        elif segformats.get_format( segfile ) == segformats.SegFormat.JSON:
+        if sgf.get_format( segfile ) == sgf.SegFormat.PAGE:
+            segdict = sgf.segmentation_dict_from_page_xml( segfile )
+        elif sgf.get_format( segfile ) == sgf.SegFormat.JSON:
             with open( segfile, 'r' ) as segfile_in:
                 segdict = json.load( segfile_in )
         else:
@@ -164,7 +166,7 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
     col_msk_hwc = np.zeros( img_hwc.shape, dtype=img_hwc.dtype )
     # for (older) JSON segmentation dictionaries, that have top-level 'lines' list.
     if 'lines' in segdict:
-        segdict = segformats.segdict_sink_lines( segdict )
+        segdict = sgf.segdict_sink_lines( segdict )
     for reg in segdict['regions']:
         #if color_count>=0:
         colors = get_n_color_palette( color_count ) if color_count > 0 else get_n_color_palette( len(reg['lines']))

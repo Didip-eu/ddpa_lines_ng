@@ -16,9 +16,9 @@ import skimage as ski
 import torch
 from torch import Tensor
 import numpy as np
+from segtformats import segtformats as sgf
 
 # local
-from . import segformats as sgf
 from . import polygon_utils
 
 """

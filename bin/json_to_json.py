@@ -28,7 +28,8 @@ from datetime import datetime
 from pathlib import Path
 
 import fargv
-from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
+from fargv import FargvPositional
+from segtformats import segtformats as sgf
 
 src_root = Path(__file__).parents[1]
 sys.path.append( str( src_root ))
@@ -62,7 +63,7 @@ if __name__ == '__main__':
 
             if args.repair:
                 print("Repairing file")
-                segdict = segformats.json_doctor( segdict )
+                segdict = sgf.json_doctor( segdict )
 
             # region-as-a-file extraction
             if args.promote_regions:
@@ -89,7 +90,7 @@ if __name__ == '__main__':
                 print(f"Existing {output_file_path}: skipping." )
                 continue
 
-            line_dicts = seglib.line_dicts_from_segmentation_dict( segdict )
+            line_dicts = sgf.line_dicts_from_segmentation_dict( segdict )
 
             # delete unwanted features
             if args.delete_line_features:

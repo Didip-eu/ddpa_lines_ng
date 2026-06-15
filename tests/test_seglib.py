@@ -13,7 +13,7 @@ def data_path():
     return Path( __file__ ).parent.joinpath('data')
 
 
-from libs import segformats as sgf, seglib
+from libs import seglib
 
 
 # 5 regions including one empty region, 7 lines

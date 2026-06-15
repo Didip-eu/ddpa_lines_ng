@@ -49,12 +49,13 @@ import numpy as np
 # Didip
 import fargv
 from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
+from segtformats import segtformats as sgf
 
 # local
 
 src_root = Path(__file__).parents[1]
 sys.path.append( str( src_root ))
-from libs import seglib, list_utils as lu, line_geometry as lgm, segformats as sgf
+from libs import seglib, list_utils as lu, line_geometry as lgm
 from libs import segmodel as sgm
 
 

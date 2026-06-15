@@ -45,6 +45,7 @@ import numpy as np
 # Didip
 import fargv
 from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
+from segtformats import segtformats as sgf
 
 # local
 
@@ -53,7 +54,6 @@ sys.path.append( str( src_root ))
 from libs import seglib, line_geometry as lgm
 from libs.train_utils import duration_estimate
 from libs import segmodel as sgm
-from libs import segformats as sgf
 
 logging_format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s"
 logging_levels = {0: logging.ERROR, 1: logging.WARNING, 2: logging.INFO, 3: logging.DEBUG }
