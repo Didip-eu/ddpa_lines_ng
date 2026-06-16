@@ -72,7 +72,7 @@ PYTHONPATH=. python3 ./bin/ddp_lineseg.py --mode validate --img_paths dataset/*.
 
 ## 4. Associated utilities
 
-Format-handling utilities for conversion between ALTO, PAGE, and JSON are now provided by a separate, standalone package [segtformats](git@github.com:nicolasrenet/segtformats.git).
+Format-handling utilities for conversion between ALTO, PAGE, and JSON are now provided by a separate, standalone package [segtformats](https://github.com/nicolasrenet/segtformats).
 
 Some scripts are essentially for internal use and auxiliary tasks (data transformations, dataset caching etc.):
 
