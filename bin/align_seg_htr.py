@@ -63,7 +63,7 @@ logging.getLogger('PIL').setLevel(logging.INFO)
 p = {
         "segfile_paths": FargvPositional(default=[], description="A JSON line segmentation file (e.g <prefix>.lines.pred.json)."),
         "segfile_suffix": ('.lines.pred.json', "Segmentation file default suffix."),
-        "htr_suffix": ('.xml', "Default suffix for the HTR file."),
+        "htr_suffix": ('.xml', "Default suffix for the HTR file; format (ALTO, PAGE, or JSON) is detected automatically."),
         "output_suffix": ('', "Output file suffix; if empty, write on standard output."),  
         "overwrite_existing": (False, "Do not overwrite existing output file"),
         "verbosity": (2, "Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"),
@@ -135,11 +135,7 @@ if __name__ == "__main__":
             logger.warning(f"Could not find corresponding HTR file {reference_file_path}: abort.")
             continue
 
-        reference_dict = {}
-        if sgf.get_format( reference_file_path) == sgf.SegFormat.PAGE:
-            reference_dict = sgf.segmentation_dict_from_page_xml( reference_file_path, get_text=True )
-        elif sgf.get_format( reference_file_path) == sgf.SegFormat.JSON:
-            reference_dict = json.load( open( reference_file_path ))
+        reference_dict = sgf.anyseg_to_dict( reference_file_path )
         if not reference_dict:
             logger.warning(f"Could not parse a valid segmentation dictionary from {reference_file_path}: abort.")
             continue

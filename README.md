@@ -72,14 +72,30 @@ PYTHONPATH=. python3 ./bin/ddp_lineseg.py --mode validate --img_paths dataset/*.
 
 ## 4. Associated utilities
 
+Format-handling utilities for conversion between ALTO, PAGE, and JSON are now provided by a separate, standalone package [segtformats](git@github.com:nicolasrenet/segtformats.git).
+
 Some scripts are essentially for internal use and auxiliary tasks (data transformations, dataset caching etc.):
 
 + `line_detect_dev.py`: an inference script, with both legacy and experimental features, for development purpose (do _not_ use in production).
-+ `json_to_xml.py`: JSON →  PageXML conversion.
-+ `xml_to_json.py`: PageXML →  JSON conversion.
 + `json_to_json.py`: JSON → JSON conversion: polygon scaling and other additions.
 + `generate_cached_datasets.py`: from an img+label dataset, generate augmented patches and serialize them as Torch tensors.
 + `binarize_images.py`: easy binarization of images into Numpy binary masks.
+
+Of particular interest when aggregating heterogeneous datasets: 
+
++ `align_seg_htr.py`: alignment of third-party HTR GT data with lines detected on the same image by this segmenter. A typical workflow for combining our tool's output with an existing HTR corpus:
+
+  ```bash
+  export PYTHONPATH=.
+  # 1. Preprocess 3rd-party GT files, to ensure metadata consistency 
+  python3 -m segtformats.anyseg_doctor --repair --output_format page --output_suffix .htr.xml --segfile_paths *.xml
+  # 2. Detect lines, using layout information obtained in step 1
+  ./bin/ddp_line_detect.py --img_paths *.jpg --img_suffix .jpg --layout_suffix .htr.xml 
+  # 3. Merge detected lines with their 3rd-party HTR counterpart (as obtained from step 1)
+  ./bin/align_seg_htr.py --segfile_paths *.lines.pred.json --htr_suffix .htr.xml --output_suffix .lines.gt.json 
+  ```
+
+
 
 
 
