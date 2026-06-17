@@ -76,12 +76,13 @@ Format-handling utilities for conversion between ALTO, PAGE, and JSON are now pr
 
 Some scripts are essentially for internal use and auxiliary tasks (data transformations, dataset caching etc.):
 
-+ `line_detect_dev.py`: an inference script, with both legacy and experimental features, for development purpose (do _not_ use in production).
+<!--+ `line_detect_dev.py`: an inference script, with both legacy and experimental features, for development purpose (do _not_ use in production).-->
++ `line_detect_test.py`: an inference script for evaluation purpose, when running experiments--it runs on arbitrary single image-as-a-region paths (i.e.: neither FSDB nor a layout file required).
 + `json_to_json.py`: JSON → JSON conversion: polygon scaling and other additions.
 + `generate_cached_datasets.py`: from an img+label dataset, generate augmented patches and serialize them as Torch tensors.
 + `binarize_images.py`: easy binarization of images into Numpy binary masks.
 
-Of particular interest when aggregating heterogeneous datasets: 
+Of particular interest when **aggregating heterogeneous datasets**: 
 
 + `align_seg_htr.py`: alignment of third-party HTR GT data with lines detected on the same image by this segmenter. A typical workflow for combining our tool's output with an existing HTR corpus:
 
