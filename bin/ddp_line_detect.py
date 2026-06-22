@@ -72,7 +72,8 @@ p = {
         "img_suffix": (r".img.*p*g", "Image file suffix."),
         "layout_suffix": (".layout.pred.json", "Regions are given by segmentation file that is <img name stem><suffix>."),
         "line_attributes": (["centerline", "x-height"], "Non-standard line properties to be included in the dictionary."),
-        "output_format": FargvChoice(["json", "xml", "stdout", "quiet"], description="Segmentation output: json=<JSON file>, xml=<PageXML file>, stdout=JSON on standard output, quiet=nothing (for testing and timing)"),
+        "output_format": FargvChoice(["json", "xml", "quiet"], description="Segmentation output: json=<JSON file>, xml=<PageXML file>, stdout=JSON on standard output, quiet=nothing (for testing and timing)"),
+        'out_file': ('auto', "If empty, output to standard output; otherwise, output to file <out>; set to 'auto' (default) for output to file <output_dir>/<input stem>.<output_suffix>."),
         "output_dir": ('', "Output directory; if not provided, defaults to the image path's parent."),
         'mask_threshold': (.6, "In the post-processing phase, threshold to use for line soft masks."),
         'box_threshold': (0.75, "Threshold used for line bounding boxes."),
@@ -175,8 +176,13 @@ def pack_fsdb_inputs_outputs( args:dict, layout_suffix:str ) -> list[tuple]:
         layout_path = Path( re.sub(r'{}$'.format( args.img_suffix), layout_suffix, str(img_path) ))
         if layout_path == img_path:
             raise FileNotFoundError( "Layout segmentation file {} cannot be identical to image path: check that the -img_suffix has been set correctly (suggestion: -img_suffix '{}')".format(layout_path, re.sub(r'^[^.]+(\..+)$', r'\1', img_path.name)))
-        output_dir = img_path.parent if not args.output_dir else Path(args.output_dir)
-        path_triplets.append( ( img_path, layout_path, output_dir.joinpath( f'{img_stem}.{args.appname}.pred.{args.output_format}')))
+        if args.out_file == 'auto':
+            output_dir = img_path.parent if not args.output_dir else Path(args.output_dir)
+            path_triplets.append( ( img_path, layout_path, output_dir.joinpath( f'{img_stem}.{args.appname}.pred.{args.output_format}')))
+        elif args.out_file:
+            path_triplets.append( ( img_path, layout_path, Path(out_file)))
+        else:
+            path_triplets.append( ( img_path, layout_path, None ))
     #return path_triplets
     return sorted( path_triplets, key=lambda x: str(x))
 
@@ -295,10 +301,10 @@ if __name__ == "__main__":
 
                 ############ Output #################
 
-                sentinel_path = output_file_path.with_suffix('.stl') # protect against partial writes
-                if args.output_format == 'stdout':
+                sentinel_path = output_file_path.with_suffix('.stl') if output_file_path else None# protect against partial writes
+                if not args.out_file: 
                     print(json.dumps(segdict))
-                elif args.overwrite_existing or not output_file_path.exists() or sentinel_path.exists():
+                elif args.overwrite_existing or not output_file_path.exists() or (sentinel_path and sentinel_path.exists()):
                     open( sentinel_path, 'w' )
                     if args.output_format == 'json':
                         with open(output_file_path, 'w') as of:

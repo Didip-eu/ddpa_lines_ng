@@ -135,7 +135,7 @@ if __name__ == "__main__":
             logger.warning(f"Could not find corresponding HTR file {reference_file_path}: abort.")
             continue
 
-        reference_dict = sgf.anyseg_to_dict( reference_file_path )
+        reference_dict, _ = sgf.anyseg_to_dict( reference_file_path )
         if not reference_dict:
             logger.warning(f"Could not parse a valid segmentation dictionary from {reference_file_path}: abort.")
             continue
