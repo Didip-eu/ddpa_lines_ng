@@ -87,9 +87,10 @@ Of particular interest when **aggregating heterogeneous datasets**:
 + `align_seg_htr.py`: alignment of third-party HTR GT data with lines detected on the same image by this segmenter. A typical workflow for combining our tool's output with an existing HTR corpus:
 
   ```bash
+  pip install segtformats
   export PYTHONPATH=.
   # 1. Preprocess 3rd-party GT files, to ensure metadata consistency 
-  python3 -m segtformats.anyseg_doctor --repair --output_format page --output_suffix .htr.xml --segfile_paths *.xml
+  python3 -m segtformats.anyseg_doctor --repair --output_format page --output_suffix .htr.xml --file_paths *.xml
   # 2. Detect lines, using layout information obtained in step 1
   ./bin/ddp_line_detect.py --img_paths *.jpg --img_suffix .jpg --layout_suffix .htr.xml 
   # 3. Merge detected lines with their 3rd-party HTR counterpart (as obtained from step 1)

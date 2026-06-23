@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Given line prediction file (JSON) and an inherited HTR GT (PageXML),
+Given line prediction file (JSON) and an inherited HTR GT (PageXML or JSON),
 compute an alignment of predicted lines with the corresponding HTR strings.
 
 Example:
@@ -9,16 +9,7 @@ Example:
 $ align_seg_htr.py U-17_0728_r.lines.pred.json 
 ```
 
-Output:
-
-```
-0 Wir, ✳ nachgenempten ✳ Clewi Merck von ✳ Schintznach, Hans Kilcher, ...
-1 lich mitt disem brief, ✳ als den̄ ettwas zweyung zwischent den erwird...
-2 uff hùtt, datū dis briefs, inder guͤtlikeit ✳ zuͦtz und uff uns komen ...
-3 ten ✳ ir zuͦsprùch zuͦ den genempten ✳ unsern frowen ingegēwùrtikeit i...
-4 nung, ✳ die selben unser frowen ✳ oder ir amptlùt hettent ein weg, d...
-...
-
+Output format is either JSON or PageXML.
 Rules and assumptions:
 
 + inherited (PageXML) segmentation must be valid (no partial or invalid polygons, f.i.)
@@ -43,7 +34,7 @@ import numpy as np
 from numpy.polynomial import Polynomial, polynomial
 import matplotlib.pyplot as plt
 import fargv
-from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
+from fargv import FargvChoice, FargvPositional
 from segtformats import segtformats as sgf
 
 from libs import seglib
@@ -64,7 +55,9 @@ p = {
         "segfile_paths": FargvPositional(default=[], description="A JSON line segmentation file (e.g <prefix>.lines.pred.json)."),
         "segfile_suffix": ('.lines.pred.json', "Segmentation file default suffix."),
         "htr_suffix": ('.xml', "Default suffix for the HTR file; format (ALTO, PAGE, or JSON) is detected automatically."),
-        "output_suffix": ('', "Output file suffix; if empty, write on standard output."),  
+        "out": FargvChoice(['','auto'], description="Set to 'auto' for output to filename <input stem>.<output_suffix>; leave empty for standard output."),
+        "output_format": FargvChoice(['json','page'], description="Output format: JSON or PageXML"),
+        "output_suffix": ('', "If empty, output file's suffix is determined by output format (.json or .xml)"),
         "overwrite_existing": (False, "Do not overwrite existing output file"),
         "verbosity": (2, "Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"),
         "iou_tolerance": (.15, "Tolerance for IoU of length of matching baselines."),
@@ -119,9 +112,19 @@ def polynoms_from_lines( lines, domain, window ):
 
 if __name__ == "__main__":
 
+
+    format_to_suffix = { sgf.SegFormat.PAGE: '.xml', sgf.SegFormat.ALTO: '.xml', sgf.SegFormat.JSON: '.json' }
+
     for segfile_path in args.segfile_paths:
         segfile_path = Path( segfile_path )
-        output_file_path = Path( str(segfile_path).replace( args.segfile_suffix, args.output_suffix )) if args.output_suffix else None
+        
+        output_format = None
+        if args.output_format == 'page':
+            output_format = sgf.SegFormat.PAGE
+        elif args.output_format == 'json':
+            output_format = sgf.SegFormat.JSON
+        output_suffix = args.output_suffix if args.output_suffix else format_to_suffix[ output_format ]
+        output_file_path = Path( str(segfile_path).replace( args.segfile_suffix, args.output_suffix )) if args.out else None
         logger.info( "{} → {}".format(segfile_path, output_file_path if output_file_path else 'stdout'))
 
         if output_file_path and not args.overwrite_existing and output_file_path.exists():
@@ -226,14 +229,20 @@ if __name__ == "__main__":
                 prediction_dict['regions'][pred_reg_idx]['lines']=[ l for i,l in enumerate(predicted_lines) if i in match_hash.keys() ]
 
         cli_args = ' '.join(args_orig[1:])
-        abbr_args = re.sub( r'-segfile_paths( +[^\- ][^ ]+)+ +-', f'-segfile_paths {segfile_path} -', cli_args)
+        abbr_args = re.sub( r'--segfile_paths( +[^\- ][^ ]+)+ +-', f'--segfile_paths {segfile_path} -', cli_args)
         prediction_dict['metadata']['comment']=f"Created by command: {Path(args_orig[0]).name + abbr_args} (input PageXML: {reference_file_path.name})."
 
-        if not output_file_path:
-            print(json.dumps( prediction_dict ))
-        else:
-            with open( output_file_path, 'w') as of:
-                of.write( json.dumps( prediction_dict, indent=2 ))
+        if output_format == sgf.SegFormat.JSON:
+            if not output_file_path:
+                print(json.dumps( prediction_dict ))
+            else:
+                with open( output_file_path, 'w') as of:
+                    of.write( json.dumps( prediction_dict, indent=2 ))
                 logger.info(f"Written {output_file_path}.")
+        elif output_format == sgf.SegFormat.PAGE:
+                sgf.page_xml_from_segmentation_dict( prediction_dict, output_file=output_file_path )
+                if args.out:
+                    logger.info(f"Written {output_file_path}.")
+
 
 
