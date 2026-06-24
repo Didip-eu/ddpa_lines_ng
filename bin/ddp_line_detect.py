@@ -133,7 +133,7 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, line_att
             centroid_ys.append( centroid[0].item() )
             baseline += offset.astype(baseline.dtype)
             centerline += offset.astype(centerline.dtype)
-            dict_line_entry = {'id': f'l{line_id}', 'coords': polygon_coords[:,::-1].astype('int').tolist(), 'baseline': baseline[:,::-1].astype('int').tolist() }
+            dict_line_entry = {'id': f'r{region_id}l{line_id}', 'coords': polygon_coords[:,::-1].astype('int').tolist(), 'baseline': baseline[:,::-1].astype('int').tolist() }
             if 'x-height' in line_attributes:
                 dict_line_entry['x-height']=int(line_height)
             if 'centerline' in line_attributes:

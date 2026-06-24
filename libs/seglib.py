@@ -380,6 +380,30 @@ def line_images_from_img_page_xml_files(img: str, page_xml: str, as_dictionary=F
 
         return segmentation_dict
 
+def line_images_from_img_alto_files(img: str, alto_xml: str, as_dictionary=False ) -> list[tuple[np.ndarray, np.ndarray]]:
+    """From an image file path and a segmentation ALTO file describing polygons, return
+    a list of pairs (<line cropped BB>, <polygon mask>), or optionally a full page dictionary with
+    those enriched lines as a top element.
+
+    Args:
+        img (str): the input image's file path
+        alto_xml (str): a ALTO XML file describing the lines.
+        as_dictionary (bool): return segmentation dict where each line is a tuple (<img>,<msk>,<line_dict>); useful
+            for keeping track of line ids when running inference.
+
+    Returns:
+        list: a list of pairs (<line image BB>: np.ndarray (HWC), mask: np.ndarray (HW)), or a page segmentation
+            dictionary with 'lines' as extra, top-level element.
+    """
+    with Image.open(img, 'r') as img_wh:
+        segmentation_dict = sgf.alto_to_segmentation_dict( alto_xml )
+        line_pairs = line_images_from_img_segmentation_dict( img_wh, segmentation_dict )
+        if not as_dictionary:
+            return line_pairs
+        segmentation_dict['lines']=list(zip( *(zip(*line_pairs)), sgf.line_dicts_from_segmentation_dict( segmentation_dict)))
+
+        return segmentation_dict
+
 
 def line_images_from_img_json_files( img: str, segmentation_json: str, as_dictionary=False, factor=1.0 ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From an image file path and a segmentation JSON file describing polygons, return
