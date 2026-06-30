@@ -132,7 +132,6 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
         features = {'polygons': False, 'regions': False, 'baselines': False, 'centerlines': False}
         features.update( show )
 
-    assert Path(segfile).exists()
 
     start = time()
 
@@ -146,6 +145,7 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
     bm_hw = np.zeros( img_hwc.shape[:2], dtype='bool' )
 
     if segdict==None:
+        assert Path(segfile).exists()
         if sgf.get_format( segfile ) == sgf.SegFormat.PAGE:
             segdict = sgf.segmentation_dict_from_page_xml( segfile )
         elif sgf.get_format( segfile ) == sgf.SegFormat.JSON:
