@@ -130,7 +130,7 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
             skl_yx_reduced[-1,1] = box_width-1
         return skl_yx_reduced
 
-    labeled_msk_regular_hw = None if raw_polygons else np.zeros(labeled_msk_hw.shape, dtype=labeled_msk_hw.dtype)
+    labeled_msk_regular_hw = labeled_msk_hw if raw_polygons else np.zeros(labeled_msk_hw.shape, dtype=labeled_msk_hw.dtype)
 
     time_start = time()
     for lbl in labels:
@@ -186,9 +186,8 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
     #               feuilles
     #          Les 
     # - order that differs from labels may hint at messy reading order
+    
     line_features = sorted( zip(labels, line_heights, skeleton_coords, polygon_coords, centroids), key=lambda t: t[4].tolist() )
-    if raw_polygons:
-        return labeled_msk_hw[None,:]
 
     # meant to filter out linear artefacts on the page (edges, non-textual lines...)
     label_features_unfiltered = [ {
