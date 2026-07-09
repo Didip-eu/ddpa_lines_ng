@@ -37,14 +37,13 @@ class LineDetectionDataset(Dataset):
     + image
     + target dictionary: LHW segmentation mask tensor (1 mask for each of the L lines), L4 bounding box tensor, L label tensor.
     """
-    def __init__(self, img_paths, label_paths, polygon_key='coords', transforms=None, img_size=(1024,1024), min_size=0, normalize=True):
+    def __init__(self, img_paths, label_paths, transforms=None, img_size=(1024,1024), min_size=0, normalize=True):
         """
         Constructor for the Dataset class.
 
         Parameters:
             img_paths (list): List of unique identifiers for images.
             label_paths (list): List of label paths.
-            polygon_key (str): type of polygon in the segmentation dictionary ('coords' or 'ext_coords').
             transforms (callable, optional): Optional transform to be applied on a sample.
             img_size (tuple[int]): when default (pre-tormentor) transform resizes the input to a fixed size.
             min_size (int): if non-zero, ensure that image is at least <size_min> on its smaller dimension - used when later augmentations use fixed crops.
@@ -53,7 +52,6 @@ class LineDetectionDataset(Dataset):
         
         self._img_paths = img_paths  # List of image keys
         self._label_paths = label_paths  # List of image annotation files
-        self.polygon_key = polygon_key
         self._transforms = transforms if transforms is not None else v2.Compose([
             v2.ToImage(),
             ResizeMin( min_size ) if min_size else v2.Resize( img_size ), 
@@ -113,7 +111,7 @@ class LineDetectionDataset(Dataset):
 
         with open( annotation_path, 'r') as annotation_if:
             segdict = json.load( annotation_if )
-            masks=Mask( seglib.line_binary_mask_stack_from_segmentation_dict(segdict, polygon_key=self.polygon_key))
+            masks=Mask( seglib.line_binary_mask_stack_from_segmentation_dict(segdict))
             labels = torch.tensor( [ 1 ]*masks.shape[0], dtype=torch.int64)
             bboxes = BoundingBoxes(data=torchvision.ops.masks_to_boxes(masks), format='xyxy', canvas_size=img.size[::-1])
             return img, {'masks': masks, 'boxes': bboxes, 'labels': labels, 'path': img_path, 'orig_size': img.size }

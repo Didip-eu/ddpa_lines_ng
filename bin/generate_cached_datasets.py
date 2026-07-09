@@ -67,7 +67,7 @@ if args.log_tsv:
                 tsv.write('{}\t{}\n'.format(path.name, path.name.replace(args.img_suffix, args.lbl_suffix)))
 
 # for training, Torment at will (normalization applied by encapsulating AugmentedDS class)
-ds_train = lsgds.LineDetectionDataset( imgs_train, lbls_train, min_size=args.img_size, polygon_key='coords', normalize=False)
+ds_train = lsgds.LineDetectionDataset( imgs_train, lbls_train, min_size=args.img_size, normalize=False)
 aug = tsf.build_tormentor_augmentation_for_crop_training( crop_size=args.img_size, crop_before=False, style_idx=args.aug_style )
 ds_aug = tormentor.AugmentedDs( ds_train, aug, computation_device=args.device, augment_sample_function=lsgds.LineDetectionDataset.augment_with_bboxes )
 
@@ -101,7 +101,7 @@ if 'train' in args.subsets:
     ds_train_cached.serialize( subdir=f'{cache_path}/train', repeat=args.repeat)
 
 # for validation and test, only crops
-ds_val = lsgds.LineDetectionDataset( imgs_val, lbls_val, min_size=args.img_size, polygon_key='coords', normalize=False)
+ds_val = lsgds.LineDetectionDataset( imgs_val, lbls_val, min_size=args.img_size, normalize=False)
 augCropCenter = tormentor.RandomCropTo.new_size( args.img_size, args.img_size )
 augCropLeft = tormentor.RandomCropTo.new_size( args.img_size, args.img_size ).override_distributions( center_x=tormentor.Uniform((0, .6)))
 augCropRight = tormentor.RandomCropTo.new_size( args.img_size, args.img_size ).override_distributions( center_x=tormentor.Uniform((.4, 1)))
@@ -112,7 +112,7 @@ if 'val' in args.subsets:
     ds_val_cached = lsgds.CachedDataset( data_source = ds_val )
     ds_val_cached.serialize( subdir=f'{cache_path}/val', repeat=args.repeat)
 
-ds_test = lsgds.LineDetectionDataset( imgs_test, lbls_test, min_size=args.img_size, polygon_key='coords')
+ds_test = lsgds.LineDetectionDataset( imgs_test, lbls_test, min_size=args.img_size )
 ds_test = tormentor.AugmentedDs( ds_test, aug, computation_device=args.device, augment_sample_function=lsgds.LineDetectionDataset.augment_with_bboxes )
 
 if 'test' in args.subsets:

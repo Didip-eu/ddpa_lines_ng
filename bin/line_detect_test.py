@@ -191,13 +191,14 @@ if __name__ == "__main__":
         logger.warning("'-raw_polygons' option set: ignoring the line height factor ({}).".format( args.line_height_factor))
 
     # Store aggregate computation time for every batch of <args.timer> images 
-    timer_means = []
+    timer_inference_durations = []
+    timer_serialization_durations = []
     start_time = time()
     timer_logs = sys.stdout
     if args.timer > 0 and args.timer_logs != 'stdout':
         try:
             timer_logs = open( args.timer_logs, 'w') 
-            timer_logs.write("ImageIndex\tAvg/{}\tRunningAvg\n".format(args.timer))
+            timer_logs.write("ImageIndex\tAvg/{}\tRunningAvg (inf.)\tRunningAvg (serial.)\n".format(args.timer))
             timer_logs.close()
         except IOError as e:
             logger.warning("Failed to open timer logs '{}'".format( timer_logs ))
@@ -217,6 +218,7 @@ if __name__ == "__main__":
             logger.debug("File {} exists: skipped.".format( output_file_path ))
             continue
         try:
+            inference_start_time = time()
             with Image.open( img_path, 'r' ) as img:
 
                 img_metadata = { 'image_filename': str(img_path.name), 'image_width': img.size[0], 'image_height': img.size[1] }
@@ -226,6 +228,9 @@ if __name__ == "__main__":
                 patch_size = check_patch_size_against_model( live_model, args.patch_size )
                 binary_mask = lgm.binary_mask_from_fixed_patches( img, patch_size=patch_size, model=live_model, mask_threshold=thresholds['mask_threshold'], box_threshold=thresholds['box_threshold'], device=computing_device)
                 logger.debug(f"binary_mask={binary_mask}")
+
+                timer_inference_durations.append( time()-inference_start_time )
+
                 if binary_mask is None:
                     logger.warning("{}\tNo line mask found in crop {}: skipping item.".format( img_path, crop_idx ))
                     # dict with no lines
@@ -234,6 +239,7 @@ if __name__ == "__main__":
                     # Post-processing: pixel maps → lines & polygons
                     segmentation_record = lgm.get_morphology( binary_mask, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor ) 
                     segdict = build_segdict( img_metadata, segmentation_record, args.line_attributes, line_height_factor=args.line_height_factor ) 
+                    timer_serialization_durations.append(time()-inference_start_time)
                     if args.validate and not sgf.json_validate( segdict ):
                         logger.error('Validation failed. Skipping item.')
                         continue
@@ -260,19 +266,19 @@ if __name__ == "__main__":
                         logger.debug("Segmentation output saved in {}".format( output_file_path ))
 
                 if args.timer > 0 and img_idx > 0 and img_idx % args.timer==0:
-                    timer_means.append( (time()-start_time)/args.timer )
-                    running_avg = np.mean(timer_means)
+                    inference_running_avg = np.mean(timer_inference_durations)
+                    serialization_running_avg = np.mean(timer_serialization_durations)
                     if timer_logs is sys.stdout:
-                        logger.info( "Batch {}/{} (size={}): {:.4f}s/img\t Running avg: {:.4f}\tEst. time to completion: {}".format( 
+                        logger.info( "Batch {}/{} (size={}):\tInfr. running avg: {:.4f}\tSerial. running avg: {:.4f}\tEst. time to completion: {}".format( 
                                     int(img_idx/args.timer), 
                                     int(np.ceil(len(charter_iterator)/args.timer)), 
                                     args.timer, 
-                                    timer_means[-1], 
-                                    running_avg, 
-                                    duration_estimate(img_idx, len(charter_iterator), running_avg)))
+                                    inference_running_avg, 
+                                    serialization_running_avg, 
+                                    duration_estimate(img_idx, len(charter_iterator), serialization_running_avg)))
                     else:
-                        with open( timer_logs, 'a') as timer_of:
-                            timer_of.write( "{}\t{:.4f}\t{:.4f}\n".format( img_idx, timer_means[-1], np.mean(timer_means)))
+                        with open( args.timer_logs, 'a') as timer_of:
+                            timer_of.write( "{}\t{:.4f}\t{:.4f}\n".format( img_idx, inference_running_avg, serialization_running_avg))
                     start_time = time()
 
         except Exception as e:

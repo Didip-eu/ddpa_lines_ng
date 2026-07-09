@@ -34,7 +34,7 @@ def strip_from_centerline(centerline_n2xy: np.ndarray, height: float) -> np.ndar
     if centerline_n2xy.shape==(2,2) and centerline_n2xy[0,1]==centerline_n2xy[1,1]:
         baseline = np.array( centerline_n2xy - int(height/2))
         topline = (baseline+height)[::-1]
-        return np.concatenate( (topline, baseline) )
+        return np.concatenate( (topline, baseline) ).astype('int32')
 
     left_dummy_pt = np.array( [ 2*centerline_n2xy[0][0]-centerline_n2xy[1][0], 2*centerline_n2xy[0][1]-centerline_n2xy[1][1] ])
     right_dummy_pt = np.array( [ 2*centerline_n2xy[-1][0]-centerline_n2xy[-2][0], 2*centerline_n2xy[-1][1]-centerline_n2xy[-2][1] ])

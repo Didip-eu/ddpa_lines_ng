@@ -57,7 +57,7 @@ def polygon_map_from_page_xml_file( page_xml: str ) -> Tensor:
     segmentation_dict = sgf.segmentation_dict_from_page_xml( page_xml )
     return polygon_map_from_segmentation_dict( segmentation_dict)
 
-def polygon_map_from_segmentation_dict( segmentation_dict: dict, polygon_key='coords' ) -> Tensor:
+def polygon_map_from_segmentation_dict( segmentation_dict: dict ) -> Tensor:
     """Store line polygons into a tensor, as pixel maps.
 
     Args:
@@ -78,7 +78,7 @@ def polygon_map_from_segmentation_dict( segmentation_dict: dict, polygon_key='co
         Tensor: the polygons rendered as a 4-channel image.
     """
     #polygon_boundaries = [ line[polygon_key] for line in segmentation_dict['lines'] ]
-    polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict, polygon_key=polygon_key)
+    polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict )
 
     # create 2D matrix of 32-bit integers
     # (fillPoly() only accepts signed integers - risk of overflow is non-existent)
@@ -101,20 +101,19 @@ def polygon_map_from_segmentation_dict( segmentation_dict: dict, polygon_key='co
     return polygon_img
 
 
-def line_binary_mask_from_json_file( segmentation_json: str, polygon_key='coords', channels=1 ) -> Tensor:
+def line_binary_mask_from_json_file( segmentation_json: str, channels=1 ) -> Tensor:
     """From a JSON segmentation file, return a boolean mask where any pixel belonging
     to a polygon is 1 and the other pixels 0.
 
     Args:
         segmentation_json (str): a JSON file describing the lines.
-        polygon_key (str): polygon dictionary entry.
         channels (int): number of channels.
 
     Returns:
         Tensor: a flat boolean tensor with size (H,W)
     """
     with open( segmentation_json, 'r' ) as json_file:
-        return line_binary_mask_from_segmentation_dict( json.load( json_file ), polygon_key=polygon_key, channels=channels)
+        return line_binary_mask_from_segmentation_dict( json.load( json_file ), channels=channels)
 
 
 def line_binary_mask_from_page_xml_file( page_xml: str, channels=1 ) -> Tensor:
@@ -132,19 +131,18 @@ def line_binary_mask_from_page_xml_file( page_xml: str, channels=1 ) -> Tensor:
     return line_binary_mask_from_segmentation_dict( segmentation_dict, channels=channels )
 
 
-def line_binary_mask_from_segmentation_dict( segmentation_dict: dict, polygon_key='coords', channels=1 ) -> Tensor:
+def line_binary_mask_from_segmentation_dict( segmentation_dict: dict, channels=1 ) -> Tensor:
     """From a segmentation dictionary describing polygons, return a boolean mask where any pixel belonging
     to a polygon is 1 and the other pixels 0.
 
     Args:
         segmentation_dict (dict): a dictionary, typically constructed from a JSON file.
-        polygon_key (str): polygon dictionary entry.
         channels (int): number of channels (default is 1).
 
     Returns:
         Tensor: a flat boolean tensor with size (H,W)
     """
-    polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict, polygon_key=polygon_key)
+    polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict )
     # create 2D boolean matrix
     mask_size = (segmentation_dict['image_width'], segmentation_dict['image_height'])
     one_channel_mask = np.sum( [ ski.draw.polygon2mask( mask_size, polyg ).transpose(1,0) for polyg in polygon_boundaries ], axis=0)
@@ -274,45 +272,42 @@ def docufcn_label_to_didip_json( segmentation_json: Path, segfile_suffix='.json'
         return new_segdict
 
 
-def line_binary_mask_stack_from_json_file( segmentation_json: str, polygon_key='coords' ) -> Tensor:
+def line_binary_mask_stack_from_json_file( segmentation_json: str ) -> Tensor:
     """From a JSON file describing polygons, return a stack of boolean masks where any pixel belonging
     to a polygon is 1 and the other pixels 0.
 
     Args:
         segmentation_json (str): a JSON file describing the lines.
-        polygon_key (str): polygon dictionary entry.
 
     Returns:
         Tensor: a boolean tensor with size (N,H,W)
     """
     with open( segmentation_json, 'r' ) as json_file:
-        return line_binary_mask_stack_from_segmentation_dict( json.load( json_file ), polygon_key=polygon_key)
+        return line_binary_mask_stack_from_segmentation_dict( json.load( json_file ))
 
 
-def line_binary_mask_stack_from_segmentation_dict( segmentation_dict: dict, polygon_key='coords' ) -> Tensor:
+def line_binary_mask_stack_from_segmentation_dict( segmentation_dict: dict ) -> Tensor:
     """From a segmentation dictionary describing polygons, return a stack of boolean masks where any pixel belonging
     to a polygon is 1 and the other pixels 0.
 
     Args:
         segmentation_dict (dict): a dictionary, typically constructed from a JSON file.
-        polygon_key (str): polygon dictionary entry.
 
     Returns:
         Tensor: a boolean tensor with size (N,H,W)
     """
-    polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict, polygon_key=polygon_key)
+    polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict)
     # create 2D boolean matrix
     mask_size = (segmentation_dict['image_width'], segmentation_dict['image_height'])
     return torch.tensor( np.stack( [ ski.draw.polygon2mask( mask_size, polyg ).transpose(1,0) for polyg in polygon_boundaries ]))
 
 
-def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='coords', factor=1.0 ) -> list[list[int]]:
+def line_polygons_from_segmentation_dict( segmentation_dict: dict, factor=1.0 ) -> list[list[int]]:
     """From a segmentation dictionary describing polygons, return a list of polygon boundaries, i.e. lists of points.
 
     Args:
         segmentation_dict (dict): a dictionary, typically constructed from a JSON file. The 'lines' entry is either
             top-level key, or nested as in 'regions > region > lists'.
-        polygon_key (str): the name of the polygon's entry in the dictionary.
         factor (float): the factor applied to the strip's height; if 1.0, the polygons are extracted as they are
             stored; otherwise, a new polygon is constructed from the baseline and the scaled height.
 
@@ -321,13 +316,13 @@ def line_polygons_from_segmentation_dict( segmentation_dict: dict, polygon_key='
     """
     flat_dict = sgf.flatten_segmentation_dict( segmentation_dict )
     if factor==1.0:
-        return [ l[polygon_key] for l in flat_dict['lines'] ]
+        return [ l['coords'] for l in flat_dict['lines'] ]
     line_polygons = []
     id_to_reg = { r['id']:r for r in flat_dict['regions'] }
     for line in flat_dict['lines']:
         # look for innermost containing region
         ltrb = tuple(np.array( id_to_reg[line['parents'][0]]['coords'])[[0,2]].flatten())
-        line_polygons.append( polygon_utils.strip_from_baseline( line['baseline'], line['x-height'], factor, ltrb=ltrb ) if 'x-height' in line else line[polygon_key] )
+        line_polygons.append( polygon_utils.strip_from_baseline( line['baseline'], line['x-height'], factor, ltrb=ltrb ) if 'x-height' in line else line['coords'] )
     return line_polygons
  
 
@@ -430,21 +425,20 @@ def line_images_from_img_json_files( img: str, segmentation_json: str, as_dictio
         return segmentation_dict
 
 
-def line_images_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dict: dict, polygon_key='coords', factor=1.0 ) -> list[tuple[np.ndarray, np.ndarray]]:
+def line_images_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dict: dict, factor=1.0 ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From a segmentation dictionary describing polygons, return 
     a list of pairs (<line cropped BB>, <polygon mask>).
 
     Args:
         img_whc (Image.Image): the input image (needed for the size information).
         segmentation_dict (dict) a dictionary, typically constructed from a JSON file.
-        polygon_key (str): name of the line polygon's entry.
         factor (float): scale line polygon height to <factor>.
 
     Returns:
         list[tuple[np.ndarray, np.ndarray]]: a list of pairs (<line
         image BB>: np.ndarray (HWC), mask: np.ndarray (HWC))
     """
-    polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict, polygon_key=polygon_key, factor=factor)
+    polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict, factor=factor)
     img_hwc = np.asarray( img_whc )
 
     pairs_line_bb_and_mask = []# [None] * len(polygon_boundaries)
@@ -529,7 +523,7 @@ def line_masks_from_img_json_files( img: str, segmentation_json: str, key='coord
         return line_masks_from_img_segmentation_dict( img_wh, json.load( json_file ), key=key)
 
 
-def line_masks_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dict: dict, polygon_key='coords' ) -> list[tuple[np.ndarray, np.ndarray]]:
+def line_masks_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dict: dict ) -> list[tuple[np.ndarray, np.ndarray]]:
     """From a segmentation dictionary describing polygons, return 
     the bounding box coordinates and the boolean masks.
 
@@ -541,7 +535,7 @@ def line_masks_from_img_segmentation_dict(img_whc: Image.Image, segmentation_dic
         tuple[np.ndarray,np.ndarray]: a pair of tensors: a tensor (N,4) of BB coordinates tuples,
             and a tensor (N,H,W) of page-wide line masks.
     """
-    polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict, polygon_key=polygon_key)
+    polygon_boundaries = line_polygons_from_segmentation_dict( segmentation_dict)
 
     img_hwc = np.asarray( img_whc )
 

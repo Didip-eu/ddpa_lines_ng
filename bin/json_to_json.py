@@ -37,7 +37,6 @@ from libs import seglib
 
 p = {
     'file_paths': FargvPositional(default=[], description="Input file (JSON)."),
-    'polygon_key': 'coords',
     'line_height_factor': (1.0, "Factor to be applied to the original line strip height."),
     'input_suffix': ('.lines.pred.json', "Input file suffix."),
     'output_suffix': ('', "Output file suffix; if empty, write on standard output"),
@@ -102,9 +101,9 @@ if __name__ == '__main__':
 
             # expand polygons
             if args.line_height_factor != 1.0:
-                line_polygons = seglib.line_polygons_from_segmentation_dict( segdict, polygon_key=args.polygon_key, factor=args.line_height_factor )
+                line_polygons = seglib.line_polygons_from_segmentation_dict( segdict, factor=args.line_height_factor )
                 for polyg, line in zip( line_polygons, line_dicts ):
-                    line[args.polygon_key]=polyg
+                    line['coords']=polyg
             # remove transcriptions
             if args.drop_transcription:
                 for line in line_dicts: 

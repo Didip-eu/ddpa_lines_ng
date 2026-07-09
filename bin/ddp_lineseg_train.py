@@ -54,7 +54,6 @@ p = {
     'train_set_limit': (0, "If positive, train on a random sampling of the train set."),
     'validation_set_limit': (0, "If positive, validate on a random sampling of the validation set."),
     'line_segmentation_suffix': ".lines.gt.json",
-    'polygon_key': 'coords',
     'backbone': FargvChoice(['resnet101','resnet50']),
     'lr': 2e-4,
     'img_size': (1024, "Resize the input images to <img_size> * <img_size>; if 'img_height non-null, this determines the width."),
@@ -93,7 +92,6 @@ if __name__ == '__main__':
 
     hyper_params={ varname:v for varname,v in vars(args).items() if varname in (
         'batch_size', 
-        'polygon_key', 
         'backbone',
         'train_set_limit', 
         'validation_set_limit',
@@ -153,8 +151,8 @@ if __name__ == '__main__':
     ds_train, ds_val = None, None
     # Page-wide processing 
     if args.train_style=='page':
-        ds_train = LineDetectionDataset( imgs_train, lbls_train, img_size=hyper_params['img_size'], polygon_key=hyper_params['polygon_key'])
-        ds_val = LineDetectionDataset( imgs_val, lbls_val, img_size=hyper_params['img_size'], polygon_key=hyper_params['polygon_key'] )
+        ds_train = LineDetectionDataset( imgs_train, lbls_train, img_size=hyper_params['img_size'] )
+        ds_val = LineDetectionDataset( imgs_val, lbls_val, img_size=hyper_params['img_size'] )
 
         if args.tormentor:
             aug = build_tormentor_augmentation_for_crop_training( crop_size=hyper_params['img_size'][0], crop_before=True )
