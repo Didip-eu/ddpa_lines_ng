@@ -41,10 +41,10 @@ p = {
     'input_suffix': ('.lines.pred.json', "Input file suffix."),
     'output_suffix': ('', "Output file suffix; if empty, write on standard output"),
     'overwrite_existing': (False, "Overwrite an existing output file."),
-    'drop_transcription': (False, "Extract line transcription, if it exists."),
+    'drop_transcription': (False, "Drap line transcription, if they exist."),
     'promote_regions': (False, "For each region, create one separate file (pre-pend 'r<reg_nbr>' to input suffix."),
     'repair': (False, "Repair a faulty dictionary: re-assign lines to their proper regions; expand regions to include every pixel of the line polygon."),
-    'delete_line_features': ([], "Line items to be removed (used with caution!)"),
+    'delete_line_features': ('', "Line attributes to be removed, as a colon-separated string of keys. E.g. 'x-height:centerline'."),
     "comment": ('',"A text string to be added to the <Comments> elt."),
 }
 
@@ -89,12 +89,12 @@ if __name__ == '__main__':
                 print(f"Existing {output_file_path}: skipping." )
                 continue
 
-            line_dicts = sgf.line_dicts_from_segmentation_dict( segdict )
+            line_dicts = sgf.line_dicts_from_segmentation_dict( segdict, by_reference=True )
 
             # delete unwanted features
             if args.delete_line_features:
                 for line in line_dicts:
-                    for key in args.delete_line_features:
+                    for key in args.delete_line_features.split(':'):
                         if key not in line:
                             continue
                         del line[key]
