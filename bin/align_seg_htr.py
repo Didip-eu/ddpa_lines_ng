@@ -52,9 +52,10 @@ logging.getLogger('PIL').setLevel(logging.INFO)
 
 
 p = {
-        "segfile_paths": FargvPositional(default=[], description="A JSON line segmentation file (e.g <prefix>.lines.pred.json)."),
-        "segfile_suffix": ('.lines.pred.json', "Segmentation file default suffix."),
-        "htr_suffix": ('.xml', "Default suffix for the HTR file; format (ALTO, PAGE, or JSON) is detected automatically."),
+        "segfile_paths": FargvPositional(default=[], description="A list of JSON line segmentation files (e.g <prefix>.lines.pred.json)."),
+        "segfile_suffix": ('.lines.pred.json', "Segmentation file default suffix (unused if HTR file names are supplied through the --htrfile_paths option)."),
+        "htrfile_paths": FargvPositional(default=[], description="A list of Page line segmentation files."),
+        "htr_suffix": ('.xml', "Default suffix for the reference/HTR file; format (ALTO, PAGE, or JSON) is detected automatically"),
         "out": FargvChoice(['','auto'], description="Set to 'auto' for output to filename <input stem>.<output_suffix>; leave empty for standard output."),
         "output_format": FargvChoice(['json','page'], description="Output format: JSON or PageXML"),
         "output_suffix": ('', "If empty, output file's suffix is determined by output format (.json or .xml)"),
@@ -110,10 +111,13 @@ def polynoms_from_lines( lines, domain, window ):
         polynoms.append( Polynomial.fit( *(bl_arr.T), deg=deg, domain=domain, window=window) )
     return polynoms
 
+
 if __name__ == "__main__":
 
-
     format_to_suffix = { sgf.SegFormat.PAGE: '.xml', sgf.SegFormat.ALTO: '.xml', sgf.SegFormat.JSON: '.json' }
+
+    if len(args.segfile_paths) > len(args.htrfile_paths):
+        logger.warning(f"Passed {len(args.segfile_paths)} segmentation files, but only {len(args.htrfile_paths)} HTR files found: missing files will be inferred from configured HTR suffix ({args.htr_suffix})")
 
     for segfile_path in args.segfile_paths:
         segfile_path = Path( segfile_path )
@@ -133,9 +137,13 @@ if __name__ == "__main__":
 
         prediction_dict = json.load(open( segfile_path ))
 
-        reference_file_path = Path( str(segfile_path).replace( args.segfile_suffix, args.htr_suffix)) 
+        # checking the queue first
+        reference_file_path = Path( args.htrfile_paths.pop(0) ) if args.htrfile_paths else Path( str(segfile_path).replace( args.segfile_suffix, args.htr_suffix))
         if not reference_file_path.exists():
-            logger.warning(f"Could not find corresponding HTR file {reference_file_path}: abort.")
+            logger.warning(f"Could not find corresponding HTR file {reference/HTR_file_path}: abort.")
+            continue
+        if reference_file_path == segfile_path:
+            logger.warning(f"Check that --htr_suffix and --segfile_suffix parameters are set correctly: reference/HTR file and segmentation file are identical.")
             continue
 
         reference_dict, _ = sgf.anyseg_to_dict( reference_file_path )
@@ -196,7 +204,7 @@ if __name__ == "__main__":
                 # ensure one-to-one assignment; first cond. discards lines with no text
                 if not m[-1]:
                     logger.warning(f"Discarding pair {m[0],m[1]} (no text)") 
-                    logger.warning(f"text={reference_lines[m[1]]['text']}")
+                    logger.warning(f"text={reference_lines[m[1]]['text']}" if 'text' in reference_lines[m[1]] else "text=None")
                     continue
                 if m[0] not in match_hash and not reference_matched[m[1]]:
                     match_hash[m[0]] = m
