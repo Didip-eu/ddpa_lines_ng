@@ -91,7 +91,7 @@ p = {
     'patch_row_count': ( 0, "Process the image in <patch_row_count> rows."),
     'patch_col_count': ( 0, "Process the image in <patch_col_count> cols."),
     'patch_size': (1024, "Process the image by <patch_size>*<patch_size> patches"),
-    'show': ['polygons', 'centerlines', 'regions', 'labels', 'title'],
+    'show': ['polygons','centerlines','regions','labels','title'],
     'overlay_linewidth': 2,
     'output_file_path': ('', 'If path is a directory, save the plot in <output_file_path>/<img_name_stem>.png.; otherwise, save under the provided file path.'),
     'crop_x': (1.0, "crop-in ratio on resulting plot (x axis, centered)"),
@@ -107,7 +107,7 @@ p = {
 if __name__ == '__main__':
 
     args, _ = fargv.parse( p )
-
+    
     if args.verbosity != 2:
         logging.basicConfig( level=logging_levels[args.verbosity], format=logging_format, force=True )
 
@@ -146,6 +146,7 @@ if __name__ == '__main__':
                     logger.warning("Could not find a segmentation file {}: skipping item;".format( Path(segfile_path)))
                     continue
                 segviz.display_segmentation_and_img( img_path, segfile=segfile_path, show={ k:True for k in args.show if k != 'labels'}, linewidth=args.overlay_linewidth, crop=(args.crop_x, args.crop_y), output_file_path=args.output_file_path, color_count=args.color_count, alpha=args.alpha )
+
                 if args.check_mark == 1:
                     check=input("Check for issue? [N|y]")
                     if check == 'y':

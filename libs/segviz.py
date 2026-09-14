@@ -132,7 +132,6 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
         features = {'polygons': False, 'regions': False, 'baselines': False, 'centerlines': False}
         features.update( show )
 
-
     start = time()
 
     plt.close()
@@ -177,6 +176,7 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
                 # this libs/line_geometry.py routine is ~ 20% slower (ski.draw.polygon seems to do fine on well-behaved segmentation dictionaries)
                 #polygon_mask = polygon_to_mask_pil( img_hwc.shape[:2], np.array(line['coords'])[:,::-1])
                 polygon_mask = ski.draw.polygon( rr, cc )
+
                 try:
                     col_msk_hwc[ polygon_mask ] = (col/255.0)
                     bm_hw[ polygon_mask ] = True
