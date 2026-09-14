@@ -41,7 +41,7 @@ p = {
     'input_suffix': ('.lines.pred.json', "Input file suffix."),
     'output_suffix': ('', "Output file suffix; if empty, write on standard output"),
     'overwrite_existing': (False, "Overwrite an existing output file."),
-    'drop_transcription': (False, "Drap line transcription, if they exist."),
+    'drop_transcription': (False, "Drop line transcription, if they exist."),
     'promote_regions': (False, "For each region, create one separate file (pre-pend 'r<reg_nbr>' to input suffix."),
     'repair': (False, "Repair a faulty dictionary: re-assign lines to their proper regions; expand regions to include every pixel of the line polygon."),
     'delete_line_features': ('', "Line attributes to be removed, as a colon-separated string of keys. E.g. 'x-height:centerline'."),
