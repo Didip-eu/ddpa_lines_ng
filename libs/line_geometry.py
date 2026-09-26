@@ -50,17 +50,13 @@ def post_process( preds: dict, box_threshold=.75, mask_threshold=.6, orig_size=(
     Returns:
          np.ndarray: binary mask (1,H,W)
     """
-    # select masks with best box scores
-    best_masks = [ m.detach().numpy() for m in preds['masks'][preds['scores']>=box_threshold].cpu()]
-    if len(best_masks) < preds['masks'].shape[0]:
-        logger.debug("Selecting masks {} out of {}".format( np.argwhere( preds['scores'].cpu()>=box_threshold ).tolist(), len(preds['scores'])))
-        #pass
-    if not best_masks:
+    best_masks = preds['masks'][preds['scores']>=box_threshold]
+    if best_masks.shape[0] < preds['masks'].shape[0]:
+        logger.debug("Selecting {} masks out of {}".format( best_masks.shape[0], preds['masks'].shape[0]))
+    if best_masks.shape[0] == 0:
         return None
-    # threshold masks
-    masks = [ m * (m >= mask_threshold) for m in best_masks ]
-    # merge masks 
-    page_wide_mask_1hw = np.sum( masks, axis=0 ).astype('bool')
+    # merged on the masks' device: a pixel is set when a mask passes the threshold there with a positive value
+    page_wide_mask_1hw = ((best_masks >= mask_threshold) & (best_masks > 0)).any( dim=0 ).cpu().numpy()
     # optional: scale up masks to the original size of the image
     if orig_size:
         page_wide_mask_1hw = ski.transform.resize( page_wide_mask_1hw, (1, orig_size[1], orig_size[0]))
