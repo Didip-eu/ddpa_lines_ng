@@ -24,6 +24,7 @@ dependencies = [
 	"pillow",
 	"shapely",
 	"scikit-image",
+	"scipy",
 	"tormentor",
 	"segtformats",
 	"shapely",

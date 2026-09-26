@@ -24,6 +24,7 @@ import traceback
 from PIL import Image, ImageDraw
 import skimage as ski
 import numpy as np
+from scipy import ndimage
 import torch
 import torchvision
 import shapely
@@ -129,9 +130,16 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
     labeled_msk_regular_hw = labeled_msk_hw if raw_polygons else np.zeros(labeled_msk_hw.shape, dtype=labeled_msk_hw.dtype)
 
     time_start = time()
+    # bounding slices of the components, widened by one pixel within the image: the contour is found on
+    # that window and shifted back, which gives the same coordinates as on the whole page
+    component_slices = ndimage.find_objects( labeled_msk_hw )
+    height, width = labeled_msk_hw.shape
     for lbl in labels:
         label_start = time()
-        boundaries_nyx = ski.measure.find_contours( labeled_msk_hw == lbl )[0].astype('int')
+        rows, cols = component_slices[lbl - 1]
+        top, left = max(rows.start - 1, 0), max(cols.start - 1, 0)
+        window = labeled_msk_hw[ top:min(rows.stop + 1, height), left:min(cols.stop + 1, width) ] == lbl
+        boundaries_nyx = (ski.measure.find_contours( window )[0] + np.array([top, left])).astype('int')
         # simplifying polygon
         approximate_coords = ski.measure.approximate_polygon( boundaries_nyx, tolerance=contour_tolerance )
         polygon_coords.append( approximate_coords if len(approximate_coords) > 10 else boundaries_nyx )

@@ -3,6 +3,7 @@ matplotlib
 numpy
 pillow
 scikit-image
+scipy
 setuptools
 torch
 torchvision
