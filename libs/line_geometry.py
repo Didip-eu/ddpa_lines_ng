@@ -86,9 +86,9 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
     # label components
     labeled_msk_hw = ski.measure.label( page_wide_mask_1hw[0], connectivity=2 )
     # remove components that do not pass threshold
-    for lbl in range(1, np.max(labeled_msk_hw) + 1):
-        if np.sum( labeled_msk_hw == lbl ) < polygon_area_threshold:
-            labeled_msk_hw *= ~(labeled_msk_hw==lbl)
+    component_areas = np.bincount( labeled_msk_hw.ravel() )
+    small_labels = np.flatnonzero( component_areas < polygon_area_threshold )
+    labeled_msk_hw[ np.isin( labeled_msk_hw, small_labels[ small_labels > 0 ] ) ] = 0
     labels = np.unique( labeled_msk_hw[ labeled_msk_hw > 0 ] )
     if len(labels) == 0:
         #raise Exception("Could not retrieve labels from 1HW binary map".format(__file__))
