@@ -101,7 +101,8 @@ def predict( imgs: list[Union[str,Path,Image.Image,Tensor,np.ndarray]], live_mod
     else:
         imgs, orig_sizes = [ tsf(img).to( device ) for img in imgs ], [ img.shape[:0:-1] for img in imgs ]
         
-    return (imgs, model.net( imgs ), orig_sizes)
+    with torch.inference_mode():
+        return (imgs, model.net( imgs ), orig_sizes)
     
 
 class SegModel():
