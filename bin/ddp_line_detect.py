@@ -18,12 +18,14 @@ Output formats:
 Example calls::
     
     export FSDB_ROOT=~/tmp/data/1000CV
-    PYTHONPATH=. python3 ./bin/ddp_line_detect -img_paths "${FSDB_ROOT}"/*/*/d9ae9ea49832ed79a2238c2d87cd0765/*layout.crops/*OldText*.jpg -model_path best.mlmodel -region_classes Wr:OldText
+    PYTHONPATH=. python3 ./bin/ddp_line_detect --img_paths "${FSDB_ROOT}"/*/*/d9ae9ea49832ed79a2238c2d87cd0765/*layout.crops/*OldText*.jpg --model_path best.mlmodel --region_classes Wr:OldText
 
     # patch-trained model, exporting raw polygons (instead of abstract reconstructions)
-    PYTHONPATH=. python3 ./bin/ddp_line_detect -img_paths "${FSDB_ROOT}"/*/*/d9ae9ea49832ed79a2238c2d87cd0765/*layout.crops/*OldText*.jpg -model_path best.mlmodel -region_classes Wr:OldText -raw_polygons 1
+    PYTHONPATH=. python3 ./bin/ddp_line_detect --img_paths "${FSDB_ROOT}"/*/*/d9ae9ea49832ed79a2238c2d87cd0765/*layout.crops/*OldText*.jpg --model_path best.mlmodel --region_classes Wr:OldText --raw_polygons
 
-TODO:
+Notes:
+
++ GPU can be an issue on very large images---use PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True.
 """
 # stdlib
 import sys
@@ -33,27 +35,23 @@ import re
 import sys
 from datetime import datetime
 import logging
-import itertools
-import shutil
-import math
-import gzip
-from hashlib import md5
 from time import time
 import traceback
 
 # 3rd party
 from PIL import Image, UnidentifiedImageError
-import skimage as ski
 import numpy as np
 
 # Didip
 import fargv
+from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
+from segtformats import segtformats as sgf
 
 # local
 
 src_root = Path(__file__).parents[1]
 sys.path.append( str( src_root ))
-from libs import seglib, list_utils as lu, line_geometry as lgm
+from libs import seglib, line_geometry as lgm
 from libs.train_utils import duration_estimate
 from libs import segmodel as sgm
 
@@ -68,24 +66,26 @@ logging.getLogger('PIL').setLevel(logging.INFO)
 p = {
         "appname": "lines",
         "model_path": str(src_root.joinpath("best.mlmodel")),
-        "img_paths": set([]),
-        "charter_dirs": set([]),
-        "region_classes": [set(["Wr:OldText"]), "Names of the layout-app regions on which lines are to be detected. Eg. '[Wr:OldText']. If empty (default), detection is run on the entire page."],
-        "img_suffix": [r".img.*p*g", "Image file suffix."],
-        "layout_suffix": [".layout.pred.json", "Regions are given by segmentation file that is <img name stem><suffix>."],
-        "line_attributes": [set(["centerline", "x-height"]), "Non-standard line properties to be included in the dictionary."],
-        "output_format": [("json", "xml", "stdout", "quiet"), "Segmentation output: json=<JSON file>, xml=<PageXML file>, stdout=JSON on standard output, quiet=nothing (for testing and timing)"],
-        "output_dir": ['', "Output directory; if not provided, defaults to the image path's parent."],
-        'mask_threshold': [.6, "In the post-processing phase, threshold to use for line soft masks."],
-        'box_threshold': [0.75, "Threshold used for line bounding boxes."],
-        'patch_size': [1024, "Process the image by <patch_size>*<patch_size> patches"],
-        'raw_polygons': [0, "Serialize polygons as resulting from the NN (default); otherwise, construct the abstract polygons from centerlines."],
-        'device': [('cpu','gpu','cuda', 'cuda:0', 'cuda:1', 'cuda:2', 'cuda:3'), "Computing device -- 'cuda' or 'gpu' defaults to 'cuda:0'."],
-        'line_height_factor': [1.5, "Factor (within ]0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"],
-        'overwrite_existing': [1, "Write over existing output file (default)."],
-        'timer': [0, "Aggregate performance metrics. A strictly positive integer <n> computes the mean time for every batch of <n> images."],
-        'timer_logs': ['stdout', "Filename for timer logs."],
-        'verbosity': [2,"Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"],
+        "img_paths": FargvPositional(default=[]),
+        "charter_dirs": [],
+        "region_classes": (["Wr:OldText"], "Names of the layout-app regions on which lines are to be detected. Eg. '[Wr:OldText']. If empty (default), detection is run on the entire page."),
+        "img_suffix": (r".img.*p*g", "Image file suffix."),
+        "layout_suffix": (".layout.pred.json", "Regions are given by segmentation file that is <img name stem><suffix>."),
+        "line_attributes": (["centerline", "x-height"], "Non-standard line properties to be included in the dictionary."),
+        "output_format": FargvChoice(["json", "xml", "quiet"], description="Segmentation output: json=<JSON file>, xml=<PageXML file>, stdout=JSON on standard output, quiet=nothing (for testing and timing)"),
+        'out_file': ('auto', "If empty, output to standard output; otherwise, output to file <out>; set to 'auto' (default) for output to file <output_dir>/<input stem>.<output_suffix>."),
+        "output_dir": ('', "Output directory; if not provided, defaults to the image path's parent."),
+        'mask_threshold': (.6, "In the post-processing phase, threshold to use for line soft masks."),
+        'box_threshold': (0.75, "Threshold used for line bounding boxes."),
+        'apply_model_thresholds': (True, "If true, any threshold passed as parameter overrides model's built-in thresholds."),
+        'patch_size': (1024, "Process the image by <patch_size>*<patch_size> patches"),
+        'raw_polygons': (False, "Serialize polygons as resulting from the NN (default); otherwise, construct the abstract polygons from centerlines."),
+        'device': FargvChoice(['cpu','gpu','cuda', 'cuda:0', 'cuda:1', 'cuda:2', 'cuda:3'], description="Computing device -- 'cuda' or 'gpu' defaults to 'cuda:0'."),
+        'line_height_factor': (1.0, "Factor (within (0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"),
+        'overwrite_existing': (True, "Write over existing output file (default)."),
+        'timer': (0, "Aggregate performance metrics. A strictly positive integer <n> computes the mean time for every batch of <n> images."),
+        'timer_logs': ('stdout', "Filename for timer logs."),
+        'verbosity': (2,"Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"),
 }
 
 
@@ -116,6 +116,7 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, line_att
     segdict = { 'metadata': {'created': str(datetime.now()), 'creator': __file__, }}
     segdict.update( img_metadata )
     segdict['line_height_factor']=line_height_factor
+    logger.debug(segdict)
     segdict['regions']=[]
 
     region_id = 0
@@ -132,7 +133,7 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, line_att
             centroid_ys.append( centroid[0].item() )
             baseline += offset.astype(baseline.dtype)
             centerline += offset.astype(centerline.dtype)
-            dict_line_entry = {'id': f'l{line_id}', 'coords': polygon_coords[:,::-1].astype('int').tolist(), 'baseline': baseline[:,::-1].astype('int').tolist() }
+            dict_line_entry = {'id': f'r{region_id}l{line_id}', 'coords': polygon_coords[:,::-1].astype('int').tolist(), 'baseline': baseline[:,::-1].astype('int').tolist() }
             if 'x-height' in line_attributes:
                 dict_line_entry['x-height']=int(line_height)
             if 'centerline' in line_attributes:
@@ -151,16 +152,16 @@ def build_segdict_composite( img_metadata, boxes, segmentation_records, line_att
     return segdict
 
 
-def pack_fsdb_inputs_outputs( args:dict, segmentation_suffix:str ) -> list[tuple]:
+def pack_fsdb_inputs_outputs( args:dict, layout_suffix:str ) -> list[tuple]:
     """
     Compile image files and/or charter paths in the CLI arguments.
-    No existence check on the dependency (segmentation path).
+    No existence check on the dependency (layout segmentation path).
 
     Args:
         dict: the parsed arguments.
-        segmentation_suffix (str): suffix of the expected segmentation file.
+        layout_suffix (str): suffix of the expected layout segmentation file.
     Returns:
-        list[tuple]: a list of triplets (<img file path>, <segmentation file path>, <output file path>)
+        list[tuple]: a list of triplets (<img file path>, <layout file path>, <output file path>)
     """
     all_img_paths = set([ Path(p) for p in args.img_paths ])
 
@@ -172,16 +173,23 @@ def pack_fsdb_inputs_outputs( args:dict, segmentation_suffix:str ) -> list[tuple
     path_triplets = []
     for img_path in all_img_paths:
         img_stem = re.sub(r'{}$'.format( args.img_suffix), '', img_path.name )
-        segfile_path = Path( re.sub(r'{}$'.format( args.img_suffix), segmentation_suffix, str(img_path) ))
-        output_dir = img_path.parent if not args.output_dir else Path(args.output_dir)
-        path_triplets.append( ( img_path, segfile_path, output_dir.joinpath( f'{img_stem}.{args.appname}.pred.{args.output_format}')))
+        layout_path = Path( re.sub(r'{}$'.format( args.img_suffix), layout_suffix, str(img_path) ))
+        if layout_path == img_path:
+            raise FileNotFoundError( "Layout segmentation file {} cannot be identical to image path: check that the -img_suffix has been set correctly (suggestion: -img_suffix '{}')".format(layout_path, re.sub(r'^[^.]+(\..+)$', r'\1', img_path.name)))
+        if args.out_file == 'auto':
+            output_dir = img_path.parent if not args.output_dir else Path(args.output_dir)
+            path_triplets.append( ( img_path, layout_path, output_dir.joinpath( f'{img_stem}.{args.appname}.pred.{args.output_format}')))
+        elif args.out_file:
+            path_triplets.append( ( img_path, layout_path, Path(out_file)))
+        else:
+            path_triplets.append( ( img_path, layout_path, None ))
     #return path_triplets
     return sorted( path_triplets, key=lambda x: str(x))
 
 
 if __name__ == "__main__":
 
-    args, _ = fargv.fargv( p )
+    args, _ = fargv.parse( p )
 
     if args.verbosity != 2:
         logging.basicConfig( level=logging_levels[args.verbosity], format=logging_format, force=True )
@@ -193,7 +201,11 @@ if __name__ == "__main__":
     if not Path( args.model_path ).exists():
         raise FileNotFoundError(args.model_path)
 
-    thresholds = lgm.thresholds_from_model( args.model_path, {'mask_threshold': args.mask_threshold, 'box_threshold': args.box_threshold } )
+    thresholds = {'mask_threshold': args.mask_threshold, 'box_threshold': args.box_threshold }
+    if args.apply_model_thresholds:
+        thresholds = lgm.thresholds_from_model( args.model_path, thresholds )
+    logger.debug(f"Thresholds = {thresholds}")
+
     live_model = sgm.SegModel.load( args.model_path ) 
 
     if args.raw_polygons and args.line_height_factor != 1.0:
@@ -220,7 +232,8 @@ if __name__ == "__main__":
     charter_iterator = pack_fsdb_inputs_outputs( args, args.layout_suffix )
     for img_idx, img_triplet in enumerate( charter_iterator ):
         img_path, layout_file_path, output_file_path = img_triplet
-        logger.debug( "File path={}, output path={}".format( img_path, output_file_path))
+        logger.info(f"image_path={img_path}")
+        logger.debug( "layout_path={}, output path={}".format(layout_file_path, output_file_path))
         if not args.overwrite_existing and output_file_path.exists():
             logger.debug("File {} exists: skipped.".format( output_file_path ))
             continue
@@ -230,49 +243,77 @@ if __name__ == "__main__":
                 img_metadata = { 'image_filename': str(img_path.name), 'image_width': img.size[0], 'image_height': img.size[1] }
                 binary_mask, segdict = None, {}
 
+                # Find layout data (=text regions)
                 if not layout_file_path.exists():
                     logger.warning("{}\tCould not find layout segmentation file {}. Skipping item.".format( img_path, layout_file_path.name ))
                     continue
                 
                 with open(layout_file_path, 'r') as regseg_if:
-                    regseg = json.load( regseg_if )
-                    # extract crops from layout analysis file
-                    layout_data = seglib.layout_regseg_to_crops( img, regseg, args.region_classes )
+                    layout_data = tuple()
+
+                    segformat = sgf.get_format( layout_file_path )
+
+                    # Case 1: DiDip-style segmentation dictionary, from Page or JSON
+                    segdict = sgf.segmentation_dict_from_page_xml( layout_file_path ) if segformat == sgf.SegFormat.PAGE else json.load( regseg_if )
+                    if segformat in [ sgf.SegFormat.PAGE, sgf.SegFormat.JSON ]:
+                    #if str(layout_file_path)[-4:]=='.xml':
+                        logger.warning("Extracting text regions from file {}".format( layout_file_path ))
+                        layout_data = seglib.crops_from_segdict( img, segdict, force_rgb=True, ignore_empty_regions=True)
+                    # Case 2: extract crops from YOLO layout analysis file
+                    else:
+                        layout_data = seglib.layout_regseg_to_crops( img, segdict, args.region_classes, force_rgb=True )
                     if not layout_data:
-                        logger.warning("Could not find region with name in {} in the layout segmentation file {}. Skipping item.".format( args.region_classes, layout_file_path ))
+                        logger.warning("Could not find relevant region in the layout segmentation file {}. Skipping item.".format( layout_file_path ))
                         continue
-                    crops_pil, boxes, classes = seglib.layout_regseg_to_crops( img, regseg, args.region_classes, force_rgb=True )
+                    crops_pil, boxes, _ = layout_data 
+                    logger.debug(crops_pil, boxes)
 
                     binary_masks = []
                     for crop_idx, crop_whc in enumerate(crops_pil):
+                        logger.debug(f"Processing crop #{crop_idx}")
                         binary_mask = None
                         # Inference from fixed-size patches
                         patch_size = check_patch_size_against_model( live_model, args.patch_size )
-                        binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=thresholds['mask_threshold'], box_threshold=thresholds['box_threshold'], device=computing_device)
-                        if binary_mask is None:
-                            logger.warning("{}\tNo line mask found in crop {}: skipping item.".format( img_path, crop_idx ))
-                            continue
+                        try:
+                            binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=thresholds['mask_threshold'], box_threshold=thresholds['box_threshold'], device=computing_device)
+                            if binary_mask is None:
+                                logger.warning("{}\tNo line mask found in crop {}: skipping item.".format( img_path, crop_idx ))
+                                continue
+                        except RuntimeError as e:
+                            logger.warning(e)
+                            logger.warning("→ falling back to CPU")
+                            binary_mask = lgm.binary_mask_from_fixed_patches( crop_whc, patch_size=patch_size, model=live_model, mask_threshold=thresholds['mask_threshold'], box_threshold=thresholds['box_threshold'], device='cpu')
                         binary_masks.append( binary_mask )
                     try:
                         # Post-processing: pixel maps → lines & polygons
                         segmentation_records = [ lgm.get_morphology( msk, raw_polygons=args.raw_polygons, height_factor=args.line_height_factor ) for msk in binary_masks ]
-                        segdict = build_segdict_composite( img_metadata, boxes, segmentation_records, args.line_attributes ) 
-                    except (TypeError,ValueError) as e:
+                        keep = [ i for i in range(len(segmentation_records)) if segmentation_records[i] is not None ]
+                        if len(keep) != len(segmentation_records):
+                            logger.warning("No valid segmentation record for regions {}.".format( set(range(len(segmentation_records)))-set(keep)))
+                        if not keep:
+                            continue
+                        boxes = [ b for i,b in enumerate(boxes) if i in keep ]
+                        segmentation_records = [ sr for i,sr in enumerate(segmentation_records) if i in keep ]
+                        segdict = build_segdict_composite( img_metadata, boxes, segmentation_records, args.line_attributes, line_height_factor=args.line_height_factor ) 
+                    except (TypeError, ValueError) as e:
                         logger.warning("{}\tFailed to polygonize line masks ({}): abort segmentation.".format( img_path, e ))
                         continue
 
                 ############ Output #################
 
-                if args.output_format == 'stdout':
+                sentinel_path = output_file_path.with_suffix('.stl') if output_file_path else None# protect against partial writes
+                if not args.out_file: 
                     print(json.dumps(segdict))
-                elif not output_file_path.exists() or args.overwrite_existing:
+                elif args.overwrite_existing or not output_file_path.exists() or (sentinel_path and sentinel_path.exists()):
+                    open( sentinel_path, 'w' )
                     if args.output_format == 'json':
                         with open(output_file_path, 'w') as of:
                             #segdict['image_wh']=img.size
                             of.write(json.dumps( segdict, indent=4 ))
                     elif args.output_format == 'xml':
                         #segdict['image_wh']=img.size
-                        seglib.xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
+                        sgf.page_xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
+                    sentinel_path.unlink()
                     if args.output_format != 'quiet':
                         logger.debug("Segmentation output saved in {}".format( output_file_path ))
 

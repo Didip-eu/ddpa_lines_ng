@@ -6,9 +6,9 @@ Usage:
 
 ```
 # generate training and validation sets, with 6 patches out of every source image
-PYTHONPATH=. ./bin/ddp_generate_cached_datasets.py -img_paths dataset/*.img.jpg -repeat 6
+PYTHONPATH=. ./bin/ddp_generate_cached_datasets.py --img_paths dataset/*.img.jpg --repeat 6
 # generate only validation set
-PYTHONPATH=. ./bin/ddp_generate_cached_datasets.py -img_paths dataset/*.img.jpg -repeat 6 -subsets val
+PYTHONPATH=. ./bin/ddp_generate_cached_datasets.py --img_paths dataset/*.img.jpg --repeat 6 --subsets val
 ```
 
 """
@@ -17,12 +17,14 @@ import tormentor
 import math
 from pathlib import Path
 import sys
-import fargv
 import random
 import hashlib
 
 import torch
 import matplotlib.pyplot as plt
+
+import fargv
+from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
 
 sys.path.append( str(Path(__file__).parents[1] ))
 
@@ -32,22 +34,21 @@ from libs.train_utils import split_set
 
 
 p = {
-        'img_paths': set(list(Path("dataset").glob('*.img.jpg'))),
-        'repeat': [1, "Number of patch samples to generate from one image."],
+        'img_paths': FargvPositional(default=list(Path("dataset").glob('*.img.jpg'))),
+        'repeat': (1, "Number of patch samples to generate from one image."),
         'img_size': 1024,
-        'subsets': set(['train', 'val']),
+        'subsets': ['train', 'val'],
         'log_tsv': True,
         'dummy': False,
         'img_suffix': '.img.jpg',
         'lbl_suffix': '.lines.gt.json',
-        'device': [('cpu', 'cuda'), "Computing device"],
-        'visual_check': [False, "Dry-run: no serialization + visual check of transformed samples."],
-        'aug_style': [0, "Augmentation style"],
+        'device': FargvChoice(default=['cpu', 'cuda', 'cuda:0', 'cuda:1', 'cuda:2', 'cuda:3'], description="Computing device"),
+        'visual_check': (False, "Dry-run: no serialization + visual check of transformed samples."),
+        'aug_style': (0, "Augmentation style"),
 }
 
 
-args, _ = fargv.fargv( p )
-
+args, _ = fargv.parse( p )
 
 random.seed(46)
 imgs = list([ Path( ip ) for ip in args.img_paths ])
@@ -66,7 +67,7 @@ if args.log_tsv:
                 tsv.write('{}\t{}\n'.format(path.name, path.name.replace(args.img_suffix, args.lbl_suffix)))
 
 # for training, Torment at will (normalization applied by encapsulating AugmentedDS class)
-ds_train = lsgds.LineDetectionDataset( imgs_train, lbls_train, min_size=args.img_size, polygon_key='coords', normalize=False)
+ds_train = lsgds.LineDetectionDataset( imgs_train, lbls_train, min_size=args.img_size, normalize=False)
 aug = tsf.build_tormentor_augmentation_for_crop_training( crop_size=args.img_size, crop_before=False, style_idx=args.aug_style )
 ds_aug = tormentor.AugmentedDs( ds_train, aug, computation_device=args.device, augment_sample_function=lsgds.LineDetectionDataset.augment_with_bboxes )
 
@@ -100,7 +101,7 @@ if 'train' in args.subsets:
     ds_train_cached.serialize( subdir=f'{cache_path}/train', repeat=args.repeat)
 
 # for validation and test, only crops
-ds_val = lsgds.LineDetectionDataset( imgs_val, lbls_val, min_size=args.img_size, polygon_key='coords', normalize=False)
+ds_val = lsgds.LineDetectionDataset( imgs_val, lbls_val, min_size=args.img_size, normalize=False)
 augCropCenter = tormentor.RandomCropTo.new_size( args.img_size, args.img_size )
 augCropLeft = tormentor.RandomCropTo.new_size( args.img_size, args.img_size ).override_distributions( center_x=tormentor.Uniform((0, .6)))
 augCropRight = tormentor.RandomCropTo.new_size( args.img_size, args.img_size ).override_distributions( center_x=tormentor.Uniform((.4, 1)))
@@ -111,7 +112,7 @@ if 'val' in args.subsets:
     ds_val_cached = lsgds.CachedDataset( data_source = ds_val )
     ds_val_cached.serialize( subdir=f'{cache_path}/val', repeat=args.repeat)
 
-ds_test = lsgds.LineDetectionDataset( imgs_test, lbls_test, min_size=args.img_size, polygon_key='coords')
+ds_test = lsgds.LineDetectionDataset( imgs_test, lbls_test, min_size=args.img_size )
 ds_test = tormentor.AugmentedDs( ds_test, aug, computation_device=args.device, augment_sample_function=lsgds.LineDetectionDataset.augment_with_bboxes )
 
 if 'test' in args.subsets:

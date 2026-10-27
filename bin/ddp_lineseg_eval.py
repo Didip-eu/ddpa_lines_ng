@@ -33,6 +33,7 @@ from tqdm.auto import tqdm
 
 # DiDip
 import fargv
+from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
 
 # local
 src_root = Path(__file__).parents[1]
@@ -50,33 +51,33 @@ logging.getLogger('PIL').setLevel(logging.INFO)
 
 p = {
     'model_path': str(src_root.joinpath("best.mlmodel")),
-    'mask_threshold': [0.25, "Threshold used for line masks--a tweak on the post-processing phase."],
-    'box_threshold': [0.8, "Threshold used for line bounding boxes."],
-    'thresholds_from_model': [0, "If true, try to read the threshold values from the model dictionary."],
-    'rescale': [0, "If True, display segmentation on original image; otherwise (default), get the image size from the model used for inference (ex. 1024 x 1024)."],
-    'img_paths': set([]),
-    'limit': [0, "How many files to display."],
-    'random': [0, "If non-null, randomly pick <random> paths out of the <img_paths> list."],
-    'segfile_suffix': ['', "If a line segmentation suffix is provided (ex. 'lines.pred.json'), predicted lines are read from <img_path>.<suffix>."],
-    'segfile': ['', "If a line segmentation file is provided, predicted lines are read from this file."],
-    'patch_row_count': [ 0, "Process the image in <patch_row_count> rows."],
-    'patch_col_count': [ 0, "Process the image in <patch_col_count> cols."],
-    'patch_size': [0, "Process the image by <patch_size>*<patch_size> patches"],
+    'mask_threshold': (0.25, "Threshold used for line masks--a tweak on the post-processing phase."),
+    'box_threshold': (0.8, "Threshold used for line bounding boxes."),
+    'thresholds_from_model': (False, "If true, try to read the threshold values from the model dictionary."),
+    'rescale': (False, "If True, display segmentation on original image; otherwise (default), get the image size from the model used for inference (ex. 1024 x 1024)."),
+    'img_paths': FargvPositional(default=[]),
+    'limit': (0, "How many files to display."),
+    'random': (0, "If non-null, randomly pick <random> paths out of the <img_paths> list."),
+    'segfile_suffix': ('', "If a line segmentation suffix is provided (ex. 'lines.pred.json'), predicted lines are read from <img_path>.<suffix>."),
+    'segfile': ('', "If a line segmentation file is provided, predicted lines are read from this file."),
+    'patch_row_count': ( 0, "Process the image in <patch_row_count> rows."),
+    'patch_col_count': ( 0, "Process the image in <patch_col_count> cols."),
+    'patch_size': (0, "Process the image by <patch_size>*<patch_size> patches"),
     'icdar_threshold': 0.75,
-    'foreground_only': [0, "Evaluate on foreground pixels only."],
-    'output_file_name': ['',"Output file name; if prefixed with '>>', append to an existing file."],
-    'save_file_scores': [1, "Save the detailed, per-file scores."],
-    'file_scores_prefix': ['file_scores', "String to be prepended to the per-file scores file (the suffix is made of the box- and mask thresholds."],
-    'cache_predictions': [1, "Cache prediction tensors for faster, repeated calls with various post-processing optiosn."],
-    'output_root_dir': ['/tmp', "Where to save the cached predictions."],
-    'method': [ ('icdar2017', 'iou'), "Evaluation method: 'icdar2017' checks both prec. and rec. separately for find TPs; 'iou' checks best IoU."],
-    'device': [('cpu','gpu','cuda', 'cuda:0', 'cuda:1', 'cuda:2', 'cuda:3'), "Computing device -- 'cuda' or 'gpu' defaults to 'cuda:0'."],
+    'foreground_only': (0, "Evaluate on foreground pixels only."),
+    'output_file_name': ('',"Output file name; if prefixed with '>>', append to an existing file."),
+    'save_file_scores': (1, "Save the detailed, per-file scores."),
+    'file_scores_prefix': ('file_scores', "String to be prepended to the per-file scores file (the suffix is made of the box- and mask thresholds."),
+    'cache_predictions': (1, "Cache prediction tensors for faster, repeated calls with various post-processing optiosn."),
+    'output_root_dir': ('/tmp', "Where to save the cached predictions."),
+    'method': ( ('icdar2017', 'iou'), "Evaluation method: 'icdar2017' checks both prec. and rec. separately for find TPs; 'iou' checks best IoU."),
+    'device': FargvChoice(['cpu','gpu','cuda', 'cuda:0', 'cuda:1', 'cuda:2', 'cuda:3'], description="Computing device -- 'cuda' or 'gpu' defaults to 'cuda:0'."),
 }
 
 
 if __name__ == '__main__':
 
-    args, _ = fargv.fargv(p)
+    args, _ = fargv.parse(p)
     logger.debug( args )
 
     # Using cached predictions: raw prediction tensors (as given by Mask-RCNN before preprocessing) are 

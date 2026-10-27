@@ -27,7 +27,6 @@ Remarks:
 
 + `ddp_lineseg_viewer.py` - reading an existing segmentation file:
 
-
   ```sh
   PYTHONPATH=. python3 ./bin/ddp_lineseg_viewer.py -img_paths data/examples/0042453de0344b72519e093c7b20d593.img.jpg -segfile_suffix .lines.pred.json
   ```
@@ -48,39 +47,57 @@ Remarks:
 Patch-based training for Mask-RCNN (with training set automatically built out of the provided image paths):
 
 ```sh
-PYTHONPATH=. python3 ./bin/ddp_lineseg_train.py -img_paths dataset/*.jpg -img_size 1024 -batch_size 4 -train_style patch
+PYTHONPATH=. python3 ./bin/ddp_lineseg_train.py --img_paths dataset/*.jpg --img_size 1024 --batch_size 4 --train_style patch
 ```
 
 Same, using cached samples (useful for Tormentor-augmented patches):
 
 ```sh
-PYTHONPATH=. python3 ./bin/ddp_lineseg_train.py -batch_size 4 -train_style patch -cached_dir dataset/cached
+PYTHONPATH=. python3 ./bin/ddp_lineseg_train.py --batch_size 4 --train_style patch --cached_dir dataset/cached
 ```
 
 Training on page-wide samples (legacy only):
 
 ```sh
-PYTHONPATH=. python3 ./bin/ddp_lineseg.py -img_paths dataset/*.jpg -max_epoch 400 -patience 50 -img_size 1024 -backbone resnet101 -batch_size 4
+PYTHONPATH=. python3 ./bin/ddp_lineseg.py --img_paths dataset/*.jpg --max_epoch 400 --patience 50 --img_size 1024 --batch_size 4
 ```
 
 
 Validate (with validation set automatically built out of the provided image paths):
 
 ```sh
-PYTHONPATH=. python3 ./bin/ddp_lineseg.py -mode validate -img_paths dataset/*.jpg
+PYTHONPATH=. python3 ./bin/ddp_lineseg.py --mode validate --img_paths dataset/*.jpg
 ```
 
 
 ## 4. Associated utilities
 
+Format-handling utilities for conversion between ALTO, PAGE, and JSON are now provided by a separate, standalone package [segtformats](https://github.com/nicolasrenet/segtformats).
+
 Some scripts are essentially for internal use and auxiliary tasks (data transformations, dataset caching etc.):
 
-+ `line_detect_dev.py`: an inference script, with both legacy and experimental features, for development purpose (do _not_ use in production).
-+ `json_to_xml.py`: JSON →  PageXML conversion.
-+ `xml_to_json.py`: PageXML →  JSON conversion.
+<!--+ `line_detect_dev.py`: an inference script, with both legacy and experimental features, for development purpose (do _not_ use in production).-->
++ `line_detect_test.py`: an inference script for evaluation purpose, when running experiments--it runs on arbitrary single image-as-a-region paths (i.e.: neither FSDB nor a layout file required).
 + `json_to_json.py`: JSON → JSON conversion: polygon scaling and other additions.
 + `generate_cached_datasets.py`: from an img+label dataset, generate augmented patches and serialize them as Torch tensors.
 + `binarize_images.py`: easy binarization of images into Numpy binary masks.
+
+Of particular interest when **aggregating heterogeneous datasets**: 
+
++ `align_seg_htr.py`: alignment of third-party HTR GT data with lines detected on the same image by this segmenter. A typical workflow for combining our tool's output with an existing HTR corpus:
+
+  ```bash
+  pip install segtformats
+  export PYTHONPATH=.
+  # 1. Preprocess 3rd-party GT files, to ensure metadata consistency 
+  python3 -m segtformats.anyseg_doctor --repair --output_format page --output_suffix .htr.xml --file_paths *.xml
+  # 2. Detect lines, using layout information obtained in step 1
+  ./bin/ddp_line_detect.py --img_paths *.jpg --img_suffix .jpg --layout_suffix .htr.xml 
+  # 3. Merge detected lines with their 3rd-party HTR counterpart (as obtained from step 1)
+  ./bin/align_seg_htr.py --segfile_paths *.lines.pred.json --htr_suffix .htr.xml --output_suffix .lines.gt.json 
+  ```
+
+
 
 
 

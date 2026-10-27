@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""
+Given line prediction file (JSON) and an inherited HTR GT (PageXML or JSON),
+compute an alignment of predicted lines with the corresponding HTR strings.
+
+Example:
+
+```
+$ align_seg_htr.py U-17_0728_r.lines.pred.json 
+```
+
+Output format is either JSON or PageXML.
+Rules and assumptions:
+
++ inherited (PageXML) segmentation must be valid (no partial or invalid polygons, f.i.)
++ polygons are matched by finding pairs whose baseline 
+    - quadratic fits are closest
+    - baseline length close (+/- 10%)
+```
+
+TODO:
+
++ Remove pairings that duplicate reference lines
+
+"""
+
+
+import sys
+from pathlib import Path
+import json
+import re
+
+import numpy as np
+from numpy.polynomial import Polynomial, polynomial
+import matplotlib.pyplot as plt
+import fargv
+from fargv import FargvChoice, FargvPositional
+from segtformats import segtformats as sgf
+
+from libs import seglib
+import warnings 
+#warnings.simplefilter('ignore', np.exceptions.RankWarning)
+
+import logging
+
+logging_format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s"
+logging_levels = {0: logging.ERROR, 1: logging.WARNING, 2: logging.INFO, 3: logging.DEBUG }
+logging.basicConfig( level=logging.INFO, format=logging_format, force=True )
+logger = logging.getLogger(__name__)
+
+logging.getLogger('PIL').setLevel(logging.INFO)
+
+
+p = {
+        "segfile_paths": FargvPositional(default=[], description="A list of JSON line segmentation files (e.g <prefix>.lines.pred.json)."),
+        "segfile_suffix": ('.lines.pred.json', "Segmentation file default suffix (unused if HTR file names are supplied through the --htrfile_paths option)."),
+        "htrfile_paths": FargvPositional(default=[], description="A list of Page line segmentation files."),
+        "htr_suffix": ('.xml', "Default suffix for the reference/HTR file; format (ALTO, PAGE, or JSON) is detected automatically"),
+        "out": FargvChoice(['','auto'], description="Set to 'auto' for output to filename <input stem>.<output_suffix>; leave empty for standard output."),
+        "output_format": FargvChoice(['json','page'], description="Output format: JSON or PageXML"),
+        "output_suffix": ('', "If empty, output file's suffix is determined by output format (.json or .xml)"),
+        "overwrite_existing": (False, "Do not overwrite existing output file"),
+        "verbosity": (2, "Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"),
+        "iou_tolerance": (.15, "Tolerance for IoU of length of matching baselines."),
+        'visual_check': (False, "Plot baseline estimate for visual checking."),
+        "keep_all_predictions": (False, "Keep predicted lines with no reference match."),
+    }
+
+args_orig = sys.argv.copy() # keep for logging
+args, _ = fargv.parse( p )
+if args.verbosity != 2:
+    logging.basicConfig( level=logging_levels[args.verbosity], format=logging_format, force=True )
+
+    
+def iou( box1: np.ndarray, box2: np.ndarray ):
+    x1 = max(box1[0], box2[0])
+    y1 = max(box1[1], box2[1])
+    x2 = min(box1[2], box2[2])
+    y2 = min(box1[3], box2[3])
+    interArea = max(0, x2 - x1 + 1) * max(0, y2 - y1 + 1)
+    box1Area = (box1[2] - box1[0] + 1) * (box1[3] - box1[1] + 1)
+    box2Area = (box2[2] - box2[0] + 1) * (box2[3] - box2[1] + 1)
+    iou = interArea / float(box1Area + box2Area - interArea)
+    return iou
+
+def plot_polynoms( set1_l2n: np.ndarray, set2_l2n: np.ndarray, labels=('predicted', 'reference') ):
+    """
+    Args:
+        set1_l2n (np.ndarray): (L,2,N) array of function values
+        set2_l2n (np.ndarray): (L,2,N) array of function values
+    """
+    plt.close()
+    fig, ax = plt.subplots()
+    ax.plot( *(set1_l2n[0]), color='red', label=labels[0])
+    ax.plot( *(set2_l2n[0]), color='green', label=labels[1])
+    ax.yaxis.set_inverted(True)
+    for l in set1_l2n[1:]:
+        ax.plot( *l, color='red')
+    for l in set2_l2n[1:]:
+        ax.plot( *l, color='green')
+    ax.legend()
+    plt.show()
+
+
+def polynoms_from_lines( lines, domain, window ):
+    polynoms = []
+    for l in lines:
+        bl_arr = np.array(l['baseline'])
+        domain = bl_arr[[0,-1],0]
+        deg = 1 if len(bl_arr)<4 else 2
+        polynoms.append( Polynomial.fit( *(bl_arr.T), deg=deg, domain=domain, window=window) )
+    return polynoms
+
+
+if __name__ == "__main__":
+
+    format_to_suffix = { sgf.SegFormat.PAGE: '.xml', sgf.SegFormat.ALTO: '.xml', sgf.SegFormat.JSON: '.json' }
+
+    if len(args.segfile_paths) > len(args.htrfile_paths):
+        logger.warning(f"Passed {len(args.segfile_paths)} segmentation files, but only {len(args.htrfile_paths)} HTR files found: missing files will be inferred from configured HTR suffix ({args.htr_suffix})")
+
+    for segfile_path in args.segfile_paths:
+        segfile_path = Path( segfile_path )
+        
+        output_format = None
+        if args.output_format == 'page':
+            output_format = sgf.SegFormat.PAGE
+        elif args.output_format == 'json':
+            output_format = sgf.SegFormat.JSON
+        output_suffix = args.output_suffix if args.output_suffix else format_to_suffix[ output_format ]
+        output_file_path = Path( str(segfile_path).replace( args.segfile_suffix, args.output_suffix )) if args.out else None
+        logger.info( "{} → {}".format(segfile_path, output_file_path if output_file_path else 'stdout'))
+
+        if output_file_path and not args.overwrite_existing and output_file_path.exists():
+            logger.info(f"Existing {output_file_path}: skipping." )
+            continue
+
+        prediction_dict = json.load(open( segfile_path ))
+
+        # checking the queue first
+        reference_file_path = Path( args.htrfile_paths.pop(0) ) if args.htrfile_paths else Path( str(segfile_path).replace( args.segfile_suffix, args.htr_suffix))
+        if not reference_file_path.exists():
+            logger.warning(f"Could not find corresponding HTR file {reference/HTR_file_path}: abort.")
+            continue
+        if reference_file_path == segfile_path:
+            logger.warning(f"Check that --htr_suffix and --segfile_suffix parameters are set correctly: reference/HTR file and segmentation file are identical.")
+            continue
+
+        reference_dict, _ = sgf.anyseg_to_dict( reference_file_path )
+        if not reference_dict:
+            logger.warning(f"Could not parse a valid segmentation dictionary from {reference_file_path}: abort.")
+            continue
+
+        # 1. Match regions
+        pred_reg_to_ref_reg = []
+        for r1 in prediction_dict['regions']:
+            for r2 in reference_dict['regions']:
+                box1 = np.array( r1['coords'][0]+r1['coords'][2] )
+                box2 = np.array( r2['coords'][0]+r2['coords'][2] )
+                if iou( box1, box2 ) > .85:
+                    pred_reg_to_ref_reg.append( r2 )
+                    break
+
+        # 2. For each region: match lines
+
+        for pred_reg_idx, ref_reg in enumerate(pred_reg_to_ref_reg):
+            logger.debug(f"Processing region {pred_reg_idx}")
+            domain=prediction_dict['regions'][pred_reg_idx]['coords'][0][0], prediction_dict['regions'][pred_reg_idx]['coords'][2][0]
+            window=prediction_dict['regions'][pred_reg_idx]['coords'][0][1], prediction_dict['regions'][pred_reg_idx]['coords'][2][1]
+
+            predicted_lines = prediction_dict['regions'][pred_reg_idx]['lines'] 
+            reference_lines = pred_reg_to_ref_reg[pred_reg_idx]['lines']
+
+            if not predicted_lines or not reference_lines:
+                logger.info("Either the reference or the prediction has no line for this region: skipping.")
+                continue
+
+            predicted_polynomials = polynoms_from_lines( predicted_lines, domain, window )
+            reference_polynomials = polynoms_from_lines( reference_lines, domain, window )
+
+            matches = []
+
+            predicted_polynom_points = np.stack([ p.linspace(5) for p in predicted_polynomials ])
+            reference_polynom_points = np.stack([ p.linspace(5) for p in reference_polynomials ])
+
+            if args.visual_check:
+                plot_polynoms( predicted_polynom_points, reference_polynom_points )
+
+            for p,ppn in enumerate(predicted_polynomials):
+                for r,rpn in enumerate(reference_polynomials):
+                    length_p, length_r = [ l['baseline'][-1][0]-l['baseline'][0][0] for l in (predicted_lines[p], reference_lines[r]) ]
+                    text = reference_lines[r]['text'] if 'text' in reference_lines[r] else ''
+                    score = ((predicted_polynom_points[p][1] - reference_polynom_points[r][1])**2).sum()
+                    matches.append((p, r, length_p, length_r, score, text ))
+
+            # keeping best <predicted number> matches, minus the ill-fitting ones (insufficient overlap)
+            matches = [ m for m in sorted( matches, key=lambda x: x[4])[:len(predicted_polynomials)] if abs((m[2] - m[3])/m[2]) <= args.iou_tolerance]
+            logger.debug(f"{len(matches)} matches.")
+            #for m in sorted(matches,key=lambda x: x[0]):
+            #    logger.debug(m)
+            match_hash = {}
+            reference_matched = [False for r in range(len(reference_lines))]
+            for m in sorted( matches, key=lambda x: x[0]):
+                # ensure one-to-one assignment; first cond. discards lines with no text
+                if not m[-1]:
+                    logger.warning(f"Discarding pair {m[0],m[1]} (no text)") 
+                    logger.warning(f"text={reference_lines[m[1]]['text']}" if 'text' in reference_lines[m[1]] else "text=None")
+                    continue
+                if m[0] not in match_hash and not reference_matched[m[1]]:
+                    match_hash[m[0]] = m
+                    reference_matched[m[1]]=True
+            for k,m in match_hash.items():
+                logger.debug(f"{m}")
+
+            # check that no given reference line is assigned to 2 predicted lines
+            assigned_reference_lines = set([ m[1] for m in match_hash.values() ])
+            if len(assigned_reference_lines) != len( match_hash.keys()):
+                logger.info("Assignment is not one to one! Skipping region.")
+                # pairs that duplicate a reference line (eg. U-17_0169_r, U-17_0202_r...)
+                # should not exist at this point
+                continue
+            # cases to handle:
+            # - a predicted line has no counterpart in the original
+            predicted_orphans = set( range(len( predicted_lines))) - set( match_hash.keys() )
+            if predicted_orphans:
+                logger.warning(f"Predicted lines {predicted_orphans} have no match!")
+            # - a reference line has no counterpart in the prediction
+            reference_orphans = set( range( len( reference_lines ))) - assigned_reference_lines
+            if reference_orphans:
+                logger.warning(f"Reference lines {reference_orphans} have no match!")
+            
+            for m in match_hash.values():
+                pred_lidx, ref_lidx, length_p , length_r, _, text= m
+                #logger.debug("{} {} {} {} {}".format(pred_lidx, ref_lidx, text[:100], length_p, length_r))
+                predicted_lines[pred_lidx]['text']=ref_reg['lines'][ref_lidx]['text']
+            if not args.keep_all_predictions:
+                prediction_dict['regions'][pred_reg_idx]['lines']=[ l for i,l in enumerate(predicted_lines) if i in match_hash.keys() ]
+
+        cli_args = ' '.join(args_orig[1:])
+        abbr_args = re.sub( r'--segfile_paths( +[^\- ][^ ]+)+ +-', f'--segfile_paths {segfile_path} -', cli_args)
+        prediction_dict['metadata']['comment']=f"Created by command: {Path(args_orig[0]).name + abbr_args} (input PageXML: {reference_file_path.name})."
+
+        if output_format == sgf.SegFormat.JSON:
+            if not output_file_path:
+                print(json.dumps( prediction_dict ))
+            else:
+                with open( output_file_path, 'w') as of:
+                    of.write( json.dumps( prediction_dict, indent=2 ))
+                logger.info(f"Written {output_file_path}.")
+        elif output_format == sgf.SegFormat.PAGE:
+                sgf.page_xml_from_segmentation_dict( prediction_dict, output_file=output_file_path )
+                if args.out:
+                    logger.info(f"Written {output_file_path}.")
+
+
+

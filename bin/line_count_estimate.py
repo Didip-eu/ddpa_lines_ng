@@ -27,6 +27,7 @@ import numpy as np
 
 # Didip
 import fargv
+from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
 
 # local
 
@@ -47,14 +48,14 @@ logging.getLogger('PIL').setLevel(logging.INFO)
 p = {
         "appname": "line_count",
         "model_path": str(src_root.joinpath("best.mlmodel")),
-        "img_paths": set([]),
-        "charter_dirs": set([]),
-        "region_classes": [set(["Wr:OldText"]), "Names of the layout-app regions on which lines are to be detected. Eg. '[Wr:OldText']. If empty (default), detection is run on the entire page."],
-        "img_suffix": [r".img.*p*g", "Image file suffix."],
-        "layout_suffix": [".layout.pred.json", "Regions are given by segmentation file that is <img name stem><suffix>."],
-        "sample_size": [300, "Sample image with  <sample_size> x <sample_size> square patches."],
-        "sample_width": [0, "If strictly positive, sample image with  <sample_column> x <img_height> strips."],
-        'verbosity': [2,"Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"],
+        "img_paths": FargvPositional(default=[]),
+        "charter_dirs": [],
+        "region_classes": (["Wr:OldText"], "Names of the layout-app regions on which lines are to be detected. Eg. '[Wr:OldText']. If empty (default), detection is run on the entire page."),
+        "img_suffix": (r".img.*p*g", "Image file suffix."),
+        "layout_suffix": (".layout.pred.json", "Regions are given by segmentation file that is <img name stem><suffix>."),
+        "sample_size": (300, "Sample image with  <sample_size> x <sample_size> square patches."),
+        "sample_width": (0, "If strictly positive, sample image with  <sample_column> x <img_height> strips."),
+        'verbosity': (2,"Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"),
 }
 
 
@@ -87,7 +88,7 @@ def pack_fsdb_inputs_outputs( args:dict, segmentation_suffix:str ) -> list[tuple
 
 if __name__ == "__main__":
 
-    args, _ = fargv.fargv( p )
+    args, _ = fargv.parse( p )
 
     if args.verbosity != 2:
         logging.basicConfig( level=logging_levels[args.verbosity], format=logging_format, force=True )

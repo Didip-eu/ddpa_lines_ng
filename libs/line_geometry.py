@@ -29,9 +29,11 @@ import skimage as ski
 import numpy as np
 import torch
 import torchvision
+import shapely
 
 from libs import segmodel as sgm
 from libs import seglib
+from libs import polygon_utils
 
 
 logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
@@ -77,7 +79,7 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
         polygon_area_threshold (int): minimum number of pixels for a polygon to survive.
         contour_tolerance (int): max. distance constraint for line/polygon approximations.
         raw_polygons (bool): if True, return the (approximated) polygon obtained from the page mask; otherwise (default),
-            return a reconstructed version of the polygon (baseline+height).
+            return a reconstructed version of the polygon (centerline-/+(x_height/2)).
         height_factor (float): factor (∈  ]0,1]) to be applied to the polygon height-unused if 'raw_polygons' set.
 
     Returns:
@@ -96,7 +98,9 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
             labeled_msk_hw *= ~(labeled_msk_hw==lbl)
     labels = np.unique( labeled_msk_hw[ labeled_msk_hw > 0 ] )
     if len(labels) == 0:
-        raise Exception("Could not retrieve labels from 1HW binary map".format(__file__))
+        #raise Exception("Could not retrieve labels from 1HW binary map".format(__file__))
+        logger.warning("Could not retrieve labels from 1HW binary map".format(__file__))
+        return None
     logger.debug("Found {} connected components on 1HW binary map ({}).".format( len(labels), labels))
 
     polygon_coords = []
@@ -108,12 +112,19 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
         """
         After pruning, skeleton's very ends may deviate markedly from the main axis; what follows is a crude,
         but adequate fix: both ends are truncated (proper length determined from line height) and replaced by a single 
-        point at same height of the left(right)most point of the truncated skeleton. Option
+        point at same height of the left(right)most point of the truncated skeleton. 
+
+        Returns:
+            np.ndarray: a (N,2) array of coordinates.
         """
         x_leftmost, x_rightmost = np.min(skl_yx[:,1]), np.max(skl_yx[:,1])
         end_segment_length = int(np.ceil(line_height/(2*np.tan(np.pi/6))))
+        if end_segment_length > len(skl_yx):
+            return skl_yx
         skl_yx_reduced = skl_yx[end_segment_length-1:-end_segment_length+1]
-        skl_yx_reduced[[0,-1]]=[[skl_yx[end_segment_length,0], x_leftmost],[ skl_yx[-(end_segment_length+1), 0], x_rightmost]]
+        if skl_yx_reduced.shape[0]==0:
+            return skl_yx
+        skl_yx_reduced[[0,-1]]=[[skl_yx[end_segment_length-1,0], x_leftmost],[ skl_yx[-(end_segment_length-1), 0], x_rightmost]]
         if skl_yx_reduced[0,1]>0:
             #skl_yx_reduced = np.concat( [ [[skl_yx_reduced[0,0], 0]], skl_yx_reduced ])
             skl_yx_reduced[0,1] =  0
@@ -122,9 +133,8 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
             skl_yx_reduced[-1,1] = box_width-1
         return skl_yx_reduced
 
-    labeled_msk_regular_hw = None if raw_polygons else np.zeros(labeled_msk_hw.shape, dtype=labeled_msk_hw.dtype)
+    labeled_msk_regular_hw = labeled_msk_hw if raw_polygons else np.zeros(labeled_msk_hw.shape, dtype=labeled_msk_hw.dtype)
 
-    logger.debug("Label processing")
     time_start = time()
     for lbl in labels:
         label_start = time()
@@ -137,14 +147,21 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
         min_y, min_x = np.min( polygon_coords[-1], axis=0)
         max_y, max_x = np.max( polygon_coords[-1], axis=0)
         coords = (polygon_coords[-1] - np.array([min_y, min_x]))
-
         # PIL polygon fill is faster than skimage (by an order of magnitude)
         #polygon_box_ski = ski.draw.polygon2mask((max_y-min_y+1, max_x-min_x+1), coords )
         polygon_box=polygon_to_mask_pil( (max_y-min_y+1, max_x-min_x+1), coords )
         
         # 2. Skeletonize and prune
+        # Operations:
+        #                  Mandatory    Risky
+        # - skeletonize    1            0
+        # - prune                       1
+        # - line-height    1            0
+        # - fix_ends                    2
         try:
             _, this_skeleton_yx = prune_skeleton( ski.morphology.skeletonize( polygon_box ))
+            # Doesn't work!
+            #_, this_skeleton_yx = prune_skeleton( ski.morphology.medial_axis( polygon_box ))
             # 3. Avg line height = area of polygon / length of skeleton
             line_heights.append( (np.sum(polygon_box) // len( this_skeleton_yx)).item() )
             this_skeleton_yx = fix_ends( this_skeleton_yx, line_heights[-1], polygon_box.shape[1] )
@@ -153,14 +170,15 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
             skeleton_coords.append( approximate_pagewide_skl_yx )
 
             if not raw_polygons:
-                polyg = strip_from_centerline( skeleton_coords[-1][:,::-1], line_heights[-1]*height_factor )[:,::-1]
-                polyg = boxed_in( polyg, (0,0,*[ d-1 for d in labeled_msk_hw.shape] ))
+                polyg = polygon_utils.strip_from_centerline( skeleton_coords[-1][:,::-1], line_heights[-1]*height_factor )[:,::-1]
+                polyg = np.clip( polyg, [0,0], [d-1 for d in labeled_msk_hw.shape] )
                 polygon_coords[-1] = polyg
                 polyg_rr, polyg_cc = ski.draw.polygon( *(polygon_coords[-1]).transpose())
                 labeled_msk_regular_hw[ polyg_rr, polyg_cc ]=lbl
         #except (ValueError, IndexError) as e:
         except Exception as e:
-            logger.warning("Failed to retrieve geometry from label mask #{}: {}".format(lbl, e))
+            logger.debug(":))) Failed to retrieve geometry from label mask #{}: {}".format(lbl, e))
+            return None
         logger.debug("Done processing label {} - time: {:.5f}".format( lbl, time()-label_start ))
     logger.debug("Total label processing time: {:.5f}".format( time() - time_start ))
         
@@ -171,21 +189,27 @@ def get_morphology( page_wide_mask_1hw: np.ndarray, polygon_area_threshold=100, 
     #               feuilles
     #          Les 
     # - order that differs from labels may hint at messy reading order
+    
     line_features = sorted( zip(labels, line_heights, skeleton_coords, polygon_coords, centroids), key=lambda t: t[4].tolist() )
+
     # meant to filter out linear artefacts on the page (edges, non-textual lines...)
-    line_height_cutoff = np.mean( line_heights )-1.5*np.std( line_heights ) if not raw_polygons else 2
-    return (labeled_msk_hw[None,:] if raw_polygons else labeled_msk_regular_hw[None,:], [{
+    label_features_unfiltered = [ {
                 'label': lbl,
                 'centroid': center_yx,
                 'polygon_coords': plgc,
                 'line_height': lh, 
                 'centerline': skc,
                 'baseline': skc + [lh/2,0],
-    } for lbl, lh, skc, plgc, center_yx in line_features if lh>line_height_cutoff])
+    } for lbl, lh, skc, plgc, center_yx in line_features ]
+    line_height_cutoff = np.median( line_heights )-3.0*np.std( line_heights ) if not raw_polygons else 2
+    label_features_filtered = [ lf for lf in label_features_unfiltered if lf['line_height']>line_height_cutoff ]
+    if len(label_features_filtered) < len( label_features_unfiltered ):
+        logger.debug(f"{len( label_features_unfiltered )-len(label_features_filtered)} labels discarded because of line height cut-off.")
+    return (labeled_msk_regular_hw[None,:], label_features_filtered )
 
 
 
-def binary_mask_from_patches( img: Image.Image, row_count=2, col_count=1, overlap=.04, model=None, mask_threshold=.25, box_threshold=.8):
+def binary_mask_from_patches( img: Image.Image, row_count=2, col_count=1, overlap=.05, model=None, mask_threshold=.25, box_threshold=.8):
     """
     Construct a single binary mask from predictions on <row_count>x<col_count> patches.
 
@@ -221,7 +245,7 @@ def binary_mask_from_patches( img: Image.Image, row_count=2, col_count=1, overla
     return page_mask[None,:]
 
 
-def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.04, model=None, mask_threshold=.25, box_threshold=.8, cached_prediction_prefix='', cached_prediction_path=Path('/tmp'), max_patches=16, device='cpu') -> np.ndarray:
+def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.05, model=None, mask_threshold=.25, box_threshold=.8, cached_prediction_prefix='', cached_prediction_path=Path('/tmp'), max_patches=16, device='cpu') -> np.ndarray:
     """
     Construct a single binary mask from predictions on patches of size <patch_size> x <patch_size>.
 
@@ -236,7 +260,7 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
         device (str): computing device - 'cuda' or 'cpu' (default).
 
     Returns:
-        np.ndarray: a (1,H,W) binary mask.
+        np.ndarray: a (1,H,W) binary mask, or None if error occurs.
     """
     assert model is not None
     img_hwc = np.array( img )
@@ -257,6 +281,9 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
     #logger.info("Lines: count={}, density={}".format( line_count_est, line_density ))
 
     while True:
+
+        if new_width < patch_size or new_height < patch_size:
+            return None
         tile_tls = seglib.tile_img( (new_width, new_height), patch_size, constraint=int(overlap*max(width,height)) )
 
         # (a) small, single-patch images with a high estimated line count (>25) scaled up for better results
@@ -270,7 +297,7 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
             rescaled=True
             continue
         # (b) very large images scaled down
-        if  len(tile_tls) > max_patches:
+        if  len(tile_tls) > max_patches or line_count_estimate( img )[0] < 5:
             logger.debug("Image slices into {} 1024-pixel patches: limit ({}) exceeded.".format(len(tile_tls), max_patches))
             new_height, new_width = int(new_height/resize_factor), int(new_width/resize_factor)
             img_hwc = ski.transform.resize( img_hwc, (new_height, new_width)) 
@@ -320,111 +347,6 @@ def binary_mask_from_fixed_patches( img: Image.Image, patch_size=1024, overlap=.
     if rescaled:
         page_mask = ski.transform.resize( page_mask, (height, width ))
     return page_mask[None,:]
-
-
-def strip_from_baseline(baseline_n2xy: list[tuple[int,int]], x_height: int, factor: float, ltrb: tuple[int,int,int,int]=tuple()) -> list[tuple[int,int]]:
-    """
-    Given a baseline, construct the strip-shaped polygon with given height.
-
-    Args:
-        baseline_n2xy (list[tuple[int,int]]): a sequence of (x,y) points.
-        x_height (float): the line x_height.
-        factor (float): scaling factor
-        ltrb (tuple[int,int,int,int]): LTRB constraint of containing region: if not empty (default),
-            shift coordinates that would otherwise exceed the region's boundaries.
-    Returns:
-        list[tuple[int,int]]: a (N,2) clockwise sequence of (x,y) points.
-    """
-    raw_polygon = strip_from_centerline( np.array( baseline_n2xy )-[0,x_height/2], int(x_height*factor) )
-    if ltrb:
-        return boxed_in( raw_polygon, ltrb ).tolist()
-    return raw_polygon.tolist()
-
-
-def strip_from_centerline(centerline_n2xy: np.ndarray, height: float) -> np.ndarray:
-    """
-    Given a centerline, construct the strip-shaped polygon with given height.
-
-    Args:
-        centerline_n2xy (np.ndarray): a (N,2) sequence of (x,y) points.
-        height (float): the strip height.
-    Returns:
-        np.ndarray: a (N,2) clockwise sequence of (x,y) points.
-    """
-    left_dummy_pt = np.array( [ 2*centerline_n2xy[0][0]-centerline_n2xy[1][0], 2*centerline_n2xy[0][1]-centerline_n2xy[1][1] ])
-    right_dummy_pt = np.array( [ 2*centerline_n2xy[-1][0]-centerline_n2xy[-2][0], 2*centerline_n2xy[-1][1]-centerline_n2xy[-2][1] ])
-    centerline_n2xy = np.concatenate( [ [left_dummy_pt], centerline_n2xy, [right_dummy_pt] ], dtype='float')
-
-    vertebras_n2xy = []
-    vertebra_north_south_2xy = np.array([[0,-height/2], [0,height/2]])
-    for ctr_idx in range(1,len(centerline_n2xy)-1):
-        left, mid, right = centerline_n2xy[ctr_idx-1:ctr_idx+2]
-        try:
-            rotation_matrix = bisection_rotation_matrix( left-mid, right-mid )
-            rotated_vertebra_north_south_2xy=np.matmul( rotation_matrix, vertebra_north_south_2xy.T).T
-            vertebras_n2xy.append( rotated_vertebra_north_south_2xy + mid ) # shift to actual pos.
-        except Exception as e:
-            logger.warning(e)
-            continue
-    vertebras_n2xy = np.stack(vertebras_n2xy)
-    contour_pts_n2xy = np.concatenate( [vertebras_n2xy[:,0], vertebras_n2xy[::-1,1], vertebras_n2xy[0:1,0]])
-    return contour_pts_n2xy.astype('int32')
-
-
-def boxed_in( sequence_n2xy: np.ndarray, ltrb: tuple[float,float,float,float] )->np.ndarray:
-    """
-    Given a sequence of points, shift its elements' coordinates  s.t. they are contained
-    within the given box. Can be used for (y,x) points: be sure to pass the box as (t,l,b,r).
-
-    Args: 
-        sequence_n2xy (np.ndarray) a (N,2) sequence of (x,y) points.
-        ltrb (tuple[float,float,float,float]): the left, top, right, and bottom coordinates.
-    Returns:
-        polyg_n2xy (np.ndarray): a (N,2) sequence of (x,y) points.
-    """
-    left, top, right, bottom = ltrb
-    shifted_pts = []
-    for pt in sequence_n2xy:
-        x, y = pt
-        if x < left:
-            x = left
-        elif x > right:
-            x = right
-        if y < top:
-            y = top
-        elif y > bottom:
-            y = bottom
-        shifted_pts.append( [x,y] )
-    return np.array( shifted_pts )
-
-
-def bisection_rotation_matrix(left, right):
-    """ Given 2 vectors <left> and <right>, return the matrix that rotates a vertical vector 
-    such that it bisects the angle formed by <left> and <right>.
-
-    left (float): a 2D vector/pt.
-    right (float): a 2D vector/pt.
-    """
-    # special case (1): vertical segment
-    if np.isclose(left[0], right[0]):
-        raise ValueError("Vertical segment: abort.")
-    # special case (2): colinear, horizontal vectors
-    if np.isclose(left[1], right[1]): 
-        return np.identity(2)
-    alpha, beta, gamma = 0, 0, 0
-    if left[0] == 0 and right[0] != 0: # L vector is horizontal
-        beta = np.arctan(right[1]/right[0])
-        gamma = beta/2
-    elif right[0] == 0 and left[0] != 0: # R vector is horizontal
-        alpha = np.arctan(left[1]/left[0]) 
-        gamma = -alpha/2
-    else:
-        alpha = np.arctan(left[1]/left[0]) 
-        beta = np.arctan(right[1]/right[0]) 
-        gamma = ( alpha + beta ) / 2
-    cosg, sing = np.cos( gamma ), np.sin( gamma )
-    rotation_matrix = np.array([[cosg, -sing],[sing, cosg]])
-    return rotation_matrix
 
 
 def prune_skeleton( skeleton_hw: np.ndarray, left_to_right=True )->np.ndarray:
@@ -614,3 +536,25 @@ def thresholds_from_model( model_path: Path, defaults: dict):
         logger.warning(f"{e} → Using default threshold parameters {defaults}")
     finally:
         return defaults 
+
+def interpolate( polygon: np.array, density=1 ):
+    ds, dtype = 0, polygon.dtype
+    while ds < density:
+        interpolated_arr=[]
+        for i in range(len(polygon)-1):
+            interpolated_arr.extend([polygon[i], (polygon[i]+polygon[i+1])/2])
+        polygon=np.array(interpolated_arr, dtype=dtype )
+        print(polygon)
+        ds += 1
+    return np.array( interpolated_arr, dtype=polygon.dtype)
+
+def centerline( polygon: np.array, interpolate=False ):
+
+    # normalize and interpolate
+    points = polygon-np.min( polygon, axis=0)
+    if interpolate:
+        points = interpolate( points, density=2)
+    # suppress duplicated points
+    points = shapely.remove_repeated_points( shapely.Polygon(points) )
+    return points
+    return shapely.voronoi_polygons(points, only_edges=True)
