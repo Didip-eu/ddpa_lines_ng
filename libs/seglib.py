@@ -248,7 +248,7 @@ def docufcn_label_to_didip_json( segmentation_json: Path, segfile_suffix='.json'
         image_width, image_height = segdict['img_size']
         new_segdict = {
                 "metadata": {
-                    "created": datetime.now().isoformat("T","seconds"),
+                    "created": datetime.now().isoformat('T','seconds'),
                     "creator": __name__,
                     "comment": "Image name is a guess!",
                 },
@@ -711,7 +711,7 @@ def promote_regions_from_segdict( segdict: dict, image_folder_path: Path, valida
     region_list = []
     for reg_idx, region in enumerate(segdict['regions']):
         new_segdict = copy.deepcopy(segdict)
-        new_segdict['metadata']['created']=datetime.now().isoformat("T","seconds")
+        new_segdict['metadata']['created']=datetime.now().isoformat('T','seconds')
         new_segdict['regions'] = new_segdict['regions'][reg_idx:reg_idx+1]
         # new region coordinates (crop-wide)
         new_segdict['regions'][0]['coords'] = (np.array( region['coords'] ) - region['coords'][0]).tolist()

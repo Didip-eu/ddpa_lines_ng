@@ -122,7 +122,7 @@ def build_segdict( img_metadata, segmentation_record, line_attributes, contour_t
     Return:
         dict: a segmentation dictionary
     """
-    segdict = { 'created': str(datetime.now()), 'creator': __file__, }
+    segdict = { 'created': str(datetime.now().isoformat('T','seconds')), 'creator': __file__, }
     segdict.update( img_metadata )
     segdict['regions']=[ { 'id': 'r0', 'type': 'text_region', 'coords': [], 'lines': [] } ]
 
