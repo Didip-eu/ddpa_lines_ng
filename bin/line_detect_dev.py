@@ -87,7 +87,9 @@ p = {
         'raw_polygons': (True, "Show polygons as resulting from the NN (default); otherwise, show the abstract polygons constructed from centerlines."),
         'line_height_factor': (1.0, "Factor (within ]0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"),
         'overwrite_existing': (True, "Write over existing output file (default)."),
+        'device': FargvChoice(['cpu','gpu','cuda', 'cuda:0', 'cuda:1', 'cuda:2', 'cuda:3'], description="Computing device -- 'cuda' or 'gpu' defaults to 'cuda:0'."),
         'timer': (0, "Aggregate performance metrics. A strictly positive integer <n> computes the mean time for every batch of <n> images."),
+        'verbosity': (2,"Verbosity levels: 0 (quiet), 1 (WARNING), 2 (INFO-default), 3 (DEBUG)"),
 }
 
 
@@ -233,6 +235,12 @@ if __name__ == "__main__":
 
     args, _ = fargv.parse( p )
 
+    logging_format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s"
+    logging_levels = {0: logging.ERROR, 1: logging.WARNING, 2: logging.INFO, 3: logging.DEBUG }
+    if args.verbosity != 2:
+        logging.basicConfig( level=logging_levels[args.verbosity], format=logging_format, force=True )
+
+
     cached_prediction_root_path = Path(args.cached_prediction_root_dir)
     cached_prediction_subdir_path = None
     cache_subdir_path = None
@@ -253,7 +261,7 @@ if __name__ == "__main__":
 
     if not Path( args.model_path ).exists():
         raise FileNotFoundError("Could not find model file", args.model_path)
-    live_model = sgm.SegModel.load( args.model_path ) 
+    live_model = sgm.SegModel.load( args.model_path, device=args.device ) 
 
     if args.raw_polygons and args.line_height_factor != 1.0:
         logger.warning("'-raw_polygons' option set: ignoring the line height factor ({}).".format( args.line_height_factor))
@@ -262,7 +270,10 @@ if __name__ == "__main__":
     timer_means = []
     start_time = time()
 
-    for img_idx, img_triplet in enumerate( pack_fsdb_inputs_outputs( args )): 
+    triplets = list(pack_fsdb_inputs_outputs( args ))
+    logging.debug(f"Found {len(triplets)} (image, segdata) pairs")
+
+    for img_idx, img_triplet in enumerate( triplets ):
         img_path, layout_file_path, output_file_path = img_triplet
         logger.info( "File triplet={}".format( img_triplet[0]))
         
@@ -285,7 +296,7 @@ if __name__ == "__main__":
         if len(args.region_classes):
             logger.debug(f"Run segmentation on masked regions '{args.region_classes} from layout file {layout_file_path}, instead of whole page.")
             if not layout_file_path.exists():
-                #logger.warning("Could not find layout segmentation file {}. Skipping item.".format( layout_file_path ))
+                logger.warning("Could not find layout segmentation file {}. Skipping item.".format( layout_file_path ))
                 img.close()
                 continue
             
@@ -369,7 +380,7 @@ if __name__ == "__main__":
 
         if args.output_format == 'stdout':
             print(json.dumps(segdict))
-            sys.exit()
+            continue
         if not output_file_path.exists() or args.overwrite_existing:
             if args.output_format == 'json':
                 with open(output_file_path, 'w') as of:
