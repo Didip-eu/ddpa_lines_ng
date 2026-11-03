@@ -1,22 +1,3 @@
-"""
-seglib.py
-
-Utility functions for segmentation tasks:
-
-+ storing polygons on tensors (from dictionaries or pageXML outputs)
-+ computing IoU and F1 scores over GT/predicted label maps
-+ extracting image and masks segmentation metadata
-+ format conversions (JSON <-> XML)
-
-A note about types:
-
-+ PageXML or JSON: initial input (typically: from segmentation framework)
-+ torch.Tensor: map storage and computations (eg. counting intersections)
-+ np.ndarray: metrics and scores; initial mapping of labels: use 32-bit _signed_ integers
-  for storing compound (intersecting) labels, to ensure smooth conversion into
-  tensors.
-"""
-
 #stdlib
 from pathlib import Path
 import json
