@@ -44,6 +44,7 @@ import numpy as np
 
 # Didip
 import fargv
+fargv.util.verbosity=1 # for --help to display option descriptions
 from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
 from segtformats import segtformats as sgf
 
@@ -72,8 +73,8 @@ p = {
         "img_suffix": (r".img.*p*g", "Image file suffix."),
         "layout_suffix": (".layout.pred.json", "Regions are given by segmentation file that is <img name stem><suffix>."),
         "line_attributes": (["centerline", "x-height"], "Non-standard line properties to be included in the dictionary."),
-        "output_format": FargvChoice(["json", "xml", "quiet"], description="Segmentation output: json=<JSON file>, xml=<PageXML file>, stdout=JSON on standard output, quiet=nothing (for testing and timing)"),
-        'out_file': ('auto', "If empty, output to standard output; otherwise, output to file <out>; set to 'auto' (default) for output to file <output_dir>/<input stem>.<output_suffix>."),
+        "output_format": FargvChoice(["json", "xml", "none"], description="Segmentation output: json=<JSON file>, xml=<PageXML file>, none=nothing (for testing and timing)"),
+        'out_file': ('auto', "If empty, output to standard output; otherwise, output to file <out_file>; set to 'auto' (default) for output to file <output_dir>/<input stem>.<appname>.pred.<output format>."),
         "output_dir": ('', "Output directory; if not provided, defaults to the image path's parent."),
         'mask_threshold': (.6, "In the post-processing phase, threshold to use for line soft masks."),
         'box_threshold': (0.75, "Threshold used for line bounding boxes."),
@@ -256,7 +257,6 @@ if __name__ == "__main__":
                     # Case 1: DiDip-style segmentation dictionary, from Page or JSON
                     segdict = sgf.segmentation_dict_from_page_xml( layout_file_path ) if segformat == sgf.SegFormat.PAGE else json.load( regseg_if )
                     if segformat in [ sgf.SegFormat.PAGE, sgf.SegFormat.JSON ]:
-                    #if str(layout_file_path)[-4:]=='.xml':
                         logger.debug("Extracting text regions from file {}".format( layout_file_path ))
                         layout_data = seglib.crops_from_segdict( img, segdict, force_rgb=True, ignore_empty_regions=True)
                     # Case 2: extract crops from YOLO layout analysis file
@@ -314,7 +314,7 @@ if __name__ == "__main__":
                         #segdict['image_wh']=img.size
                         sgf.page_xml_from_segmentation_dict( segdict, pagexml_filename=output_file_path )
                     sentinel_path.unlink()
-                    if args.output_format != 'quiet':
+                    if args.output_format != 'none':
                         logger.debug("Segmentation output saved in {}".format( output_file_path ))
 
                 if args.timer > 0 and img_idx > 0 and img_idx % args.timer==0:

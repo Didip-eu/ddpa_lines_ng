@@ -24,6 +24,7 @@ import torch
 import matplotlib.pyplot as plt
 
 import fargv
+fargv.util.verbosity=1 # for --help to display option descriptions
 from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
 
 sys.path.append( str(Path(__file__).parents[1] ))

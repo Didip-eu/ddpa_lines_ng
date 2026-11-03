@@ -29,6 +29,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 # DiDip
 import fargv
+fargv.util.verbosity=1 # for --help to display option descriptions
 from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
 import tormentor
 

@@ -29,6 +29,7 @@ from pathlib import Path
 import logging
 
 import fargv
+fargv.util.verbosity=1 # for --help to display option descriptions
 from fargv import FargvPositional, FargvChoice
 
 from segtformats import segtformats as sgf

@@ -33,6 +33,7 @@ from tqdm.auto import tqdm
 
 # DiDip
 import fargv
+fargv.util.verbosity=1 # for --help to display option descriptions
 from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
 
 # local

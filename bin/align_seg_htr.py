@@ -34,6 +34,7 @@ import numpy as np
 from numpy.polynomial import Polynomial, polynomial
 import matplotlib.pyplot as plt
 import fargv
+fargv.util.verbosity=1 # for --help to display option descriptions
 from fargv import FargvChoice, FargvPositional
 from segtformats import segtformats as sgf
 

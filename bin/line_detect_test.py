@@ -40,6 +40,7 @@ import numpy as np
 
 # Didip
 import fargv
+fargv.util.verbosity=1 # for --help to display option descriptions
 from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple
 from segtformats import segtformats as sgf
 
