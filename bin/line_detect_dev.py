@@ -57,6 +57,7 @@ src_root = Path(__file__).parents[1]
 sys.path.append( str( src_root ))
 from libs import seglib, list_utils as lu, line_geometry as lgm
 from libs import segmodel as sgm
+from libs import segviz
 
 
 logging.basicConfig( level=logging.INFO, format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s", force=True )
@@ -75,7 +76,7 @@ p = {
         "img_suffix": (r".img.*p*g", "Image file suffix."),
         "layout_suffix": (".layout.pred.json", "Regions are given by segmentation file that is <img name stem><suffix>."),
         "line_attributes": (["centerline", "x-height"], "Non-standard line properties to be included in the dictionary."),
-        "output_format": FargvChoice(["json", "xml", "npy", "stdout"], description="Segmentation output: json=<JSON file>, xml=<PageXML file>, npy=label map (HW), stdout=JSON on standard output."),
+        "output_format": FargvChoice(["json", "xml", "npy", "viz", "stdout"], description="Segmentation output: json=<JSON file>, xml=<PageXML file>, npy=label map (HW), 'viz'=display, stdout=JSON on standard output."),
         "output_dir": ('', "Output directory; if not provided, defaults to the image path's parent."),
         'mask_threshold': (.6, "In the post-processing phase, threshold to use for line soft masks."),
         'box_threshold': (0.75, "Threshold used for line bounding boxes."),
@@ -226,7 +227,11 @@ def pack_fsdb_inputs_outputs( args:dict ):
         img_stem = re.sub(r'{}$'.format( args.img_suffix), '', img_path.name )
         layout_segfile_path = Path( re.sub(r'{}$'.format( args.img_suffix), args.layout_suffix, str(img_path) ))
         output_dir = img_path.parent if not args.output_dir else Path(args.output_dir)
-        path_triplets.append( ( img_path, layout_segfile_path, output_dir.joinpath( f'{img_stem}.{args.appname}.pred.{args.output_format}')))
+        if args.output_format != 'stdout' and args.output_format != 'viz':
+            path_triplets.append( (img_path, layout_segfile_path, output_dir.joinpath( f'{img_stem}.{args.appname}.pred.{args.output_format}')))
+        else:
+            path_triplets.append( (img_path, layout_segfile_path, None))
+        logger.debug(f"Appended triplet {path_triplets[-1]}.")
     return path_triplets
     return sorted( path_triplets, key=lambda x: str(x))
 
@@ -275,7 +280,7 @@ if __name__ == "__main__":
 
     for img_idx, img_triplet in enumerate( triplets ):
         img_path, layout_file_path, output_file_path = img_triplet
-        logger.info( "File triplet={}".format( img_triplet[0]))
+        logger.info( "File triplet={}".format( img_triplet))
         
         img_md5=''
         if args.cache_predictions:
@@ -293,8 +298,10 @@ if __name__ == "__main__":
         binary_mask, segdict = None, {}
 
         # Option 1: segment the region crops (from layout), and construct a page-wide file
-        if len(args.region_classes):
-            logger.debug(f"Run segmentation on masked regions '{args.region_classes} from layout file {layout_file_path}, instead of whole page.")
+        segformat = sgf.get_format( layout_file_path )
+        logger.debug(f"Detected format: {segformat}" )
+        if segformat == sgf.SegFormat.PAGE or segformat == sgf.SegFormat.JSON or len(args.region_classes):
+            logger.debug(f"Run segmentation on masked regions from layout file {layout_file_path}, instead of whole page.")
             if not layout_file_path.exists():
                 logger.warning("Could not find layout segmentation file {}. Skipping item.".format( layout_file_path ))
                 img.close()
@@ -303,20 +310,26 @@ if __name__ == "__main__":
             # parse segmentation file, and extract and concatenate the WritableArea crops
             logger.debug("layout_file_path={}".format(layout_file_path))
             with open(layout_file_path, 'r') as regseg_if:
-                regseg = json.load( regseg_if )
                 # iterate over layout crops and segment
                 layout_data = tuple()
-                if str(layout_file_path)[-4:]=='.xml':
-                    logger.warning("Extracting text regions from PageXML file {}".format( layout_file_path ))
+                if segformat == sgf.SegFormat.PAGE:
+                    logger.debug("Extracting text regions from PageXML file {}".format( layout_file_path ))
                     layout_data = seglib.crops_from_segdict( img, sgf.segmentation_dict_from_page_xml( layout_file_path ), force_rgb=True, ignore_empty_regions=True)
+                    logging.debug( f"LAYOUT DATA: {layout_data}" )
                 else:
+                    logger.debug("Extracting text region '{}' from JSON layout file {}".format( args.region_classes, layout_file_path))
                     regseg = json.load( regseg_if )
-                    # extract crops from layout analysis file
-                    layout_data = seglib.layout_regseg_to_crops( img, regseg, args.region_classes, force_rgb=True )
+                    if segformat == sgf.SegFormat.JSON:
+                        logger.debug("Detected format: DiDip-JSON")
+                        layout_data = seglib.crops_from_segdict( img, regseg )
+                    else:
+                        # extract crops from layout analysis file
+                        logger.debug("Assumed format: Yolo-JSON")
+                        layout_data = seglib.layout_regseg_to_crops( img, regseg, args.region_classes, force_rgb=True )
                 if not layout_data:
                     logger.warning("Could not find relevant region in the layout segmentation file {}. Skipping item.".format( layout_file_path ))
                     continue
-                crops_pil, boxes, _ = seglib.layout_regseg_to_crops( img, regseg, args.region_classes, force_rgb=True )
+                crops_pil, boxes, _ = layout_data
 
                 binary_masks = []
                 for crop_idx, crop_whc in enumerate(crops_pil):
@@ -380,6 +393,9 @@ if __name__ == "__main__":
 
         if args.output_format == 'stdout':
             print(json.dumps(segdict))
+            continue
+        elif args.output_format == 'viz':
+            segviz.display_segmentation_and_img( img_path, segdict=segdict )
             continue
         if not output_file_path.exists() or args.overwrite_existing:
             if args.output_format == 'json':

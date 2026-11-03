@@ -257,7 +257,7 @@ if __name__ == "__main__":
                     segdict = sgf.segmentation_dict_from_page_xml( layout_file_path ) if segformat == sgf.SegFormat.PAGE else json.load( regseg_if )
                     if segformat in [ sgf.SegFormat.PAGE, sgf.SegFormat.JSON ]:
                     #if str(layout_file_path)[-4:]=='.xml':
-                        logger.warning("Extracting text regions from file {}".format( layout_file_path ))
+                        logger.debug("Extracting text regions from file {}".format( layout_file_path ))
                         layout_data = seglib.crops_from_segdict( img, segdict, force_rgb=True, ignore_empty_regions=True)
                     # Case 2: extract crops from YOLO layout analysis file
                     else:
