@@ -207,7 +207,8 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
     
     #with plt.rc_context({'lines.linewidth': .2}):
     if title:
-        plt.suptitle( title, size='xx-large')
+        #plt.suptitle( title, size='xx-large')
+        ax.set_xlabel(title, size='x-large')
     plt.imshow( composed_img_array_hwc )
     height, width = img_hwc.shape[:2]
     delta_x, delta_y = (1-crop[0])*width/2, (1-crop[1])*height/2 
@@ -408,7 +409,6 @@ def mosaic( img_paths: Iterable[Path], col_row_size: tuple[int], total_width=200
     cols, rows = col_row_size
     square_width = int(total_width/cols)
     mosaic_size = np.array( (rows * square_width, cols * square_width, 3) )
-    print(f"mosaic_size={mosaic_size}")
     mosaic_array = np.zeros( mosaic_size, dtype=int)
 
     for idx, img_path in enumerate(img_paths):
@@ -421,7 +421,7 @@ def mosaic( img_paths: Iterable[Path], col_row_size: tuple[int], total_width=200
             max_dim = np_size.max()
             scaling_factor = square_width / max_dim
             new_height, new_width =  (np_size * scaling_factor).astype(int)
-            print(f"{np_size} → ({new_height}, {new_width})")
+            logger.debug(f"{np_size} → ({new_height}, {new_width})")
             tile_array = np.array( img.resize((new_width, new_height) ))
             mosaic_array[offset_row:offset_row+new_height, offset_col:offset_col+new_width]=tile_array
     plt.close()
@@ -433,23 +433,66 @@ def mosaic( img_paths: Iterable[Path], col_row_size: tuple[int], total_width=200
     else:
         plt.show()
 
-def tile_segmentation_displays( image_segdict_pairs: Iterable[tuple[Path,dict]], col_row_size, total_width=2000, output_file_path: Union[Path,str]='', fsdb_mapping=''):
+def tile_segmentation_displays( image_segdict_charter_triplets: Iterable[tuple[Path,dict,dict]], col_row_size, total_width=2000, output_file_path: Union[Path,str]=''):
+    """
+    Given a sequence of tuple (<image>, <segmentation dict>, <charter properties>),
+    build a mosaic of segmentation renderings.
+
+    Args:
+        image_segdict_charter_triplets (tuple[Path,dict,dict]): a sequence of triplets with the image path,
+            the segmentation dictionary, and a dictionary of charter properties ('path', 'fsdb_path', 'md5',
+            'url', 'atom_id').
+        col_row_size (tuple[int,int]): size (cols, rows) of the mosaic.
+        total_width (int): maximum size of the mosaic.
+        output_file_path (Union[str,Path]): if provided, where to write the visualization; otherwise, display only.
+    """
     with tempfile.TemporaryDirectory() as workdir:
         img_paths = []
-        for idx, pair in enumerate(image_segdict_pairs):
+        for idx, triplet in enumerate(image_segdict_charter_triplets):
             if idx >= col_row_size[0] * col_row_size[1]:
                 break
-            img_path, segdict = pair 
+            img_path, segdict, charter_dict = triplet
             output_file_path = Path(workdir, img_path.name)
-            charter_url = ''
-            if fsdb_mapping and Path(fsdb_mapping).exists():
-                fsdb_img_loc = Path( fsdb_mapping ).glob('*/*/*/{img_path[:32].img.jpg')
-                if fsdb_img_loc:
-                    charter_url = open(fsdb_img_loc.parent.joinpath('CH.url.txt')).read()
-            display_segmentation_and_img( img_path, segdict=segdict, output_file_path=output_file_path, title="{img_path.name[:32]}\n{charter_url}")
+            title = "{}\n{}".format( img_path.name[:32], charter_dict['url'] if charter_dict else '')
+            display_segmentation_and_img( img_path, segdict=segdict, output_file_path=output_file_path, title=title)
             img_paths.append( output_file_path )
-        print(img_paths)
+        logger.info(img_paths)
         mosaic( img_paths, col_row_size, total_width )
+
+
+def build_img_segdict_charter_triplets( img_paths: list[Path], segdir=None, segfile_suffix='.json', img_suffix='.jpg', retrieve_charter=True )->list[tuple[Path,dict,dict]]:
+    """
+    Given a list of charter images with MD5 as prefix, construct a list of triplets with
+    + image path
+    + segmentation dictionary
+    + dictionary of parent charter properties (optional)
+
+    Args:
+        img_paths (list[Path]): a list of image paths.
+        segdir (Union[str,Path]): where to look for segmentation files.
+        segfile_suffix (str): segmentation file suffix.
+        img_suffix (str): image file suffix.
+        retrieve_charters (bool): retrieve charter properties from FSDB (default: True).
+    """
+    import subprocess
+    triplets = []
+    for img in img_paths:
+        if segdir is not None:
+            segdir = Path( segdir )
+            segfile = segdir.joinpath( img.name.replace(img_suffix, segfile_suffix ))
+        else:
+            segfile = str(img).replace( img_suffix, segfile_suffix )
+        if not Path( segfile ).exists():
+            raise FileNotFoundError()
+        img_md5 = img.name[:32]
+        segdict = seglib.docufcn_label_to_didip_json( segfile )
+        charter_dicts = []
+        if retrieve_charter:
+            charter_dicts = json.loads(subprocess.Popen(f"ssh workstation /home/nicolas/graz/htr/vre/ddpa_lines_ng/bin/fsdb_query.py --img_id {img_md5}", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()[0].decode('utf-8'))
+            logger.debug( img, charter_dicts[0])
+        triplets.append( (img, segdict, charter_dicts[0] if charter_dicts else {}))
+
+    return triplets
 
 
 
