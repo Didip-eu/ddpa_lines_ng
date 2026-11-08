@@ -56,7 +56,8 @@ import torch
 # DiDip
 import fargv
 fargv.util.verbosity=1 # for --help to display option descriptions
-from fargv import FargvChoice, FargvInt, FargvFloat, FargvPositional, FargvTuple, FargvVariadic
+from fargv import FargvChoice, FargvPositional
+from segtformats import segtformats as sgf
 
 # local
 src_root = Path(__file__).parents[1]
@@ -89,6 +90,7 @@ p = {
     'segfile_suffix': ('', "If a line segmentation suffix is provided (ex. 'lines.pred.json'), predicted lines are read from <img_path>.<suffix>."),
     'img_suffix': (".img.jpg", "Image file suffix."),
     'segfile': ('', "If a line segmentation file is provided, predicted lines are read from this file."),
+    'segfile_dir': ('', "If provided, construct segmentation file path from image path by replacing parent folder with this value"),
     'patch_row_count': ( 0, "Process the image in <patch_row_count> rows."),
     'patch_col_count': ( 0, "Process the image in <patch_col_count> cols."),
     'patch_size': (1024, "Process the image by <patch_size>*<patch_size> patches"),
@@ -134,13 +136,23 @@ if __name__ == '__main__':
     else:
         files = [ Path(p) for p in ( list(args.img_paths)[:args.limit] if args.limit else args.img_paths) ]
 
+    if not Path(args.segfile_dir).exists():
+        logger.info("Location for segmentation files does not exist. Abort.")
+        sys.exit()
+
     for img_path in files:
         logger.info(img_path)
 
         # segmentation already provided: delegate to segviz lib
         if args.segfile or args.segfile_suffix:
                 segfile_path = Path(args.segfile) if args.segfile else Path( re.sub(r'{}$'.format(args.img_suffix), args.segfile_suffix, str(img_path)) )
-                if str(segfile_path)[-4:] != '.xml' and str(segfile_path)[-5:] != '.json':
+                if args.segfile_dir:
+                    segfile_path = Path( args.segfile_dir, segfile_path.name )
+                logger.debug(f"Looking for segmentation file {segfile_path}")
+
+                segformat =  sgf.get_format( segfile_path )
+
+                if segformat == sgf.SegFormat.Unknown:
                     extension_found = re.sub(r'^.+(\.[^.]+)$', r'\1', str(segfile_path))
                     logger.warning(f"Segmentation file extension is {extension_found}: check that both 'img_suffix' and 'segfile_suffix' parameters are correct.")
                 if not segfile_path.exists():
