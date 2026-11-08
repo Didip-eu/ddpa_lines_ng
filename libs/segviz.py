@@ -8,6 +8,8 @@ from pathlib import Path
 import json
 import logging
 from time import time
+from collections.abc import Iterable
+import tempfile
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -107,7 +109,7 @@ def batch_label_maps_to_img( inputs:list[Union[Tensor,dict,Path]], raw_maps: lis
     
     return list(zip(maps, attr, ids))
 
-def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path,str]=None, segdict=None, show:dict={}, alpha=.4, linewidth=2, color_count=-1, out_file='', crop=(1,1), output_file_path='', check_size=False ):
+def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path,str]=None, segdict=None, show:dict={}, alpha=.4, linewidth=2, color_count=-1, crop=(1,1), output_file_path='', check_size=False, title=False ):
     """ Render segmentation data on an image.
     The segmentation dictionary is expected to have the following structure:
     
@@ -204,6 +206,8 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
     logger.debug("Elapsed time: {:.5f}".format( time()-start))
     
     #with plt.rc_context({'lines.linewidth': .2}):
+    if title:
+        plt.suptitle( title, size='xx-large')
     plt.imshow( composed_img_array_hwc )
     height, width = img_hwc.shape[:2]
     delta_x, delta_y = (1-crop[0])*width/2, (1-crop[1])*height/2 
@@ -388,4 +392,64 @@ def display_line_masks_raw( preds: list[dict], box_threshold=.8, mask_threshold=
             m = m[0]
             plt.imshow( m*(m>mask_threshold) )
             plt.show()
+
+
+def mosaic( img_paths: Iterable[Path], col_row_size: tuple[int], total_width=2000, output_file_path: Union[Path,str]='' ):
+    """
+    Given an iterable of image paths or tensors, construct a mosaic of thumbnails.
+
+    Args:
+        img_paths (Iterable[Path]): image paths.
+        col_row_size (tuple[int]): (cols, rows) size.
+        total_width (int): maximum width of the mosaic.
+        output_file_path (Union[str,Path]): if provided, save the plot in <output_file_path>/<img_name_stem>.png.
+    """
+
+    cols, rows = col_row_size
+    square_width = int(total_width/cols)
+    mosaic_size = np.array( (rows * square_width, cols * square_width, 3) )
+    print(f"mosaic_size={mosaic_size}")
+    mosaic_array = np.zeros( mosaic_size, dtype=int)
+
+    for idx, img_path in enumerate(img_paths):
+        if idx >= cols * rows:
+            break
+        offset_y, offset_x = int(idx/cols), idx%cols
+        offset_row, offset_col = offset_y * square_width, offset_x * square_width
+        with Image.open( img_path ) as img:
+            np_size = np.array( img.size[::-1] )
+            max_dim = np_size.max()
+            scaling_factor = square_width / max_dim
+            new_height, new_width =  (np_size * scaling_factor).astype(int)
+            print(f"{np_size} → ({new_height}, {new_width})")
+            tile_array = np.array( img.resize((new_width, new_height) ))
+            mosaic_array[offset_row:offset_row+new_height, offset_col:offset_col+new_width]=tile_array
+    plt.close()
+    fig, ax = plt.subplots()
+    plt.imshow( mosaic_array)
+    if output_file_path:
+        pass
+        plt.savefig( output_file_path, bbox_inches='tight' )
+    else:
+        plt.show()
+
+def tile_segmentation_displays( image_segdict_pairs: Iterable[tuple[Path,dict]], col_row_size, total_width=2000, output_file_path: Union[Path,str]='', fsdb_mapping=''):
+    with tempfile.TemporaryDirectory() as workdir:
+        img_paths = []
+        for idx, pair in enumerate(image_segdict_pairs):
+            if idx >= col_row_size[0] * col_row_size[1]:
+                break
+            img_path, segdict = pair 
+            output_file_path = Path(workdir, img_path.name)
+            charter_url = ''
+            if fsdb_mapping and Path(fsdb_mapping).exists():
+                fsdb_img_loc = Path( fsdb_mapping ).glob('*/*/*/{img_path[:32].img.jpg')
+                if fsdb_img_loc:
+                    charter_url = open(fsdb_img_loc.parent.joinpath('CH.url.txt')).read()
+            display_segmentation_and_img( img_path, segdict=segdict, output_file_path=output_file_path, title="{img_path.name[:32]}\n{charter_url}")
+            img_paths.append( output_file_path )
+        print(img_paths)
+        mosaic( img_paths, col_row_size, total_width )
+
+
 
