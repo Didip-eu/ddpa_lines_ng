@@ -5,6 +5,7 @@ Search local FSDB tree for charters that match an charter md5 id, or an image md
 
 import sys
 import argparse
+import json
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parents[1]))
@@ -27,5 +28,5 @@ if __name__ == '__main__':
 
     fsdb_inst = fsdb.Fsdb( args.fsdb_root )
 
-    print( list([ ch.to_json() for ch in fsdb_inst.get_charter( charter_img_id='99d808a952c0870ceb7a237456d6b7a3') ]))
+    print( json.dumps( list([ ch.to_json() for ch in fsdb_inst.get_charter( charter_img_id='99d808a952c0870ceb7a237456d6b7a3') ])))
     

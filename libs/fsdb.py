@@ -303,7 +303,6 @@ class Fsdb:
         if img_suffix is None:
             img_suffix = self.config['charter_img_suffix']
         search_path = '{}/*/{}/{}.{}'.format(archive_id, charter_id, charter_img_id, img_suffix)
-        print(search_path)
         img_paths=Path(self.fsdb_root).glob(search_path)
         if not img_paths:
             return None
@@ -347,7 +346,6 @@ def test_get_path():
 def test_get_charter_by_charter():
     fsdb = Fsdb(Path.home().joinpath('tmp/data/fsdb'))
     charters_found = fsdb.get_charter( charter_id = 'e36ec65a5592bd9c962ccdcdf8304a39' )
-    print([ ch.to_json() for ch in charters_found])
     assert len(charters_found) > 0
     assert charters_found[0].url == "https://www.monasterium.net/mom/CH-StiASG/Urkunden/FF.5.J.33/charter"
 
