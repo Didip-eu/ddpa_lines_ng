@@ -31,7 +31,7 @@ def lemmatize( p:Path, suffix='', replacement=''):
 class Fsdb:
 
     def __init__(self, fsdb_root, conf={} ):
-        if not Path(fsdb_root).exists():
+        if not Path(fsdb_root).absolute().exists():
             raise FileNotFoundError()
         self.fsdb_root = fsdb_root
         self.config = {

@@ -147,9 +147,10 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
 
     if segdict==None:
         assert Path(segfile).exists()
-        if sgf.get_format( segfile ) == sgf.SegFormat.PAGE:
+        segformat = sgf.get_format( segfile )
+        if segformat == sgf.SegFormat.PAGE:
             segdict = sgf.segmentation_dict_from_page_xml( segfile )
-        elif sgf.get_format( segfile ) == sgf.SegFormat.JSON:
+        elif segformat == sgf.SegFormat.JSON:
             with open( segfile, 'r' ) as segfile_in:
                 segdict = json.load( segfile_in )
         else:
@@ -409,7 +410,7 @@ def mosaic( img_paths: Iterable[Path], col_row_size: tuple[int], total_width=200
     cols, rows = col_row_size
     square_width = int(total_width/cols)
     mosaic_size = np.array( (rows * square_width, cols * square_width, 3) )
-    mosaic_array = np.zeros( mosaic_size, dtype=int)
+    mosaic_array = np.zeros( mosaic_size, dtype=np.uint8)
 
     for idx, img_path in enumerate(img_paths):
         if idx >= cols * rows:
@@ -428,12 +429,11 @@ def mosaic( img_paths: Iterable[Path], col_row_size: tuple[int], total_width=200
     fig, ax = plt.subplots()
     plt.imshow( mosaic_array)
     if output_file_path:
-        pass
-        plt.savefig( output_file_path, bbox_inches='tight' )
+        plt.imsave( output_file_path, mosaic_array )
     else:
         plt.show()
 
-def tile_segmentation_displays( image_segdict_charter_triplets: Iterable[tuple[Path,dict,dict]], col_row_size, total_width=2000, output_file_path: Union[Path,str]=''):
+def tile_segmentation_displays( image_segdict_charter_triplets: Iterable[tuple[Path,dict,dict]], col_row_size, total_width=2000, output_file_path: Union[Path,str]='', show:dict={}):
     """
     Given a sequence of tuple (<image>, <segmentation dict>, <charter properties>),
     build a mosaic of segmentation renderings.
@@ -445,6 +445,7 @@ def tile_segmentation_displays( image_segdict_charter_triplets: Iterable[tuple[P
         col_row_size (tuple[int,int]): size (cols, rows) of the mosaic.
         total_width (int): maximum size of the mosaic.
         output_file_path (Union[str,Path]): if provided, where to write the visualization; otherwise, display only.
+        show (dict): features to be shown.
     """
     with tempfile.TemporaryDirectory() as workdir:
         img_paths = []
@@ -452,15 +453,15 @@ def tile_segmentation_displays( image_segdict_charter_triplets: Iterable[tuple[P
             if idx >= col_row_size[0] * col_row_size[1]:
                 break
             img_path, segdict, charter_dict = triplet
-            output_file_path = Path(workdir, img_path.name)
+            output_file_tmp = Path(workdir, img_path.name)
             title = "{}\n{}".format( img_path.name[:32], charter_dict['url'] if charter_dict else '')
-            display_segmentation_and_img( img_path, segdict=segdict, output_file_path=output_file_path, title=title)
-            img_paths.append( output_file_path )
+            display_segmentation_and_img( img_path, segdict=segdict, output_file_path=output_file_tmp, title=title, show={'regions': 1}, linewidth=6)
+            img_paths.append( output_file_tmp )
         logger.info(img_paths)
-        mosaic( img_paths, col_row_size, total_width )
+        mosaic( img_paths, col_row_size, total_width, output_file_path=output_file_path )
 
 
-def build_img_segdict_charter_triplets( img_paths: list[Path], segdir=None, segfile_suffix='.json', img_suffix='.jpg', retrieve_charter=True )->list[tuple[Path,dict,dict]]:
+def build_img_segdict_charter_triplets( img_paths: list[Path], segdir=None, segfile_suffix='.json', img_suffix='.jpg', docufcn=False, retrieve_charter=True, fsdb_root='tmp/data/fsdb', count=0)->list[tuple[Path,dict,dict]]:
     """
     Given a list of charter images with MD5 as prefix, construct a list of triplets with
     + image path
@@ -473,24 +474,41 @@ def build_img_segdict_charter_triplets( img_paths: list[Path], segdir=None, segf
         segfile_suffix (str): segmentation file suffix.
         img_suffix (str): image file suffix.
         retrieve_charters (bool): retrieve charter properties from FSDB (default: True).
+        fsdb_root (str): root of local Fsdb tree
+        count (int): if larger than 0, return no more than <count> triplets.
     """
-    import subprocess
+    import subprocess, socket
+    from libs import fsdb
     triplets = []
     for img in img_paths:
+        logger.info( img )
         if segdir is not None:
             segdir = Path( segdir )
             segfile = segdir.joinpath( img.name.replace(img_suffix, segfile_suffix ))
         else:
             segfile = str(img).replace( img_suffix, segfile_suffix )
         if not Path( segfile ).exists():
-            raise FileNotFoundError()
+            logger.warning(f"Image {img}: segmentation data {segfile} not found. Skipping.")
+            continue
         img_md5 = img.name[:32]
-        segdict = seglib.docufcn_label_to_didip_json( segfile )
+        segdict = None
+        if docufcn:
+            segdict = seglib.docufcn_label_to_didip_json( segfile )
+        else:
+            segdict, _ = sgf.anyseg_to_dict( segfile )
+            if not segdict:
+                logger.warning(f"Image {img}: could not parse segmentation data {segfile}. Skipping.")
+                continue
         charter_dicts = []
         if retrieve_charter:
-            charter_dicts = json.loads(subprocess.Popen(f"ssh workstation /home/nicolas/graz/htr/vre/ddpa_lines_ng/bin/fsdb_query.py --img_id {img_md5}", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()[0].decode('utf-8'))
+            if socket.gethostname().find('Precision-3660') >= 0: 
+                charter_dicts = list([ ch.to_json() for ch in fsdb.Fsdb( fsdb_root ).get_charter( charter_img_id=img_md5 ) ])
+            else:
+                charter_dicts = json.loads(subprocess.Popen(f"ssh workstation /home/nicolas/graz/htr/vre/ddpa_lines_ng/bin/fsdb_query.py --img_id {img_md5} --fsdb_root {fsdb_root}", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()[0].decode('utf-8'))
             logger.debug( img, charter_dicts[0])
         triplets.append( (img, segdict, charter_dicts[0] if charter_dicts else {}))
+        if count > 0 and len(triplets) == count:
+            break
 
     return triplets
 

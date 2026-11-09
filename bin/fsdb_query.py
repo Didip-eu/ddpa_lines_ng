@@ -21,12 +21,12 @@ if __name__ == '__main__':
     parser.add_argument("--charter_id", type=str)
 
     args = parser.parse_args()
-
+    fsdb_root = None
     if not Path(args.fsdb_root).exists():
-        raise argparse.ArgumentError(fsdb_root_arg, f"'{args.fsdb_root}' is not an existing path. Abort.")
+        raise argparse.ArgumentError(fsdb_root_arg, f"'{Path(args.fsdb_root).absolute()}' is not an existing path. Abort.")
         sys.exit(-1)
 
-    fsdb_inst = fsdb.Fsdb( args.fsdb_root )
+    fsdb_inst = fsdb.Fsdb( Path(args.fsdb_root).absolute() )
 
     print( json.dumps( list([ ch.to_json() for ch in fsdb_inst.get_charter( charter_img_id='99d808a952c0870ceb7a237456d6b7a3') ])))
     
