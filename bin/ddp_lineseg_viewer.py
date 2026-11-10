@@ -158,7 +158,7 @@ if __name__ == '__main__':
                 if not segfile_path.exists():
                     logger.warning("Could not find a segmentation file {}: skipping item;".format( Path(segfile_path)))
                     continue
-                segviz.display_segmentation_and_img( img_path, segfile=segfile_path, show={ k:True for k in args.show if k != 'labels'}, linewidth=args.overlay_linewidth, crop=(args.crop_x, args.crop_y), output_file_path=args.output_file_path, color_count=args.color_count, alpha=args.alpha )
+                segviz.display_segmentation_and_img( img_path, segfile=segfile_path, show=[ k for k in args.show if k != 'labels'], linewidth=args.overlay_linewidth, crop=(args.crop_x, args.crop_y), output_file_path=args.output_file_path, color_count=args.color_count, alpha=args.alpha )
 
                 if args.check_mark == 1:
                     check=input("Check for issue? [N|y]")

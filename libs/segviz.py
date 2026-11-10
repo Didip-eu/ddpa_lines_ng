@@ -109,7 +109,7 @@ def batch_label_maps_to_img( inputs:list[Union[Tensor,dict,Path]], raw_maps: lis
     
     return list(zip(maps, attr, ids))
 
-def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path,str]=None, segdict=None, show:dict={}, alpha=.4, linewidth=2, color_count=-1, crop=(1,1), output_file_path='', check_size=False, title=False ):
+def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path,str]=None, segdict=None, show:list = ['regions', 'polygons'], alpha=.4, linewidth=2, color_count=-1, crop=(1,1), output_file_path='', check_size=False, title=False ):
     """ Render segmentation data on an image.
     The segmentation dictionary is expected to have the following structure:
     
@@ -122,17 +122,17 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
     Args:
         img_path (Path): image file
         segfile (Path): if not provided, look for a (XML or JSON) segmentation file that shares its prefix with the image.
-        show (dict): features to be shown. Default: `{'polygons': True, 'regions': True, 'baselines': False, 'centerlines': False}`
+        show (list): a list of features to be shown. Possible values: 'regions', 'polygons',
+            'baselines', 'centerlines'. Default: `['regions', 'polygons']`
         alpha (float): overlay transparency.
         linewidth (int): box line width
         output_file_path (str): If path is a directory, save the plot in <output_file_path>/<img_name_stem>.png.; otherwise, save under the provided file path.
         crop (tuple[float,float]): ratio for zoom-in, for x and y respectively.
     """
     
-    features = {'polygons': True, 'regions': True, 'baselines': False, 'centerlines': False}
-    if show: # because the calling program more likely to pass a list of features to be shown, rather than a dictionary
-        features = {'polygons': False, 'regions': False, 'baselines': False, 'centerlines': False}
-        features.update( show )
+    features = { f:False for f in ['regions', 'polygons', 'baselines', 'centerlines' ]}
+    for f in show:
+        features[f]=True
 
     start = time()
 
@@ -433,7 +433,7 @@ def mosaic( img_paths: Iterable[Path], col_row_size: tuple[int], total_width=200
     else:
         plt.show()
 
-def tile_segmentation_displays( image_segdict_charter_triplets: Iterable[tuple[Path,dict,dict]], col_row_size, total_width=2000, output_file_path: Union[Path,str]='', show:dict={}):
+def tile_segmentation_displays( image_segdict_charter_triplets: Iterable[tuple[Path,dict,dict]], col_row_size, total_width=2000, output_file_path: Union[Path,str]='', show:list=['regions', 'polygons']):
     """
     Given a sequence of tuple (<image>, <segmentation dict>, <charter properties>),
     build a mosaic of segmentation renderings.
@@ -445,7 +445,8 @@ def tile_segmentation_displays( image_segdict_charter_triplets: Iterable[tuple[P
         col_row_size (tuple[int,int]): size (cols, rows) of the mosaic.
         total_width (int): maximum size of the mosaic.
         output_file_path (Union[str,Path]): if provided, where to write the visualization; otherwise, display only.
-        show (dict): features to be shown.
+        show (list): a list of features to be shown. Possible values: 'regions', 'polygons',
+            'baselines', 'centerlines'. Default: `['regions', 'polygons']`
     """
     with tempfile.TemporaryDirectory() as workdir:
         img_paths = []
@@ -455,13 +456,13 @@ def tile_segmentation_displays( image_segdict_charter_triplets: Iterable[tuple[P
             img_path, segdict, charter_dict = triplet
             output_file_tmp = Path(workdir, img_path.name)
             title = "{}\n{}".format( img_path.name[:32], charter_dict['url'] if charter_dict else '')
-            display_segmentation_and_img( img_path, segdict=segdict, output_file_path=output_file_tmp, title=title, show={'regions': 1}, linewidth=6)
+            display_segmentation_and_img( img_path, segdict=segdict, output_file_path=output_file_tmp, title=title, show=show, linewidth=6)
             img_paths.append( output_file_tmp )
         logger.info(img_paths)
         mosaic( img_paths, col_row_size, total_width, output_file_path=output_file_path )
 
 
-def build_img_segdict_charter_triplets( img_paths: list[Path], segdir=None, segfile_suffix='.json', img_suffix='.jpg', docufcn=False, retrieve_charter=True, fsdb_root='tmp/data/fsdb', count=0)->list[tuple[Path,dict,dict]]:
+def build_img_segdict_charter_triplets( img_paths: list[Path], segdir=None, segfile_suffix='.json', img_suffix='.jpg', docufcn=False, retrieve_charter=True, fsdb_root='tmp/data/fsdb', count=0, region_max=0, line_max=0)->list[tuple[Path,dict,dict]]:
     """
     Given a list of charter images with MD5 as prefix, construct a list of triplets with
     + image path
@@ -476,6 +477,8 @@ def build_img_segdict_charter_triplets( img_paths: list[Path], segdir=None, segf
         retrieve_charters (bool): retrieve charter properties from FSDB (default: True).
         fsdb_root (str): root of local Fsdb tree
         count (int): if larger than 0, return no more than <count> triplets.
+        region_max (int):  if larger than 0, skip items that have more than <region_max> regions.
+        line_max (int): if larger than 0, skip items that have more than <line_max> lines.
     """
     import subprocess, socket
     from libs import fsdb
@@ -498,6 +501,12 @@ def build_img_segdict_charter_triplets( img_paths: list[Path], segdir=None, segf
             segdict, _ = sgf.anyseg_to_dict( segfile )
             if not segdict:
                 logger.warning(f"Image {img}: could not parse segmentation data {segfile}. Skipping.")
+                continue
+            if region_max and len(segdict['regions']) > region_max:
+                logger.info(f"Item has more than {region_max} regions: skipping.")
+                continue
+            if line_max and len(sgf.line_dicts_from_segmentation_dict( segdict)) > line_max:
+                logger.info(f"Item has more than {line_max} lines: skipping.")
                 continue
         charter_dicts = []
         if retrieve_charter:
