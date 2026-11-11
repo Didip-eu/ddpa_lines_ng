@@ -493,7 +493,7 @@ def build_img_segdict_charter_triplets( img_paths: list[Path], segdir=None, segf
         if not Path( segfile ).exists():
             logger.warning(f"Image {img}: segmentation data {segfile} not found. Skipping.")
             continue
-        loggger.info(f"Image: {img.name} - segmentation: {segfile}")
+        logger.info(f"Image: {img.name} - segmentation: {segfile}")
         img_md5 = img.name[:32]
         segdict = None
         if docufcn:
