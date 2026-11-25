@@ -1,4 +1,5 @@
 import numpy as np
+import shapely
 
 
 def strip_from_baseline(baseline_n2xy: list[tuple[int,int]], x_height: int, factor: float, ltrb: tuple[int,int,int,int]=tuple()) -> list[tuple[int,int]]:
@@ -85,4 +86,63 @@ def bisection_rotation_matrix(left, right):
     return rotation_matrix
 
 
+def dilate_line_strips( lines: list[dict], step=1, no_change_max=100 ):
+    """Dilate the line strips from their baseline skeleton, while checking for overlaps.
+    Line dictionaries are modified in-place.
+
+    TODO: should take a segmentation dictionary as input, and return a segmentation dictionary.
+        
+    Args:
+        lines (list[dict]): line dictionaries, where each dictionary contains either the 'x-height' or
+            the 'centerline' key.
+        overlap_gap (int): 
+    Returns:
+        list[dict]: dictionary of lines with new x-heights and updated polygons.
+    """
+    # if not provided, choose a reasonable starting height for the strip
+    print( [l['x-height'] for l in lines ])
+    sorted_lines = sorted(lines, key=lambda l: (np.array(l["centerline"])[:,1].mean() ))
+    line_to_height = { l:[ld['x-height'], False] for l,ld in enumerate(sorted_lines)}
+    current_line_status, last_change_heights = zip( *line_to_height.values())
+    no_change_count = 0
+
+    while True:
+        # construct a polygon for each strip
+        polygons = [ shapely.polygons(shapely.linearrings( strip_from_centerline( np.array( ld['centerline'] ), line_to_height[l][0] )))  for l, ld in enumerate( sorted_lines) ]
+        for i in range(len( polygons)-2):
+            for j in range(i+1,i+3):
+                if shapely.intersects(polygons[i], polygons[j]):
+                    print(f"polygons {i} and {j} intersect")
+                    line_to_height[i][1]=True
+                    line_to_height[j][1]=True
+        
+        line_heights, line_status = zip(*line_to_height.values())
+        if line_status != current_line_status:
+            current_line_status = line_status
+            last_change_heights = line_heights
+        else:
+            no_change_count += 1
+            if no_change_count > 100:
+                break
+        for k,v in line_to_height.items(): 
+            if not v[1]:
+                line_to_height[k][0] += step
+
+    for k,_ in line_to_height.items():
+        sorted_lines[k]['x-height'] = last_change_heights[k]-step
+        sorted_lines[k]['coords'] = strip_from_centerline( np.array( sorted_lines[k]['centerline']), sorted_lines[k]['x-height']).tolist()
+
+    # check-only
+    print("=======")
+    polygons = [ shapely.polygons(shapely.linearrings( strip_from_centerline( np.array( ld['centerline'] ), ld['x-height'] ))) for l, ld in enumerate( sorted_lines) ]
+    check=True
+    for i in range(len( polygons)-2):
+        for j in range(i+1,i+3):
+            if shapely.intersects(polygons[i], polygons[j]):
+                print(f"polygons {i} and {j} intersect")
+                check=False
+
+    print( [l['x-height'] for l in lines ], check)
+
+    return lines
 

@@ -122,6 +122,7 @@ def display_segmentation_and_img( img_path: Union[Path,str], segfile: Union[Path
     Args:
         img_path (Path): image file
         segfile (Path): if not provided, look for a (XML or JSON) segmentation file that shares its prefix with the image.
+        segdict (dict): a segmentation dictionary; if not provided, the segmentation file is read.
         show (list): a list of features to be shown. Possible values: 'regions', 'polygons',
             'baselines', 'centerlines'. Default: `['regions', 'polygons']`
         alpha (float): overlay transparency.
@@ -458,7 +459,7 @@ def tile_segmentation_displays( image_segdict_charter_triplets: Iterable[tuple[P
             title = "{}\n{}".format( img_path.name[:32], charter_dict['url'] if charter_dict else '')
             display_segmentation_and_img( img_path, segdict=segdict, output_file_path=output_file_tmp, title=title, show=show, linewidth=6)
             img_paths.append( output_file_tmp )
-        logger.info(img_paths)
+        logger.info([ (i,p) for i,p in enumerate(img_paths)])
         mosaic( img_paths, col_row_size, total_width, output_file_path=output_file_path )
 
 
