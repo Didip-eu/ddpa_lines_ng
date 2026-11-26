@@ -95,7 +95,8 @@ def dilate_line_strips( segmentation_dict: dict, step=1, window=4, no_change_max
     TODO: 
     + defense against pathological cases (say, only two lines recognized in region): could be a 
       maximum ratio of actual size to x-height, e.g. 1-to-10
-    + offset with respect to centerline, in order to focus on superscript space
+    + offset with respect to centerline, in order to focus on superscript space: safe way is to
+    work from (temporary) offset centerlines at the start.
         
     Args:
         segmentation_dict (dict): segmentation dictionary, where each line stores the
@@ -113,7 +114,13 @@ def dilate_line_strips( segmentation_dict: dict, step=1, window=4, no_change_max
     if not lines:
         return segmentation_dict
 
-    sorted_lines = sorted(lines, key=lambda l: (np.array(l["centerline"])[:,1].mean() ))
+    # dummy 
+    def offset( cl: np.ndarray, xheight, ratio=.2 ):
+        out_cl = np.copy( cl )
+        out_cl[:,1] -= int(xheight * ratio)
+        return out_cl
+
+    sorted_lines = sorted(lines, key=lambda l: np.array(l["centerline"])[:,1].mean() )
     line_to_height = { l:[ld['x-height'], False] for l,ld in enumerate(sorted_lines)}
     current_line_status, last_change_heights = zip( *line_to_height.values())
     no_change_count = 0
@@ -127,7 +134,7 @@ def dilate_line_strips( segmentation_dict: dict, step=1, window=4, no_change_max
 
     while True:
         # construct a polygon for each strip
-        polygons = [ shapely.polygons(shapely.linearrings( strip_from_centerline( np.array( ld['centerline'] ), line_to_height[l][0] )))  for l, ld in enumerate( sorted_lines) ]
+        polygons = [ shapely.polygons(shapely.linearrings( strip_from_centerline( np.array( ld['centerline'] ), line_to_height[l][0] ))) for l, ld in enumerate( sorted_lines) ]
         for i,j in comparison_matrix:
                 #print(f"Testing polygons {i} and {j}")
                 if shapely.intersects(polygons[i], polygons[j]):
