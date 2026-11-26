@@ -88,19 +88,24 @@ def bisection_rotation_matrix(left, right):
     return rotation_matrix
 
 
-def dilate_line_strips( segmentation_dict: dict, step=1, window=4, no_change_max=100, check=False ):
+def dilate_line_strips( segmentation_dict: dict, step=1, window=4, patience=100, offset_ratio=0.0, check=False ):
     """Dilate the line strips from their baseline skeleton, while checking for overlaps.
     Line dictionaries are modified in-place.
 
     TODO: 
     + defense against pathological cases (say, only two lines recognized in region): could be a 
       maximum ratio of actual size to x-height, e.g. 1-to-10
-    + offset with respect to centerline, in order to focus on superscript space: safe way is to
-    work from (temporary) offset centerlines at the start.
         
     Args:
         segmentation_dict (dict): segmentation dictionary, where each line stores the
             centerline, the x-height, or both.
+        step (int): increment step for dilation.
+        window (int): window size to be used for checking intersecting lines.
+        patience (int): the dilation loops stops after <patience> iterations produced
+            no change to the line intersections.
+        offset_ratio (float): offset of the polygon axes with respect to their centerlines,
+            as a ratio of the line's x-height.
+        check (bool): last check for intersecting lines before returning.
 
     Returns:
         dict: segmentation label with original x-heights and updated polygons.
@@ -115,9 +120,9 @@ def dilate_line_strips( segmentation_dict: dict, step=1, window=4, no_change_max
         return segmentation_dict
 
     # dummy 
-    def offset( cl: np.ndarray, xheight, ratio=.2 ):
+    def offset( cl: np.ndarray, height, ratio ):
         out_cl = np.copy( cl )
-        out_cl[:,1] -= int(xheight * ratio)
+        out_cl[:,1] -= int( height * ratio)
         return out_cl
 
     sorted_lines = sorted(lines, key=lambda l: np.array(l["centerline"])[:,1].mean() )
@@ -134,7 +139,9 @@ def dilate_line_strips( segmentation_dict: dict, step=1, window=4, no_change_max
 
     while True:
         # construct a polygon for each strip
-        polygons = [ shapely.polygons(shapely.linearrings( strip_from_centerline( np.array( ld['centerline'] ), line_to_height[l][0] ))) for l, ld in enumerate( sorted_lines) ]
+        polygons = [ shapely.polygons(shapely.linearrings( strip_from_centerline( np.array( ld['centerline'] ), line_to_height[l][0] ))) 
+                    for l, ld 
+                    in enumerate( sorted_lines) ]
         for i,j in comparison_matrix:
                 #print(f"Testing polygons {i} and {j}")
                 if shapely.intersects(polygons[i], polygons[j]):
@@ -149,7 +156,7 @@ def dilate_line_strips( segmentation_dict: dict, step=1, window=4, no_change_max
             last_change_heights = line_heights
         else:
             no_change_count += 1
-            if no_change_count > no_change_max:
+            if no_change_count > patience:
                 break
         for k,v in line_to_height.items(): 
             if not v[1]:
@@ -157,7 +164,7 @@ def dilate_line_strips( segmentation_dict: dict, step=1, window=4, no_change_max
 
     for k,_ in line_to_height.items():
         line_to_height[k][0] = last_change_heights[k]-step
-        sorted_lines[k]['coords'] = strip_from_centerline( np.array( sorted_lines[k]['centerline']), line_to_height[k][0]).tolist()
+        sorted_lines[k]['coords'] = offset( strip_from_centerline( np.array( sorted_lines[k]['centerline']), line_to_height[k][0]), line_to_height[k][0], offset_ratio).tolist()
 
     # check-only
     if not check:
