@@ -138,19 +138,17 @@ def dilate_line_strips( segmentation_dict: dict, step=1, window=4, patience=100,
                 comparison_matrix.append( (i,j) )
 
     while True:
-        # construct a polygon for each strip
+        # construct a polygon for each centerline and check for intersections 
         polygons = [ shapely.polygons(shapely.linearrings( strip_from_centerline( np.array( ld['centerline'] ), line_to_height[l][0] ))) 
                     for l, ld 
                     in enumerate( sorted_lines) ]
         for i,j in comparison_matrix:
-                #print(f"Testing polygons {i} and {j}")
                 if shapely.intersects(polygons[i], polygons[j]):
-                    print(f"polygons {i} and {j} intersect")
+                    # freeze the lines
                     line_to_height[i][1]=True
                     line_to_height[j][1]=True
         
         line_heights, line_status = zip(*line_to_height.values())
-        print(''.join([ "T" if t else "F" for t in line_status ]))
         if line_status != current_line_status:
             current_line_status = line_status
             last_change_heights = line_heights
@@ -162,6 +160,7 @@ def dilate_line_strips( segmentation_dict: dict, step=1, window=4, patience=100,
             if not v[1]:
                 line_to_height[k][0] += step
 
+    # building final polygons
     for k,_ in line_to_height.items():
         line_to_height[k][0] = last_change_heights[k]-step
         sorted_lines[k]['coords'] = offset( strip_from_centerline( np.array( sorted_lines[k]['centerline']), line_to_height[k][0]), line_to_height[k][0], offset_ratio).tolist()
@@ -170,11 +169,10 @@ def dilate_line_strips( segmentation_dict: dict, step=1, window=4, patience=100,
     if not check:
         return segmentation_dict
 
-    polygons = [ shapely.polygons(shapely.linearrings( strip_from_centerline( np.array( ld['centerline'] ), line_to_height[l][0] ))) for l, ld in enumerate( sorted_lines) ]
-    check=True
+    polygons = shapely.polygons( [ shapely.linearrings( np.array(sl['coords'])) for sl in sorted_lines ] )
     for i,j in comparison_matrix:
         if shapely.intersects(polygons[i], polygons[j]):
-            check=False
+            return {}
 
     #print( [line['x-height'] for line in sorted_lines ])
     #print( [line_to_height[l][0] for l in range(len(sorted_lines)) ], check)
