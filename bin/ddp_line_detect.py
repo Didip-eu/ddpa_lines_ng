@@ -55,6 +55,7 @@ sys.path.append( str( src_root ))
 from libs import seglib, line_geometry as lgm
 from libs.train_utils import duration_estimate
 from libs import segmodel as sgm
+from libs import polygon_utils as pu
 
 logging_format="%(asctime)s - %(levelname)s: %(funcName)s - %(message)s"
 logging_levels = {0: logging.ERROR, 1: logging.WARNING, 2: logging.INFO, 3: logging.DEBUG }
@@ -83,6 +84,7 @@ p = {
         'raw_polygons': (False, "Serialize polygons as resulting from the NN (default); otherwise, construct the abstract polygons from centerlines."),
         'device': FargvChoice(['cpu','gpu','cuda', 'cuda:0', 'cuda:1', 'cuda:2', 'cuda:3'], description="Computing device -- 'cuda' or 'gpu' defaults to 'cuda:0'."),
         'line_height_factor': (1.0, "Factor (within (0,1]) to be applied to the polygon height: allows for extracting polygons that extend above and below the core line-unused if 'raw_polygons' set"),
+        'dilate_polygons': (False, "If True, increase line polygons thickness to the maximum value that does not cause overlaps."),
         'overwrite_existing': (True, "Write over existing output file (default)."),
         'timer': (0, "Aggregate performance metrics. A strictly positive integer <n> computes the mean time for every batch of <n> images."),
         'timer_logs': ('stdout', "Filename for timer logs."),
@@ -295,6 +297,8 @@ if __name__ == "__main__":
                         boxes = [ b for i,b in enumerate(boxes) if i in keep ]
                         segmentation_records = [ sr for i,sr in enumerate(segmentation_records) if i in keep ]
                         segdict = build_segdict_composite( img_metadata, boxes, segmentation_records, args.line_attributes, line_height_factor=args.line_height_factor ) 
+                        if args.dilate_polygons:
+                            segdict = pu.dilate_line_strips( segdict, offset_ratio=.2 )
                     except (TypeError, ValueError) as e:
                         logger.warning("{}\tFailed to polygonize line masks ({}): abort segmentation.".format( img_path, e ))
                         continue
